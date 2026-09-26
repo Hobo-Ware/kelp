@@ -178,14 +178,20 @@ Each milestone ends with a check we can actually run.
 | M5 | File tree and review: tree mode, file view, inline comments, Markdown export | Comments survive restart and follow their line after an edit above them. |
 | M6 | Polish: repo tabs, focus-path dimming, search, settings, `.app` bundle | Usable as a daily driver. |
 
-## Open questions
+## Decisions
 
-- Repos without a commit-graph file load about 10x slower. Should Kelp
-  write one in the background (`git commit-graph write --reachable`, the
-  same thing `git gc` and `git maintenance` do), automatically or after
-  asking once?
-- Very wide histories (git/git has 282 lanes at once): resizable graph
-  column, horizontal scroll inside it, or both?
+- **Commit-graph:** when a repo has no commit-graph file, Kelp writes one
+  in the background (`git commit-graph write --reachable
+  --changed-paths`), like `git gc` does. First open is normal speed,
+  every open after is fast. (2026-09-27)
+- **Wide histories:** the graph column is resizable from its header
+  (double-click resets) and scrolls sideways when there are more lanes
+  than fit. (2026-09-27)
+- **External changes:** instead of always-on file watching, Kelp reloads
+  refs and status when the window regains focus. Cheaper on power.
+  (2026-09-27)
+
+## Open questions
 
 - Should the "Send to Claude" review button be in scope, and what should
   it send?

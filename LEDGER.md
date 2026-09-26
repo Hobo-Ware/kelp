@@ -5,11 +5,26 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** M1 (graph and commit view), about half done.
-- **Done in M1:** history loading, lane layout, graph drawing, branch
-  sidebar, commit details with changed files, keyboard navigation.
-- **Next up in M1:** diff view for a changed file, uncommitted changes
-  row, resizable/scrollable graph column for very wide histories.
+- **Current milestone:** M2 (avatars).
+- **Done:** M0, M1.
+- **Next up:** GitHub avatars, then Gravatar, then generated, with a
+  disk cache.
+
+## 2026-09-27
+
+- **M1 done.**
+  - Diff view for commits and uncommitted changes (hunks, line numbers,
+    colored rows, Esc to go back). Uses the `similar` crate.
+  - "Uncommitted changes" row above HEAD, dashed ring, change counts.
+  - Graph column: drag to resize, double-click to reset, sideways scroll.
+  - Background job runner: status, reload and commit-graph writes run
+    off the UI thread. Reload on window focus.
+  - Commit-graph file written automatically when missing.
+  - Fallback system font for non-Latin scripts. Known limit: egui has no
+    right-to-left reordering, so mixed Arabic/English text can show
+    words in the wrong order.
+- Scroll benchmark after these changes: smooth scroll 0.11 ms (trakt-web)
+  and 0.32 ms (git/git); random jumps 0.72 ms and 2.14 ms.
 
 ## 2026-09-26
 
