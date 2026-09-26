@@ -5,10 +5,9 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** M2 (avatars).
-- **Done:** M0, M1.
-- **Next up:** GitHub avatars, then Gravatar, then generated, with a
-  disk cache.
+- **Current milestone:** M3 (branches).
+- **Done:** M0, M1, M2.
+- **Next up:** toolbar actions, branch and commit context menus, dialogs.
 
 ## 2026-09-27
 
@@ -23,6 +22,19 @@ A running log of what got done, newest first. The plan lives in
   - Fallback system font for non-Latin scripts. Known limit: egui has no
     right-to-left reordering, so mixed Arabic/English text can show
     words in the wrong order.
+- **M2 done.** Avatars: GitHub no-reply, GitHub API (one call per
+  author, `gh auth token` when present), Gravatar `d=404`, then
+  generated. Disk cache in `~/Library/Caches/kelp/avatars`, round mask
+  applied once, textures only for visible rows, 4 worker threads.
+  - Checked on trakt-web's last 25 authors: 16 via the GitHub API, 4 via
+    no-reply emails, 2 fell back to generated.
+  - Bug found and fixed while testing: a network error was cached as a
+    miss for 7 days. Now only a real "not found" from every source is
+    cached.
+  - Note: this machine blocks network access for freshly built binaries
+    (raw TCP times out, curl works), so the live HTTP path was checked
+    via curl + `gh api` with the same rules, and Kelp read the result
+    from its cache. Expect a firewall prompt on first run.
 - Scroll benchmark after these changes: smooth scroll 0.11 ms (trakt-web)
   and 0.32 ms (git/git); random jumps 0.72 ms and 2.14 ms.
 
