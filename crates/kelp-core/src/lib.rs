@@ -4,5 +4,7 @@ pub mod diff;
 pub mod git_cli;
 pub mod graph;
 pub mod history;
+pub mod ops;
 pub mod refs;
 pub mod status;
+pub mod workspace;

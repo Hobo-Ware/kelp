@@ -13,8 +13,8 @@ use kelp_core::graph::EdgeKind;
 use kelp_core::history::History;
 use kelp_core::refs::{RefKind, RefLabel};
 
-use crate::app::Selection;
 use crate::avatars::AvatarStore;
+use crate::repo_view::Selection;
 use crate::theme;
 
 pub const ROW_H: f32 = 30.0;
@@ -35,6 +35,14 @@ pub struct GraphView {
     pub scroll_to: Option<Selection>,
     graph_w: Option<f32>,
     lane_offset: f32,
+    context: Option<Selection>,
+}
+
+pub struct GraphInput<'a> {
+    pub repo: &'a gix::Repository,
+    pub history: &'a History,
+    pub selected: Option<Selection>,
+    pub wip: Option<Wip<'a>>,
 }
 
 pub struct Wip<'a> {
@@ -82,6 +90,7 @@ impl GraphView {
             scroll_to: None,
             graph_w: None,
             lane_offset: 0.0,
+            context: None,
         }
     }
 
@@ -92,12 +101,16 @@ impl GraphView {
     pub fn ui(
         &mut self,
         ui: &mut Ui,
-        repo: &gix::Repository,
-        history: &History,
-        selected: Option<Selection>,
-        wip: Option<Wip<'_>>,
+        input: GraphInput<'_>,
         avatars: &mut AvatarStore,
+        mut menu: impl FnMut(&mut Ui, Selection, &str),
     ) -> Option<Action> {
+        let GraphInput {
+            repo,
+            history,
+            selected,
+            wip,
+        } = input;
         let content_w = history.layout.lane_count() as f32 * LANE_W + GRAPH_PAD * 2.0;
         let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
         let max_w = (ui.available_width() * 0.6).max(MIN_GRAPH_W);
@@ -123,6 +136,7 @@ impl GraphView {
         ui.spacing_mut().item_spacing.y = 0.0;
         let lane_offset = &mut self.lane_offset;
         let summaries = &mut self.summaries;
+        let context = &mut self.context;
         scroll.show_rows(ui, ROW_H, map.total(), |ui, rows| {
             for display in rows.clone() {
                 if let Selection::Commit(row) = map.resolve(display) {
@@ -174,13 +188,25 @@ impl GraphView {
                     (Selection::Wip, None) => {}
                 }
             }
-            if response.clicked()
+            if (response.clicked() || response.secondary_clicked())
                 && let Some(pos) = response.interact_pointer_pos()
             {
                 let display = rows.start + ((pos.y - rect.top()) / ROW_H) as usize;
-                action = Some(Action::Select(
-                    map.resolve(display.min(map.total().saturating_sub(1))),
-                ));
+                let selection = map.resolve(display.min(map.total().saturating_sub(1)));
+                action = Some(Action::Select(selection));
+                if response.secondary_clicked() {
+                    *context = Some(selection);
+                }
+            }
+            if let Some(selection) = *context {
+                let title = match selection {
+                    Selection::Commit(row) => summaries
+                        .get(&row)
+                        .map(|s| s.title.clone())
+                        .unwrap_or_default(),
+                    Selection::Wip => String::new(),
+                };
+                response.context_menu(|ui| menu(ui, selection, &title));
             }
         });
         action
