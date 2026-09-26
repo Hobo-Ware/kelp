@@ -2,16 +2,18 @@ use std::collections::HashMap;
 use std::f32::consts::PI;
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Shape, Stroke, Ui, pos2,
+    self, Align2, Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Sense, Shape, Stroke, Ui,
+    pos2,
     text::{LayoutJob, TextFormat, TextWrapping},
     vec2,
 };
 use kelp_core::avatar;
-use kelp_core::commit::{self, Summary};
+use kelp_core::commit::{self, ChangeKind, FileChange, Summary};
 use kelp_core::graph::EdgeKind;
 use kelp_core::history::History;
 use kelp_core::refs::{RefKind, RefLabel};
 
+use crate::app::Selection;
 use crate::theme;
 
 pub const ROW_H: f32 = 30.0;
@@ -22,17 +24,54 @@ const LINE_W: f32 = 2.25;
 const LABELS_W: f32 = 170.0;
 const LABELS_END: f32 = 158.0;
 const GRAPH_PAD: f32 = 16.0;
-const MIN_GRAPH_W: f32 = 120.0;
-const MAX_VISIBLE_LANES: f32 = 14.0;
+const MIN_GRAPH_W: f32 = 80.0;
+const DEFAULT_MAX_LANES: f32 = 14.0;
 const HEADER_H: f32 = 28.0;
+const WIP_GREY: Color32 = Color32::from_rgb(0x3a, 0x41, 0x50);
 
 pub struct GraphView {
     summaries: HashMap<usize, Summary>,
-    pub scroll_to: Option<usize>,
+    pub scroll_to: Option<Selection>,
+    graph_w: Option<f32>,
+    lane_offset: f32,
+}
+
+pub struct Wip<'a> {
+    pub head_row: usize,
+    pub changes: &'a [FileChange],
 }
 
 pub enum Action {
-    Select(usize),
+    Select(Selection),
+}
+
+#[derive(Clone, Copy)]
+struct RowMap {
+    wip_at: Option<usize>,
+    commits: usize,
+}
+
+impl RowMap {
+    fn total(&self) -> usize {
+        self.commits + self.wip_at.is_some() as usize
+    }
+
+    fn resolve(&self, display: usize) -> Selection {
+        match self.wip_at {
+            Some(w) if display == w => Selection::Wip,
+            Some(w) if display > w => Selection::Commit(display - 1),
+            _ => Selection::Commit(display),
+        }
+    }
+
+    fn display(&self, selection: Selection) -> usize {
+        match (selection, self.wip_at) {
+            (Selection::Wip, Some(w)) => w,
+            (Selection::Wip, None) => 0,
+            (Selection::Commit(r), Some(w)) if r >= w => r + 1,
+            (Selection::Commit(r), _) => r,
+        }
+    }
 }
 
 impl GraphView {
@@ -40,7 +79,13 @@ impl GraphView {
         Self {
             summaries: HashMap::new(),
             scroll_to: None,
+            graph_w: None,
+            lane_offset: 0.0,
         }
+    }
+
+    pub fn clear_cache(&mut self) {
+        self.summaries.clear();
     }
 
     pub fn ui(
@@ -48,60 +93,150 @@ impl GraphView {
         ui: &mut Ui,
         repo: &gix::Repository,
         history: &History,
-        selected: Option<usize>,
+        selected: Option<Selection>,
+        wip: Option<Wip<'_>>,
     ) -> Option<Action> {
-        let graph_w = (history.layout.lane_count() as f32 * LANE_W + GRAPH_PAD * 2.0)
-            .clamp(MIN_GRAPH_W, MAX_VISIBLE_LANES * LANE_W + GRAPH_PAD * 2.0);
+        let content_w = history.layout.lane_count() as f32 * LANE_W + GRAPH_PAD * 2.0;
+        let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
+        let max_w = (ui.available_width() * 0.6).max(MIN_GRAPH_W);
+        let graph_w = self.graph_w.unwrap_or(auto_w).clamp(MIN_GRAPH_W, max_w);
+        self.lane_offset = self.lane_offset.clamp(0.0, (content_w - graph_w).max(0.0));
         let msg_x = LABELS_W + graph_w;
-        header(ui, msg_x);
+        self.header(ui, msg_x, auto_w, content_w > graph_w);
 
+        let map = RowMap {
+            wip_at: wip.as_ref().map(|w| w.head_row),
+            commits: history.len(),
+        };
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
         let mut action = None;
         let mut scroll = egui::ScrollArea::vertical().auto_shrink(false);
-        if let Some(row) = self.scroll_to.take() {
+        if let Some(selection) = self.scroll_to.take() {
             let visible = ui.available_height();
-            let target = (row as f32 * ROW_H - visible / 3.0).max(0.0);
+            let target = (map.display(selection) as f32 * ROW_H - visible / 3.0).max(0.0);
             scroll = scroll.vertical_scroll_offset(target);
         }
         ui.spacing_mut().item_spacing.y = 0.0;
-        scroll.show_rows(ui, ROW_H, history.len(), |ui, rows| {
-            for row in rows.clone() {
-                self.summaries
-                    .entry(row)
-                    .or_insert_with(|| load_summary(repo, history, row));
+        let lane_offset = &mut self.lane_offset;
+        let summaries = &mut self.summaries;
+        scroll.show_rows(ui, ROW_H, map.total(), |ui, rows| {
+            for display in rows.clone() {
+                if let Selection::Commit(row) = map.resolve(display) {
+                    summaries
+                        .entry(row)
+                        .or_insert_with(|| load_summary(repo, history, row));
+                }
             }
             let size = vec2(ui.available_width(), ROW_H * rows.len() as f32);
             let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+            let graph_area =
+                Rect::from_x_y_ranges(rect.left() + LABELS_W..=rect.left() + msg_x, rect.y_range());
+            if ui.rect_contains_pointer(graph_area) {
+                let dx = ui.input(|i| i.smooth_scroll_delta.x);
+                if dx != 0.0 {
+                    *lane_offset = (*lane_offset - dx).clamp(0.0, (content_w - graph_w).max(0.0));
+                }
+            }
             let painter = ui.painter_at(rect);
-            for (i, row) in rows.clone().enumerate() {
-                let top = rect.top() + i as f32 * ROW_H;
+            for (i, display) in rows.clone().enumerate() {
                 let geo = RowGeo {
                     left: rect.left(),
                     right: rect.right(),
-                    top,
+                    top: rect.top() + i as f32 * ROW_H,
                     msg_x,
+                    lane_offset: *lane_offset,
                 };
-                let summary = &self.summaries[&row];
-                paint_row(
-                    &painter,
-                    &geo,
-                    history,
-                    row,
-                    summary,
-                    selected == Some(row),
-                    now,
-                );
+                let selection = map.resolve(display);
+                let is_selected = selected == Some(selection);
+                match (selection, &wip) {
+                    (Selection::Wip, Some(wip)) => {
+                        paint_wip_row(&painter, &geo, history, wip, is_selected)
+                    }
+                    (Selection::Commit(row), _) => {
+                        let dashed_top = map.wip_at == Some(row);
+                        paint_row(
+                            &painter,
+                            &geo,
+                            history,
+                            row,
+                            &summaries[&row],
+                            is_selected,
+                            dashed_top,
+                            now,
+                        );
+                    }
+                    (Selection::Wip, None) => {}
+                }
             }
             if response.clicked()
                 && let Some(pos) = response.interact_pointer_pos()
             {
-                let row = rows.start + ((pos.y - rect.top()) / ROW_H) as usize;
-                action = Some(Action::Select(row.min(history.len().saturating_sub(1))));
+                let display = rows.start + ((pos.y - rect.top()) / ROW_H) as usize;
+                action = Some(Action::Select(
+                    map.resolve(display.min(map.total().saturating_sub(1))),
+                ));
             }
         });
         action
+    }
+
+    fn header(&mut self, ui: &mut Ui, msg_x: f32, auto_w: f32, scrollable: bool) {
+        let (rect, _) =
+            ui.allocate_exact_size(vec2(ui.available_width(), HEADER_H), Sense::hover());
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 0.0, theme::HEADER);
+        painter.hline(
+            rect.x_range(),
+            rect.bottom() - 0.5,
+            Stroke::new(1.0, theme::BORDER),
+        );
+        let font = FontId::monospace(10.0);
+        let y = rect.center().y;
+        let graph_label = if scrollable { "GRAPH ⇄" } else { "GRAPH" };
+        for (x, label) in [
+            (12.0, "BRANCH / TAG"),
+            (LABELS_W + 8.0, graph_label),
+            (msg_x + 14.0, "COMMIT MESSAGE"),
+        ] {
+            painter.text(
+                pos2(rect.left() + x, y),
+                Align2::LEFT_CENTER,
+                label,
+                font.clone(),
+                theme::TEXT_FAINT,
+            );
+        }
+
+        let handle = Rect::from_center_size(pos2(rect.left() + msg_x, y), vec2(9.0, HEADER_H));
+        let response = ui.interact(
+            handle,
+            ui.id().with("graph-resize"),
+            Sense::click_and_drag(),
+        );
+        let hot = response.hovered() || response.dragged();
+        if hot {
+            ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+        }
+        painter.vline(
+            rect.left() + msg_x,
+            rect.top() + 6.0..=rect.bottom() - 6.0,
+            Stroke::new(
+                if hot { 2.0 } else { 1.0 },
+                if hot { theme::ACCENT } else { theme::BORDER },
+            ),
+        );
+        if response.dragged() {
+            let current = self.graph_w.unwrap_or(auto_w);
+            self.graph_w = Some((current + response.drag_delta().x).max(MIN_GRAPH_W));
+        }
+        if response.double_clicked() {
+            self.graph_w = None;
+        }
+        response.on_hover_text(
+            "Drag to resize the graph. Double-click to reset. Scroll sideways to see more lanes.",
+        );
     }
 }
 
@@ -115,42 +250,17 @@ fn load_summary(repo: &gix::Repository, history: &History, row: usize) -> Summar
     })
 }
 
-fn header(ui: &mut Ui, msg_x: f32) {
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), HEADER_H), Sense::hover());
-    let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 0.0, theme::HEADER);
-    painter.hline(
-        rect.x_range(),
-        rect.bottom() - 0.5,
-        Stroke::new(1.0, theme::BORDER),
-    );
-    let font = FontId::monospace(10.0);
-    let y = rect.center().y;
-    for (x, label) in [
-        (12.0, "BRANCH / TAG"),
-        (LABELS_W + 8.0, "GRAPH"),
-        (msg_x + 14.0, "COMMIT MESSAGE"),
-    ] {
-        painter.text(
-            pos2(rect.left() + x, y),
-            Align2::LEFT_CENTER,
-            label,
-            font.clone(),
-            theme::TEXT_FAINT,
-        );
-    }
-}
-
 struct RowGeo {
     left: f32,
     right: f32,
     top: f32,
     msg_x: f32,
+    lane_offset: f32,
 }
 
 impl RowGeo {
     fn lane_x(&self, lane: u16) -> f32 {
-        self.left + LABELS_W + GRAPH_PAD + lane as f32 * LANE_W
+        self.left + LABELS_W + GRAPH_PAD + lane as f32 * LANE_W - self.lane_offset
     }
     fn mid(&self) -> f32 {
         self.top + ROW_H / 2.0
@@ -158,11 +268,26 @@ impl RowGeo {
     fn bottom(&self) -> f32 {
         self.top + ROW_H
     }
+    fn graph_left(&self) -> f32 {
+        self.left + LABELS_W
+    }
     fn msg_left(&self) -> f32 {
         self.left + self.msg_x
     }
+    fn graph_clip(&self, painter: &egui::Painter) -> egui::Painter {
+        let clip = Rect::from_x_y_ranges(
+            self.graph_left()..=self.msg_left(),
+            self.top..=self.bottom(),
+        );
+        painter.with_clip_rect(clip.intersect(painter.clip_rect()))
+    }
+    fn lane_visible(&self, lane: u16) -> bool {
+        let x = self.lane_x(lane);
+        x > self.graph_left() - LANE_W && x < self.msg_left() + LANE_W
+    }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_row(
     painter: &egui::Painter,
     geo: &RowGeo,
@@ -170,16 +295,20 @@ fn paint_row(
     row: usize,
     summary: &Summary,
     selected: bool,
+    dashed_top: bool,
     now: i64,
 ) {
     let layout = &history.layout;
     let node_lane = layout.node_lane(row);
     let color = theme::lane(layout.node_color(row));
     let node = pos2(geo.lane_x(node_lane), geo.mid());
-    let graph_clip = Rect::from_x_y_ranges(geo.left..=geo.msg_left(), geo.top..=geo.bottom());
-    let graph = painter.with_clip_rect(graph_clip.intersect(painter.clip_rect()));
+    let graph = geo.graph_clip(painter);
 
-    let band = Rect::from_x_y_ranges(node.x..=geo.msg_left(), geo.top + 4.0..=geo.bottom() - 4.0);
+    let band_left = node.x.max(geo.graph_left());
+    let band = Rect::from_x_y_ranges(
+        band_left..=geo.msg_left(),
+        geo.top + 4.0..=geo.bottom() - 4.0,
+    );
     graph.rect_filled(
         band,
         0.0,
@@ -195,9 +324,13 @@ fn paint_row(
         painter.rect_filled(bg, 0.0, theme::SELECTED_ROW);
     }
 
-    let visible_lanes = ((geo.msg_x - LABELS_W - GRAPH_PAD) / LANE_W).ceil() as u16 + 1;
-    for edge in layout.edges(row) {
-        if edge.lane > visible_lanes && edge.kind == EdgeKind::Pass {
+    let edges = layout.edges(row);
+    let has_top = edges.iter().any(|e| e.kind == EdgeKind::Top);
+    if dashed_top && !has_top {
+        dashed(&graph, pos2(node.x, geo.top), node, color);
+    }
+    for edge in edges {
+        if edge.kind == EdgeKind::Pass && !geo.lane_visible(edge.lane) {
             continue;
         }
         let stroke = Stroke::new(LINE_W, theme::lane(edge.color));
@@ -234,9 +367,107 @@ fn paint_row(
         }
     }
 
-    paint_labels(painter, geo, history.refs.at_row(row), node, color);
+    if node.x >= geo.graph_left() {
+        paint_labels(painter, geo, history.refs.at_row(row), node, color);
+    }
     paint_avatar(&graph, node, summary, color, selected);
     paint_message(painter, geo, summary, selected, now);
+}
+
+fn paint_wip_row(
+    painter: &egui::Painter,
+    geo: &RowGeo,
+    history: &History,
+    wip: &Wip<'_>,
+    selected: bool,
+) {
+    let layout = &history.layout;
+    let head_lane = layout.node_lane(wip.head_row);
+    let head_color = theme::lane(layout.node_color(wip.head_row));
+    let node = pos2(geo.lane_x(head_lane), geo.mid());
+    let graph = geo.graph_clip(painter);
+
+    let strip = Rect::from_x_y_ranges(
+        geo.msg_left()..=geo.msg_left() + 3.0,
+        geo.top..=geo.bottom(),
+    );
+    painter.rect_filled(strip, 0.0, WIP_GREY);
+    if selected {
+        let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
+        painter.rect_filled(bg, 0.0, theme::SELECTED_ROW);
+    }
+    for edge in layout.edges(wip.head_row) {
+        let from_above = matches!(edge.kind, EdgeKind::Pass | EdgeKind::Top | EdgeKind::JoinIn);
+        if from_above && geo.lane_visible(edge.lane) {
+            let x = geo.lane_x(edge.lane);
+            graph.line_segment(
+                [pos2(x, geo.top), pos2(x, geo.bottom())],
+                Stroke::new(LINE_W, theme::lane(edge.color)),
+            );
+        }
+    }
+    dashed(&graph, node, pos2(node.x, geo.bottom()), head_color);
+
+    let ring: Vec<Pos2> = (0..=48)
+        .map(|i| {
+            let a = i as f32 / 48.0 * 2.0 * PI;
+            node + vec2(a.cos(), a.sin()) * (AVATAR_R + 1.0)
+        })
+        .collect();
+    graph.circle_filled(node, AVATAR_R + 1.0, theme::BG);
+    graph.extend(Shape::dashed_line(
+        &ring,
+        Stroke::new(2.0, head_color),
+        3.0,
+        2.5,
+    ));
+    graph.text(
+        node,
+        Align2::CENTER_CENTER,
+        "+",
+        FontId::proportional(13.0),
+        head_color,
+    );
+
+    let count = |k: ChangeKind| wip.changes.iter().filter(|c| c.kind == k).count();
+    let parts: Vec<String> = [
+        (
+            count(ChangeKind::Modified) + count(ChangeKind::Renamed),
+            "modified",
+        ),
+        (count(ChangeKind::Added), "added"),
+        (count(ChangeKind::Deleted), "deleted"),
+    ]
+    .into_iter()
+    .filter(|(n, _)| *n > 0)
+    .map(|(n, label)| format!("{n} {label}"))
+    .collect();
+    let mut job = LayoutJob::default();
+    let italic = TextFormat {
+        italics: true,
+        ..TextFormat::simple(FontId::proportional(13.0), theme::TEXT_MUTED)
+    };
+    job.append("Uncommitted changes", 0.0, italic);
+    job.append(
+        &parts.join(" · "),
+        10.0,
+        TextFormat::simple(FontId::proportional(13.0), theme::TEXT_FAINT),
+    );
+    let galley = painter.layout_job(job);
+    painter.galley(
+        pos2(geo.msg_left() + 15.0, geo.mid() - galley.size().y / 2.0),
+        galley,
+        theme::TEXT,
+    );
+}
+
+fn dashed(painter: &egui::Painter, from: Pos2, to: Pos2, color: Color32) {
+    painter.extend(Shape::dashed_line(
+        &[from, to],
+        Stroke::new(2.0, color),
+        3.0,
+        3.0,
+    ));
 }
 
 fn quarter_arc(center: Pos2, from: Pos2, to: Pos2) -> Vec<Pos2> {

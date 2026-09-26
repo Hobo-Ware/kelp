@@ -1,7 +1,7 @@
 use eframe::egui::{self, Color32, RichText, Sense, Ui, vec2};
 use kelp_core::refs::RefKind;
 
-use crate::app::Repo;
+use crate::app::{Repo, Selection};
 use crate::{graph_view, theme};
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo) {
@@ -44,7 +44,8 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                     .body(|ui| {
                         for label in labels {
                             let selected = label.row.is_some()
-                                && label.row.map(|r| r as usize) == repo.selected;
+                                && label.row.map(|r| Selection::Commit(r as usize))
+                                    == repo.selected;
                             let dot = label
                                 .row
                                 .map(|r| theme::lane(repo.history.layout.node_color(r as usize)))
@@ -60,7 +61,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
             }
         });
     if let Some(row) = reveal {
-        repo.reveal(row);
+        repo.reveal(Selection::Commit(row));
     }
 }
 

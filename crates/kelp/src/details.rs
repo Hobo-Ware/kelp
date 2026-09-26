@@ -1,11 +1,15 @@
 use eframe::egui::{self, Align2, FontId, RichText, Sense, Stroke, Ui, pos2, vec2};
 use kelp_core::avatar;
-use kelp_core::commit::{self, ChangeKind};
+use kelp_core::commit::{self, ChangeKind, FileChange};
 
-use crate::app::Repo;
+use crate::app::{Center, Repo, Selection};
 use crate::theme;
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo) {
+    if repo.selected == Some(Selection::Wip) {
+        wip_ui(ui, repo);
+        return;
+    }
     let Some(details) = repo.details.clone() else {
         ui.centered_and_justified(|ui| {
             ui.label(RichText::new("Select a commit").color(theme::TEXT_MUTED))
@@ -22,6 +26,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
         .unwrap_or(theme::ACCENT);
 
     let mut reveal = None;
+    let mut open = None;
     egui::ScrollArea::vertical()
         .auto_shrink(false)
         .show(ui, |ui| {
@@ -121,44 +126,101 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                     }
                     ui.separator();
 
-                    let count =
-                        |k: ChangeKind| details.changes.iter().filter(|c| c.kind == k).count();
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 14.0;
-                        ui.label(
-                            RichText::new(format!(
-                                "{} modified",
-                                count(ChangeKind::Modified) + count(ChangeKind::Renamed)
-                            ))
-                            .size(12.0)
-                            .color(theme::MODIFIED),
-                        );
-                        ui.label(
-                            RichText::new(format!("{} added", count(ChangeKind::Added)))
-                                .size(12.0)
-                                .color(theme::ADDED),
-                        );
-                        ui.label(
-                            RichText::new(format!("{} deleted", count(ChangeKind::Deleted)))
-                                .size(12.0)
-                                .color(theme::DELETED),
-                        );
-                    });
+                    stats(ui, &details.changes);
                 });
-            ui.spacing_mut().item_spacing.y = 0.0;
-            for change in &details.changes {
-                file_row(ui, change.kind, &change.path);
+            if let Some(path) = file_list(ui, &details.changes, open_diff_path(repo)) {
+                open = Some(path);
             }
         });
     if let Some(row) = reveal {
-        repo.reveal(row);
+        repo.reveal(Selection::Commit(row));
+    }
+    if let Some(path) = open {
+        repo.open_diff(&path);
     }
 }
 
-fn file_row(ui: &mut Ui, kind: ChangeKind, path: &str) {
+fn wip_ui(ui: &mut Ui, repo: &mut Repo) {
+    let changes = repo.wip.clone();
+    let mut open = None;
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            egui::Frame::new()
+                .inner_margin(egui::Margin::same(16))
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 10.0;
+                    ui.label(
+                        RichText::new("Uncommitted changes")
+                            .size(17.0)
+                            .strong()
+                            .color(theme::TEXT_STRONG),
+                    );
+                    let branch = repo
+                        .history
+                        .refs
+                        .head_branch
+                        .as_deref()
+                        .unwrap_or("detached HEAD");
+                    ui.label(RichText::new(format!("on {branch}")).color(theme::TEXT_MUTED));
+                    ui.separator();
+                    stats(ui, &changes);
+                });
+            open = file_list(ui, &changes, open_diff_path(repo));
+        });
+    if let Some(path) = open {
+        repo.open_diff(&path);
+    }
+}
+
+fn open_diff_path(repo: &Repo) -> Option<String> {
+    match &repo.center {
+        Center::Diff(view) => Some(view.path().to_string()),
+        Center::Graph => None,
+    }
+}
+
+fn stats(ui: &mut Ui, changes: &[FileChange]) {
+    let count = |k: ChangeKind| changes.iter().filter(|c| c.kind == k).count();
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 14.0;
+        let modified = count(ChangeKind::Modified) + count(ChangeKind::Renamed);
+        ui.label(
+            RichText::new(format!("{modified} modified"))
+                .size(12.0)
+                .color(theme::MODIFIED),
+        );
+        ui.label(
+            RichText::new(format!("{} added", count(ChangeKind::Added)))
+                .size(12.0)
+                .color(theme::ADDED),
+        );
+        ui.label(
+            RichText::new(format!("{} deleted", count(ChangeKind::Deleted)))
+                .size(12.0)
+                .color(theme::DELETED),
+        );
+    });
+}
+
+fn file_list(ui: &mut Ui, changes: &[FileChange], open_path: Option<String>) -> Option<String> {
+    ui.spacing_mut().item_spacing.y = 0.0;
+    let mut clicked = None;
+    for change in changes {
+        let active = open_path.as_deref() == Some(change.path.as_str());
+        if file_row(ui, change.kind, &change.path, active).clicked() {
+            clicked = Some(change.path.clone());
+        }
+    }
+    clicked
+}
+
+fn file_row(ui: &mut Ui, kind: ChangeKind, path: &str, active: bool) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
     let painter = ui.painter_at(rect);
-    if response.hovered() {
+    if active {
+        painter.rect_filled(rect, 0.0, theme::SIDEBAR_SELECTED);
+    } else if response.hovered() {
         painter.rect_filled(rect, 0.0, theme::with_alpha(egui::Color32::WHITE, 0x08));
     }
     let (mark, color) = match kind {
@@ -200,7 +262,7 @@ fn file_row(ui: &mut Ui, kind: ChangeKind, path: &str) {
         name_galley,
         theme::TEXT,
     );
-    response.on_hover_text(path);
+    response.on_hover_text(path)
 }
 
 fn elide_end(painter: &egui::Painter, text: &str, font: &FontId, max_width: f32) -> String {
