@@ -2477,6 +2477,7 @@ dependencies = [
  "criterion",
  "gix",
  "image",
+ "serde",
  "serde_json",
  "sha2",
  "similar",

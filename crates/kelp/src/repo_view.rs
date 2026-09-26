@@ -7,6 +7,7 @@ use kelp_core::commit::{self, Details, FileChange};
 use kelp_core::history::History;
 use kelp_core::ops::Op;
 use kelp_core::refs::RefKind;
+use kelp_core::review::{self, Review};
 use kelp_core::workspace::{self, Stash, Worktree};
 use kelp_core::{git_cli, status};
 
@@ -14,7 +15,7 @@ use crate::avatars::AvatarStore;
 use crate::commands::Command;
 use crate::dev_bench::ScrollBench;
 use crate::dialogs::{self, Dialog, NewWorktree, Outcome};
-use crate::diff_view::{DiffSource, DiffView};
+use crate::diff_view::{self, DiffSource, DiffView};
 use crate::graph_view::{self, GraphView};
 use crate::icons::{self, Icon};
 use crate::jobs::Jobs;
@@ -50,6 +51,12 @@ pub struct WorktreeRow {
     pub changes: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileListMode {
+    Path,
+    Tree,
+}
+
 pub enum Center {
     Graph,
     Diff(Box<DiffView>),
@@ -79,6 +86,11 @@ pub struct Repo {
     pub avatars: AvatarStore,
     pub dialog: Option<Dialog>,
     pub outbox: Vec<PathBuf>,
+    pub review: Review,
+    pub author: String,
+    pub file_list_mode: FileListMode,
+    pub show_all_files: bool,
+    pub tree_cache: HashMap<String, Vec<commit::TreeEntry>>,
     open_after_ops: Vec<PathBuf>,
     was_focused: Option<bool>,
     bench: Option<ScrollBench>,
@@ -95,7 +107,14 @@ impl Repo {
         let dir = workdir.clone().unwrap_or_else(|| repo.path().to_path_buf());
         let avatars =
             AvatarStore::new(ctx.clone(), kelp_core::avatar::GitHubRepo::from_repo(&repo));
+        let review = Review::load(repo.common_dir());
+        let author = review::author_name(&repo);
         let mut ready = Self {
+            review,
+            author,
+            file_list_mode: FileListMode::Path,
+            show_all_files: false,
+            tree_cache: HashMap::new(),
             dir,
             workdir,
             repo,
@@ -129,6 +148,11 @@ impl Repo {
                 .map(|c| c.path.clone())
         {
             ready.open_diff(&path);
+            if std::env::var("KELP_OPEN_DIFF").as_deref() == Ok("split")
+                && let Center::Diff(view) = &mut ready.center
+            {
+                view.show_split();
+            }
         }
         if std::env::var_os("KELP_OPEN_WORKTREES").is_some() {
             ready.center = Center::Worktrees;
@@ -171,6 +195,7 @@ impl Repo {
             return;
         }
         self.selected = Some(selection);
+        self.tree_cache.clear();
         self.details = match selection {
             Selection::Commit(row) => commit::details(&self.repo, self.history.id(row)).ok(),
             Selection::Wip => None,
@@ -188,12 +213,23 @@ impl Repo {
     pub fn open_diff(&mut self, path: &str) {
         let source = match self.selected {
             Some(Selection::Wip) => DiffSource::Working,
-            Some(Selection::Commit(row)) => DiffSource::Commit(self.history.id(row)),
+            Some(Selection::Commit(row)) => {
+                let id = self.history.id(row);
+                let changed = self
+                    .details
+                    .as_ref()
+                    .is_some_and(|d| d.changes.iter().any(|c| c.path == path));
+                if changed {
+                    DiffSource::Commit(id)
+                } else {
+                    DiffSource::File(id)
+                }
+            }
             None => return,
         };
         match DiffView::load(&self.repo, self.workdir.as_deref(), source, path) {
             Ok(view) => self.center = Center::Diff(Box::new(view)),
-            Err(e) => self.notify(format!("Could not open diff: {e:#}"), true),
+            Err(e) => self.notify(format!("Could not open file: {e:#}"), true),
         }
     }
 
@@ -448,11 +484,19 @@ impl Repo {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BG))
             .show(ui, |ui| match &mut self.center {
-                Center::Diff(view) => {
-                    if view.ui(ui) {
-                        self.center = Center::Graph;
+                Center::Diff(view) => match view.ui(ui, &mut self.review, &self.author) {
+                    diff_view::Event::Close => self.center = Center::Graph,
+                    diff_view::Event::Changed => {
+                        if let Err(e) = self.review.save() {
+                            self.toast = Some(Toast {
+                                text: format!("Could not save comment: {e:#}"),
+                                error: true,
+                                shown_at: Instant::now(),
+                            });
+                        }
                     }
-                }
+                    diff_view::Event::None => {}
+                },
                 Center::Worktrees => worktrees_view::ui(ui, self, &mut commands),
                 Center::Graph => self.graph_center(ui, &mut commands),
             });
