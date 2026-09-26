@@ -5,12 +5,25 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** M5 (file tree and review comments).
-- **Done:** M0, M1, M2, M3, M4.
-- **Next up:** tree mode for changed files, full file view, inline
-  review comments stored in `.git/kelp/`, Markdown export.
+- **Current milestone:** M6 (polish).
+- **Done:** M0, M1, M2, M3, M4, M5.
+- **Next up:** settings, focus-path dimming, search, design fonts,
+  `.app` bundle, README.
 
 ## 2026-09-27
+
+- **M5 done.**
+  - Details: Path/Tree toggle, "All files" browser (lazy folders),
+    comment badges per file.
+  - Diff view: Diff/File and Unified/Split modes; unchanged files open
+    as File.
+  - Inline comments with reply, resolve/reopen, delete; resolved threads
+    fold into a chip; off-screen threads listed at the top.
+  - Stored in `.git/kelp/comments.json`, anchored by line text + 2 lines
+    of context each side. Tests: follows its line after edits above,
+    picks the copy with matching context, reports lost anchors, survives
+    restart, Markdown export groups by file.
+  - Verified visually on the demo repo in unified and split modes.
 
 - **M3 and M4 done** (built together, they share dialogs and plumbing).
   - `Op` type in core describes every git write once; the same value
