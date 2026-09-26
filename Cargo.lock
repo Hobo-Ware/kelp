@@ -2342,7 +2342,10 @@ dependencies = [
 name = "kelp"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "eframe",
+ "gix",
+ "image",
  "kelp-core",
 ]
 
