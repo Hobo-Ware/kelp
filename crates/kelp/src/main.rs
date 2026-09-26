@@ -1,4 +1,5 @@
 mod app;
+mod avatars;
 mod details;
 mod dev_bench;
 mod dev_screenshot;

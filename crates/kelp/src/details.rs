@@ -1,5 +1,4 @@
-use eframe::egui::{self, Align2, FontId, RichText, Sense, Stroke, Ui, pos2, vec2};
-use kelp_core::avatar;
+use eframe::egui::{self, Align2, FontId, RichText, Sense, Ui, pos2, vec2};
 use kelp_core::commit::{self, ChangeKind, FileChange};
 
 use crate::app::{Center, Repo, Selection};
@@ -66,16 +65,16 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
 
                     ui.horizontal(|ui| {
                         let (rect, _) = ui.allocate_exact_size(vec2(38.0, 38.0), Sense::hover());
-                        let fill = theme::AVATARS
-                            [avatar::color_index(&details.email, theme::AVATARS.len())];
-                        ui.painter()
-                            .circle(rect.center(), 18.0, fill, Stroke::new(2.0, lane));
-                        ui.painter().text(
+                        let texture = repo.avatars.texture(&details.email, details.id);
+                        crate::graph_view::draw_avatar(
+                            ui.painter(),
                             rect.center(),
-                            Align2::CENTER_CENTER,
-                            avatar::initials(&details.author),
-                            FontId::proportional(13.0),
-                            theme::AVATAR_INK,
+                            18.0,
+                            &details.author,
+                            &details.email,
+                            texture,
+                            lane,
+                            false,
                         );
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.y = 2.0;

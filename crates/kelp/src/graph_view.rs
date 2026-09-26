@@ -14,6 +14,7 @@ use kelp_core::history::History;
 use kelp_core::refs::{RefKind, RefLabel};
 
 use crate::app::Selection;
+use crate::avatars::AvatarStore;
 use crate::theme;
 
 pub const ROW_H: f32 = 30.0;
@@ -95,6 +96,7 @@ impl GraphView {
         history: &History,
         selected: Option<Selection>,
         wip: Option<Wip<'_>>,
+        avatars: &mut AvatarStore,
     ) -> Option<Action> {
         let content_w = history.layout.lane_count() as f32 * LANE_W + GRAPH_PAD * 2.0;
         let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
@@ -156,12 +158,14 @@ impl GraphView {
                     }
                     (Selection::Commit(row), _) => {
                         let dashed_top = map.wip_at == Some(row);
+                        let avatar = avatars.texture(&summaries[&row].email, history.id(row));
                         paint_row(
                             &painter,
                             &geo,
                             history,
                             row,
                             &summaries[&row],
+                            avatar,
                             is_selected,
                             dashed_top,
                             now,
@@ -294,6 +298,7 @@ fn paint_row(
     history: &History,
     row: usize,
     summary: &Summary,
+    avatar: Option<egui::TextureId>,
     selected: bool,
     dashed_top: bool,
     now: i64,
@@ -370,7 +375,7 @@ fn paint_row(
     if node.x >= geo.graph_left() {
         paint_labels(painter, geo, history.refs.at_row(row), node, color);
     }
-    paint_avatar(&graph, node, summary, color, selected);
+    paint_avatar(&graph, node, summary, avatar, color, selected);
     paint_message(painter, geo, summary, selected, now);
 }
 
@@ -487,29 +492,63 @@ fn quarter_arc(center: Pos2, from: Pos2, to: Pos2) -> Vec<Pos2> {
         .collect()
 }
 
-fn paint_avatar(
+pub fn paint_avatar(
     painter: &egui::Painter,
     node: Pos2,
     summary: &Summary,
+    texture: Option<egui::TextureId>,
     lane: Color32,
+    selected: bool,
+) {
+    draw_avatar(
+        painter,
+        node,
+        AVATAR_R,
+        &summary.author,
+        &summary.email,
+        texture,
+        lane,
+        selected,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn draw_avatar(
+    painter: &egui::Painter,
+    center: Pos2,
+    radius: f32,
+    name: &str,
+    email: &str,
+    texture: Option<egui::TextureId>,
+    ring: Color32,
     selected: bool,
 ) {
     if selected {
         painter.circle_stroke(
-            node,
-            AVATAR_R + 3.5,
-            Stroke::new(3.0, theme::with_alpha(lane, 0x40)),
+            center,
+            radius + 3.5,
+            Stroke::new(3.0, theme::with_alpha(ring, 0x40)),
         );
     }
-    let fill = theme::AVATARS[avatar::color_index(&summary.email, theme::AVATARS.len())];
-    painter.circle(node, AVATAR_R, fill, Stroke::new(2.0, lane));
-    painter.text(
-        node,
-        Align2::CENTER_CENTER,
-        avatar::initials(&summary.author),
-        FontId::proportional(8.0),
-        theme::AVATAR_INK,
-    );
+    match texture {
+        Some(id) => {
+            let rect = Rect::from_center_size(center, vec2(radius * 2.0, radius * 2.0));
+            let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+            painter.image(id, rect, uv, Color32::WHITE);
+            painter.circle_stroke(center, radius, Stroke::new(2.0, ring));
+        }
+        None => {
+            let fill = theme::AVATARS[avatar::color_index(email, theme::AVATARS.len())];
+            painter.circle(center, radius, fill, Stroke::new(2.0, ring));
+            painter.text(
+                center,
+                Align2::CENTER_CENTER,
+                avatar::initials(name),
+                FontId::proportional((radius * 0.8).max(8.0)),
+                theme::AVATAR_INK,
+            );
+        }
+    }
 }
 
 fn paint_labels<'a>(
