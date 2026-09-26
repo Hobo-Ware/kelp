@@ -6,5 +6,6 @@ pub mod graph;
 pub mod history;
 pub mod ops;
 pub mod refs;
+pub mod review;
 pub mod status;
 pub mod workspace;

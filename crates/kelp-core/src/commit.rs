@@ -123,6 +123,48 @@ fn file_change(change: ChangeDetached) -> Option<FileChange> {
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+}
+
+pub fn list_dir(repo: &gix::Repository, id: ObjectId, dir: &str) -> anyhow::Result<Vec<TreeEntry>> {
+    let root = repo.find_commit(id)?.tree()?;
+    let tree = if dir.is_empty() {
+        root
+    } else {
+        match root.lookup_entry_by_path(dir)? {
+            Some(entry) if entry.mode().is_tree() => entry.object()?.into_tree(),
+            _ => return Ok(Vec::new()),
+        }
+    };
+    let mut entries: Vec<TreeEntry> = tree
+        .iter()
+        .filter_map(Result::ok)
+        .map(|entry| {
+            let name = entry.filename().to_string();
+            let path = if dir.is_empty() {
+                name.clone()
+            } else {
+                format!("{dir}/{name}")
+            };
+            TreeEntry {
+                is_dir: entry.mode().is_tree(),
+                name,
+                path,
+            }
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    Ok(entries)
+}
+
 pub fn reflow(body: &str) -> String {
     body.split("\n\n")
         .map(|paragraph| {

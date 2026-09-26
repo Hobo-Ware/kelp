@@ -40,6 +40,7 @@ pub struct FileDiff {
     pub body: Body,
     pub added: usize,
     pub removed: usize,
+    pub old_text: Option<String>,
     pub new_text: Option<String>,
 }
 
@@ -96,6 +97,7 @@ pub fn build(path: &str, old: Option<&[u8]>, new: Option<&[u8]>) -> FileDiff {
         body,
         added: 0,
         removed: 0,
+        old_text: None,
         new_text: None,
     };
     if old.len() + new.len() > MAX_DIFF_BYTES {
@@ -146,6 +148,7 @@ pub fn build(path: &str, old: Option<&[u8]>, new: Option<&[u8]>) -> FileDiff {
         body: Body::Text(hunks),
         added,
         removed,
+        old_text: Some(old_text.to_string()),
         new_text: Some(new_text.to_string()),
     }
 }
