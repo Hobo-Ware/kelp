@@ -10,3 +10,4 @@ eframe = { version = "0.35.0", default-features = false, features = ["default_fo
 gix = { version = "0.88.0", default-features = false, features = ["sha1"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 kelp-core.workspace = true
+rfd = "0.17.2"

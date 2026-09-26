@@ -1,7 +1,7 @@
 use eframe::egui::{self, Align2, FontId, RichText, Sense, Ui, pos2, vec2};
 use kelp_core::commit::{self, ChangeKind, FileChange};
 
-use crate::app::{Center, Repo, Selection};
+use crate::repo_view::{Center, Repo, Selection};
 use crate::theme;
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo) {
@@ -175,7 +175,7 @@ fn wip_ui(ui: &mut Ui, repo: &mut Repo) {
 fn open_diff_path(repo: &Repo) -> Option<String> {
     match &repo.center {
         Center::Diff(view) => Some(view.path().to_string()),
-        Center::Graph => None,
+        Center::Graph | Center::Worktrees => None,
     }
 }
 

@@ -1,14 +1,20 @@
 mod app;
 mod avatars;
+mod commands;
 mod details;
 mod dev_bench;
 mod dev_screenshot;
+mod dialogs;
 mod diff_view;
 mod fonts;
 mod graph_view;
+mod icons;
 mod jobs;
+mod menus;
+mod repo_view;
 mod sidebar;
 mod theme;
+mod worktrees_view;
 
 use std::path::PathBuf;
 
@@ -33,7 +39,10 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             theme::apply(&cc.egui_ctx);
             fonts::install(&cc.egui_ctx);
-            Ok(Box::new(app::KelpApp::open(cc.egui_ctx.clone(), path)))
+            Ok(Box::new(app::KelpApp::open(
+                cc.egui_ctx.clone(),
+                vec![path],
+            )))
         }),
     )
 }
