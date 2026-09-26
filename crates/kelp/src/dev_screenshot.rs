@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{self, UserData, ViewportCommand};
 
@@ -8,6 +9,8 @@ pub struct DevScreenshot {
     path: PathBuf,
     frames: u32,
     requested: bool,
+    wait: Duration,
+    ready_at: Option<Instant>,
 }
 
 impl DevScreenshot {
@@ -17,6 +20,11 @@ impl DevScreenshot {
             path: path.into(),
             frames: 0,
             requested: false,
+            wait: std::env::var("KELP_SCREENSHOT_WAIT")
+                .ok()
+                .and_then(|s| s.parse::<f32>().ok())
+                .map_or(Duration::ZERO, Duration::from_secs_f32),
+            ready_at: None,
         })
     }
 
@@ -50,10 +58,11 @@ impl DevScreenshot {
             return;
         }
         self.frames += 1;
-        if self.frames > SETTLE_FRAMES {
+        let ready_at = *self.ready_at.get_or_insert_with(Instant::now);
+        if self.frames > SETTLE_FRAMES && ready_at.elapsed() >= self.wait {
             ctx.send_viewport_cmd(ViewportCommand::Screenshot(UserData::default()));
             self.requested = true;
         }
-        ctx.request_repaint();
+        ctx.request_repaint_after(Duration::from_millis(50));
     }
 }

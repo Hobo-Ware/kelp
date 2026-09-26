@@ -7,6 +7,7 @@ use kelp_core::commit::{self, Details, FileChange};
 use kelp_core::history::History;
 use kelp_core::{git_cli, status};
 
+use crate::avatars::AvatarStore;
 use crate::dev_bench::ScrollBench;
 use crate::dev_screenshot::DevScreenshot;
 use crate::diff_view::{DiffSource, DiffView};
@@ -64,6 +65,7 @@ pub struct Repo {
     pub center: Center,
     pub jobs: Jobs<JobOutput>,
     pub toast: Option<Toast>,
+    pub avatars: AvatarStore,
     was_focused: Option<bool>,
     bench: Option<ScrollBench>,
 }
@@ -96,7 +98,10 @@ impl Repo {
     ) -> Self {
         let workdir = repo.workdir().map(Path::to_path_buf);
         let dir = workdir.clone().unwrap_or_else(|| repo.path().to_path_buf());
+        let avatars =
+            AvatarStore::new(ctx.clone(), kelp_core::avatar::GitHubRepo::from_repo(&repo));
         let mut ready = Self {
+            avatars,
             dir,
             workdir,
             repo,
@@ -197,6 +202,7 @@ impl Repo {
     }
 
     fn poll_jobs(&mut self) {
+        self.avatars.poll();
         for output in self.jobs.finished() {
             match output {
                 JobOutput::Status(Ok(changes)) => {
@@ -359,13 +365,14 @@ fn graph_center(ui: &mut egui::Ui, repo: &mut Repo) {
         selected,
         graph,
         bench,
+        avatars,
         ..
     } = repo;
     if let Some(bench) = bench {
         graph.scroll_to = Some(Selection::Commit(bench.next_row(history.len())));
     }
     let started = Instant::now();
-    let action = graph.ui(ui, git, history, *selected, wip);
+    let action = graph.ui(ui, git, history, *selected, wip, avatars);
     if let Some(bench) = bench {
         bench.record(ui.ctx(), started.elapsed());
     }
