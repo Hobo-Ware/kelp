@@ -1,0 +1,11 @@
+[package]
+name = "kelp-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gix = { version = "0.88.0", default-features = false, features = ["sha1", "revision", "max-performance-safe", "blob-diff", "index"] }
+
+[dev-dependencies]
+criterion = "0.8.2"
