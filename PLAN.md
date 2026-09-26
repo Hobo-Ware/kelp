@@ -180,6 +180,13 @@ Each milestone ends with a check we can actually run.
 
 ## Open questions
 
+- Repos without a commit-graph file load about 10x slower. Should Kelp
+  write one in the background (`git commit-graph write --reachable`, the
+  same thing `git gc` and `git maintenance` do), automatically or after
+  asking once?
+- Very wide histories (git/git has 282 lanes at once): resizable graph
+  column, horizontal scroll inside it, or both?
+
 - Should the "Send to Claude" review button be in scope, and what should
   it send?
 - App icon and final logo.
