@@ -5,8 +5,11 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** M0 (not started)
-- **Next up:** set up the Cargo workspace and an empty egui window.
+- **Current milestone:** M1 (graph and commit view), about half done.
+- **Done in M1:** history loading, lane layout, graph drawing, branch
+  sidebar, commit details with changed files, keyboard navigation.
+- **Next up in M1:** diff view for a changed file, uncommitted changes
+  row, resizable/scrollable graph column for very wide histories.
 
 ## 2026-09-26
 
@@ -36,3 +39,45 @@ A running log of what got done, newest first. The plan lives in
   dot's center.
 - Graph corners: swapped the quadratic curve corners (pinched, 10px) for
   true circular arcs with a half-row radius (15px), matching GitKraken.
+- **M0 done.** Cargo workspace (`kelp-core` + `kelp`), eframe 0.35 window
+  in the design's palette, CI (fmt, clippy, test). Idle CPU 0.0% after
+  startup, about 118 MB memory (mostly the graphics context).
+- **M1 started.**
+  - Lane layout in `kelp-core/src/graph.rs`: one pass, each row stores
+    only the line pieces crossing it. 6 unit tests.
+  - History loading with gix: walks all branches, remotes and tags,
+    sorts children-first and newest-first, uses the commit-graph file.
+  - Graph view in egui drawn to the design rules; sidebar; details panel
+    with changed files; up/down and j/k navigation.
+  - Dev switches: `KELP_SCREENSHOT=file.png` saves the window and quits;
+    `KELP_BENCH_SCROLL=1` prints graph frame times.
+
+### Numbers (release build, M-series Mac)
+
+| What | Result | Target |
+|---|---|---|
+| Layout, 100k generated commits | 1.3 ms | - |
+| Layout, 1M generated commits | 14 ms | - |
+| Load trakt-boxed (5.7k commits) | 7 ms | - |
+| Load trakt-web (5.9k commits) | 21 ms | - |
+| Load git/git (86k), with commit-graph | 66 ms (example tool), 151 ms in app | under 200 ms for 100k |
+| Load git/git (86k), without commit-graph | 642 ms | under 200 ms for 100k |
+| Graph frame, smooth scroll, trakt-web | 0.09 ms avg, 0.20 ms p95 | under 2 ms |
+| Graph frame, smooth scroll, git/git | 0.39 ms avg, 0.81 ms p95 | under 2 ms |
+| Graph frame, random jumps, git/git | 1.88 ms avg, 3.0 ms p95 | under 2 ms |
+| Idle CPU with trakt-web open | 0.0% | 0% |
+| Memory with trakt-web open | about 133 MB | - |
+
+Notes:
+- Without a commit-graph file, loading is 10x slower. See the open
+  question in PLAN.md about writing one in the background.
+- Random jumps (like dragging the scrollbar far) are dominated by text
+  layout, because every row on screen is new. Smooth scrolling reuses
+  most rows and is far under target.
+- git/git has up to 282 lanes open at once; the graph column is capped
+  at 14 lanes for now, so far-right lines are cut off.
+- Commit summaries load on the UI thread, on demand, for rows on screen.
+  Cheap so far (see random-jump numbers); move to a worker if that
+  changes.
+- History still loads in one go, not in pages. Fine up to git/git size;
+  needed before trying a 1M-commit repo.
