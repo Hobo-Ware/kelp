@@ -1,14 +1,17 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align2, FontId, Key, Margin, RichText, Stroke};
-use kelp_core::commit::{self, Details};
+use kelp_core::commit::{self, Details, FileChange};
 use kelp_core::history::History;
+use kelp_core::{git_cli, status};
 
 use crate::dev_bench::ScrollBench;
 use crate::dev_screenshot::DevScreenshot;
+use crate::diff_view::{DiffSource, DiffView};
 use crate::graph_view::{self, GraphView};
+use crate::jobs::Jobs;
 use crate::{details, sidebar, theme};
 
 type Loaded = anyhow::Result<(gix::Repository, History, Duration)>;
@@ -25,14 +28,44 @@ enum State {
     Ready(Box<Repo>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Selection {
+    Wip,
+    Commit(usize),
+}
+
+pub enum JobOutput {
+    Reloaded(anyhow::Result<Box<History>>),
+    Status(anyhow::Result<Vec<FileChange>>),
+    CommitGraph(anyhow::Result<()>),
+}
+
+pub enum Center {
+    Graph,
+    Diff(Box<DiffView>),
+}
+
+pub struct Toast {
+    pub text: String,
+    pub error: bool,
+    pub shown_at: Instant,
+}
+
 pub struct Repo {
+    pub dir: PathBuf,
+    pub workdir: Option<PathBuf>,
     pub repo: gix::Repository,
     pub history: History,
     pub load_time: Duration,
-    pub selected: Option<usize>,
+    pub selected: Option<Selection>,
     pub details: Option<Details>,
+    pub wip: Vec<FileChange>,
     pub graph: GraphView,
-    pub bench: Option<ScrollBench>,
+    pub center: Center,
+    pub jobs: Jobs<JobOutput>,
+    pub toast: Option<Toast>,
+    was_focused: Option<bool>,
+    bench: Option<ScrollBench>,
 }
 
 impl KelpApp {
@@ -55,17 +88,163 @@ impl KelpApp {
 }
 
 impl Repo {
-    pub fn select(&mut self, row: usize) {
-        if self.selected == Some(row) {
-            return;
+    fn new(
+        ctx: &egui::Context,
+        repo: gix::Repository,
+        history: History,
+        load_time: Duration,
+    ) -> Self {
+        let workdir = repo.workdir().map(Path::to_path_buf);
+        let dir = workdir.clone().unwrap_or_else(|| repo.path().to_path_buf());
+        let mut ready = Self {
+            dir,
+            workdir,
+            repo,
+            history,
+            load_time,
+            selected: None,
+            details: None,
+            wip: Vec::new(),
+            graph: GraphView::new(),
+            center: Center::Graph,
+            jobs: Jobs::new(ctx.clone()),
+            toast: None,
+            was_focused: None,
+            bench: ScrollBench::from_env(),
+        };
+        if let Some(row) = ready.head_row() {
+            ready.select(Selection::Commit(row));
         }
-        self.selected = Some(row);
-        self.details = commit::details(&self.repo, self.history.id(row)).ok();
+        ready.refresh_status();
+        if std::env::var_os("KELP_OPEN_DIFF").is_some()
+            && let Some(path) = ready
+                .details
+                .as_ref()
+                .and_then(|d| d.changes.first())
+                .map(|c| c.path.clone())
+        {
+            ready.open_diff(&path);
+        }
+        if !git_cli::has_commit_graph(&ready.repo) {
+            let dir = ready.repo.path().to_path_buf();
+            ready.jobs.spawn("Speeding up history", move || {
+                JobOutput::CommitGraph(git_cli::write_commit_graph(&dir))
+            });
+        }
+        ready
     }
 
-    pub fn reveal(&mut self, row: usize) {
-        self.select(row);
-        self.graph.scroll_to = Some(row);
+    pub fn head_row(&self) -> Option<usize> {
+        self.history.refs.head.and_then(|h| self.history.row(&h))
+    }
+
+    pub fn select(&mut self, selection: Selection) {
+        if self.selected == Some(selection) {
+            return;
+        }
+        self.selected = Some(selection);
+        self.details = match selection {
+            Selection::Commit(row) => commit::details(&self.repo, self.history.id(row)).ok(),
+            Selection::Wip => None,
+        };
+    }
+
+    pub fn reveal(&mut self, selection: Selection) {
+        self.select(selection);
+        self.graph.scroll_to = Some(selection);
+    }
+
+    pub fn open_diff(&mut self, path: &str) {
+        let source = match self.selected {
+            Some(Selection::Wip) => DiffSource::Working,
+            Some(Selection::Commit(row)) => DiffSource::Commit(self.history.id(row)),
+            None => return,
+        };
+        match DiffView::load(&self.repo, self.workdir.as_deref(), source, path) {
+            Ok(view) => self.center = Center::Diff(Box::new(view)),
+            Err(e) => self.notify(format!("Could not open diff: {e:#}"), true),
+        }
+    }
+
+    pub fn notify(&mut self, text: impl Into<String>, error: bool) {
+        self.toast = Some(Toast {
+            text: text.into(),
+            error,
+            shown_at: Instant::now(),
+        });
+    }
+
+    pub fn refresh_status(&mut self) {
+        let Some(workdir) = self.workdir.clone() else {
+            return;
+        };
+        if self.jobs.is_running("Checking changes") {
+            return;
+        }
+        self.jobs.spawn("Checking changes", move || {
+            JobOutput::Status(status::working_changes(&workdir))
+        });
+    }
+
+    pub fn reload(&mut self) {
+        if self.jobs.is_running("Reloading") {
+            return;
+        }
+        let dir = self.dir.clone();
+        self.jobs.spawn("Reloading", move || {
+            JobOutput::Reloaded(History::open(&dir).map(|(_, history)| Box::new(history)))
+        });
+    }
+
+    fn poll_jobs(&mut self) {
+        for output in self.jobs.finished() {
+            match output {
+                JobOutput::Status(Ok(changes)) => {
+                    self.wip = changes;
+                    if self.wip.is_empty() && self.selected == Some(Selection::Wip) {
+                        self.selected = None;
+                        if let Some(row) = self.head_row() {
+                            self.select(Selection::Commit(row));
+                        }
+                    }
+                }
+                JobOutput::Status(Err(e)) => self.notify(format!("{e:#}"), true),
+                JobOutput::Reloaded(Ok(history)) => self.replace_history(*history),
+                JobOutput::Reloaded(Err(e)) => self.notify(format!("Reload failed: {e:#}"), true),
+                JobOutput::CommitGraph(Ok(())) => {}
+                JobOutput::CommitGraph(Err(e)) => {
+                    self.notify(format!("Could not write commit-graph: {e:#}"), true)
+                }
+            }
+        }
+    }
+
+    fn replace_history(&mut self, history: History) {
+        let selected_id = match self.selected {
+            Some(Selection::Commit(row)) => Some(self.history.id(row)),
+            _ => None,
+        };
+        self.history = history;
+        self.graph.clear_cache();
+        let keep = self.selected == Some(Selection::Wip);
+        self.selected = None;
+        if keep {
+            self.select(Selection::Wip);
+        } else if let Some(row) = selected_id
+            .and_then(|id| self.history.row(&id))
+            .or_else(|| self.head_row())
+        {
+            self.select(Selection::Commit(row));
+        }
+    }
+
+    fn watch_focus(&mut self, ctx: &egui::Context) {
+        let focused = ctx.input(|i| i.focused);
+        if focused && self.was_focused == Some(false) {
+            self.refresh_status();
+            self.reload();
+        }
+        self.was_focused = Some(focused);
     }
 }
 
@@ -76,19 +255,7 @@ impl eframe::App for KelpApp {
         {
             self.state = match result {
                 Ok((repo, history, load_time)) => {
-                    let mut ready = Repo {
-                        repo,
-                        history,
-                        load_time,
-                        selected: None,
-                        details: None,
-                        graph: GraphView::new(),
-                        bench: ScrollBench::from_env(),
-                    };
-                    if let Some(row) = ready.history.refs.head.and_then(|h| ready.history.row(&h)) {
-                        ready.select(row);
-                    }
-                    State::Ready(Box::new(ready))
+                    State::Ready(Box::new(Repo::new(ui.ctx(), repo, history, load_time)))
                 }
                 Err(e) => State::Failed(format!("{e:#}")),
             };
@@ -109,7 +276,11 @@ impl eframe::App for KelpApp {
                 &format!("Could not open {}: {err}", self.path.display()),
                 theme::DELETED,
             ),
-            State::Ready(repo) => ready_ui(ui, repo, &self.path),
+            State::Ready(repo) => {
+                repo.poll_jobs();
+                repo.watch_focus(ui.ctx());
+                ready_ui(ui, repo, &self.path);
+            }
         }
     }
 }
@@ -120,7 +291,7 @@ fn centered(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
     });
 }
 
-fn ready_ui(ui: &mut egui::Ui, repo: &mut Repo, path: &std::path::Path) {
+fn ready_ui(ui: &mut egui::Ui, repo: &mut Repo, path: &Path) {
     handle_keys(ui, repo);
 
     egui::Panel::top("toolbar")
@@ -164,31 +335,53 @@ fn ready_ui(ui: &mut egui::Ui, repo: &mut Repo, path: &std::path::Path) {
 
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(theme::BG))
-        .show(ui, |ui| {
-            let Repo {
-                repo: git,
-                history,
-                selected,
-                graph,
-                bench,
-                ..
-            } = repo;
-            if let Some(bench) = bench {
-                graph.scroll_to = Some(bench.next_row(history.len()));
+        .show(ui, |ui| match &mut repo.center {
+            Center::Diff(view) => {
+                if view.ui(ui) {
+                    repo.center = Center::Graph;
+                }
             }
-            let started = Instant::now();
-            let action = graph.ui(ui, git, history, *selected);
-            if let Some(bench) = bench {
-                bench.record(ui.ctx(), started.elapsed());
-            }
-            if let Some(graph_view::Action::Select(row)) = action {
-                repo.select(row);
-            }
+            Center::Graph => graph_center(ui, repo),
         });
+
+    toast(ui, repo);
+}
+
+fn graph_center(ui: &mut egui::Ui, repo: &mut Repo) {
+    let head_row = repo.head_row();
+    let wip = (!repo.wip.is_empty()).then(|| graph_view::Wip {
+        head_row: head_row.unwrap_or(0),
+        changes: &repo.wip,
+    });
+    let Repo {
+        repo: git,
+        history,
+        selected,
+        graph,
+        bench,
+        ..
+    } = repo;
+    if let Some(bench) = bench {
+        graph.scroll_to = Some(Selection::Commit(bench.next_row(history.len())));
+    }
+    let started = Instant::now();
+    let action = graph.ui(ui, git, history, *selected, wip);
+    if let Some(bench) = bench {
+        bench.record(ui.ctx(), started.elapsed());
+    }
+    if let Some(graph_view::Action::Select(selection)) = action {
+        repo.select(selection);
+    }
 }
 
 fn handle_keys(ui: &egui::Ui, repo: &mut Repo) {
     if ui.ctx().egui_wants_keyboard_input() || repo.history.is_empty() {
+        return;
+    }
+    if matches!(repo.center, Center::Diff(_)) {
+        if ui.input(|i| i.key_pressed(Key::Escape)) {
+            repo.center = Center::Graph;
+        }
         return;
     }
     let (down, up) = ui.input(|i| {
@@ -197,16 +390,36 @@ fn handle_keys(ui: &egui::Ui, repo: &mut Repo) {
             i.key_pressed(Key::ArrowUp) || i.key_pressed(Key::K),
         )
     });
-    let current = repo.selected.unwrap_or(0);
-    let last = repo.history.len() - 1;
-    if down {
-        repo.reveal((current + 1).min(last));
-    } else if up {
-        repo.reveal(current.saturating_sub(1));
+    if !down && !up {
+        return;
     }
+    let has_wip = !repo.wip.is_empty();
+    let head = repo.head_row().unwrap_or(0);
+    let order = |s: Selection| -> usize {
+        match s {
+            Selection::Wip => head,
+            Selection::Commit(r) if has_wip && r >= head => r + 1,
+            Selection::Commit(r) => r,
+        }
+    };
+    let from_order = |d: usize| -> Selection {
+        match d {
+            d if has_wip && d == head => Selection::Wip,
+            d if has_wip && d > head => Selection::Commit(d - 1),
+            d => Selection::Commit(d),
+        }
+    };
+    let total = repo.history.len() + has_wip as usize;
+    let current = repo.selected.map(order).unwrap_or(0);
+    let next = if down {
+        (current + 1).min(total - 1)
+    } else {
+        current.saturating_sub(1)
+    };
+    repo.reveal(from_order(next));
 }
 
-fn toolbar(ui: &mut egui::Ui, repo: &Repo, path: &std::path::Path) {
+fn toolbar(ui: &mut egui::Ui, repo: &Repo, path: &Path) {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -263,6 +476,13 @@ fn status_bar(ui: &mut egui::Ui, repo: &Repo) {
                 .size(11.0)
                 .color(theme::TEXT_MUTED),
         );
+        for job in repo.jobs.running() {
+            ui.label(
+                RichText::new(format!("{job}…"))
+                    .size(11.0)
+                    .color(theme::ACCENT),
+            );
+        }
         let rect = ui.max_rect();
         ui.painter().text(
             rect.right_center(),
@@ -272,4 +492,35 @@ fn status_bar(ui: &mut egui::Ui, repo: &Repo) {
             theme::ACCENT,
         );
     });
+}
+
+const TOAST_SECONDS: f32 = 5.0;
+
+fn toast(ui: &mut egui::Ui, repo: &mut Repo) {
+    let Some(toast) = &repo.toast else { return };
+    let age = toast.shown_at.elapsed().as_secs_f32();
+    if age > TOAST_SECONDS {
+        repo.toast = None;
+        return;
+    }
+    ui.ctx()
+        .request_repaint_after(Duration::from_secs_f32(TOAST_SECONDS - age));
+    let color = if toast.error {
+        theme::DELETED
+    } else {
+        theme::ADDED
+    };
+    egui::Area::new(egui::Id::new("toast"))
+        .anchor(Align2::CENTER_BOTTOM, egui::vec2(0.0, -40.0))
+        .show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgb(0x23, 0x28, 0x33))
+                .stroke(Stroke::new(1.0, theme::with_alpha(color, 0x99)))
+                .corner_radius(8)
+                .inner_margin(Margin::symmetric(14, 10))
+                .show(ui, |ui| {
+                    ui.set_max_width(520.0);
+                    ui.label(RichText::new(&toast.text).color(theme::TEXT_STRONG));
+                });
+        });
 }
