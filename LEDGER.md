@@ -5,11 +5,26 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** M3 (branches).
-- **Done:** M0, M1, M2.
-- **Next up:** toolbar actions, branch and commit context menus, dialogs.
+- **Current milestone:** M5 (file tree and review comments).
+- **Done:** M0, M1, M2, M3, M4.
+- **Next up:** tree mode for changed files, full file view, inline
+  review comments stored in `.git/kelp/`, Markdown export.
 
 ## 2026-09-27
+
+- **M3 and M4 done** (built together, they share dialogs and plumbing).
+  - `Op` type in core describes every git write once; the same value
+    drives the dialog preview, the job, and the tests.
+  - Toolbar (Fetch, Pull, Push, Branch, Worktree, Stash, Pop), right-click
+    menus everywhere, dialogs with command previews, toasts.
+  - Worktrees page and sidebar section, new/remove/prune, open in
+    terminal, open in a new tab. Repo tabs with a folder picker.
+  - Round-trip tests against scratch repos: branch lifecycle, forced
+    delete, stash push/pop, worktree add/list/remove/prune,
+    ahead/behind vs a real upstream. All pass.
+  - Visual check on a demo clone with 3 worktrees and a stash.
+  - Skipped on purpose: Undo/Redo from the design (not in the asked
+    scope, and risky to fake).
 
 - **M1 done.**
   - Diff view for commits and uncommitted changes (hunks, line numbers,
