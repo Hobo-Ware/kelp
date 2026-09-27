@@ -114,7 +114,7 @@
   h2{margin-top:10px;font-size:clamp(28px,4vw,42px);line-height:1.12;letter-spacing:-.02em;color:var(--strong);font-weight:700}
   .sub{margin-top:12px;font-size:17px;color:var(--muted);max-width:640px}
 
-  .grid{margin-top:40px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+  .grid{margin-top:40px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
   @media(max-width:980px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
   @media(max-width:560px){.grid{grid-template-columns:1fr}}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
@@ -212,7 +212,7 @@
 <div class="wrap">
   <div class="window">
     <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
-    <img src="shot-graph.png" width="2200" height="1375" alt="Kelp showing git/git's commit graph: colored lanes with rounded merges, author avatars, branch labels and the details of a selected commit">
+    <img src="shot-graph.png" width="2200" height="1375" alt="Kelp showing a project's commit graph: colored lanes for feature branches with rounded merges, author avatars, branch and tag labels and the details of a selected commit">
   </div>
 </div>
 
@@ -252,6 +252,10 @@
     <div class="card">
       <svg viewBox="0 0 24 24" fill="none" stroke="#9fd4e8" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
       <h3>Updates itself</h3><p>Installed with Homebrew, Kelp picks up new releases in the background and asks you to restart when it's ready.</p>
+    </div>
+    <div class="card">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#a6d189" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/></svg>
+      <h3>Always current</h3><p>Commit from the terminal or let a teammate push: the graph updates on its own, with a quiet background fetch every few minutes.</p>
     </div>
   </div>
 
