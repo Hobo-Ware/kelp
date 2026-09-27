@@ -18,6 +18,7 @@ pub struct KelpApp {
     screenshot: Option<DevScreenshot>,
     settings: Settings,
     show_settings: bool,
+    titlebar_unified: bool,
     started: Instant,
     ctx: egui::Context,
     updater: crate::updater::Updater,
@@ -82,6 +83,7 @@ impl KelpApp {
             screenshot: DevScreenshot::from_env(),
             settings: Settings::load(),
             show_settings: std::env::var_os("KELP_OPEN_SETTINGS").is_some(),
+            titlebar_unified: false,
             started: Instant::now(),
             updater: crate::updater::Updater::new(ctx.clone()),
             ctx: ctx.clone(),
@@ -117,15 +119,20 @@ impl KelpApp {
         let mut close = None;
         let mut pick_folder = false;
         egui::Panel::top("tabs")
-            .exact_size(36.0)
+            .exact_size(TAB_STRIP_H)
             .frame(
                 egui::Frame::new()
                     .fill(Color32::from_rgb(0x0f, 0x11, 0x15))
                     .inner_margin(Margin::symmetric(10, 0)),
             )
             .show(ui, |ui| {
+                window_drag_area(ui);
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
+                    let fullscreen = ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
+                    if cfg!(target_os = "macos") && !fullscreen {
+                        ui.add_space(crate::macos::TRAFFIC_LIGHTS_W - 10.0);
+                    }
                     kelp_mark(ui);
                     ui.add_space(10.0);
                     for (i, tab) in self.tabs.iter().enumerate() {
@@ -137,8 +144,13 @@ impl KelpApp {
                             theme::TEXT,
                         );
                         let w = galley.size().x + 50.0;
-                        let (rect, response) =
-                            ui.allocate_exact_size(vec2(w, 30.0), Sense::click());
+                        let (slot, _) =
+                            ui.allocate_exact_size(vec2(w, TAB_STRIP_H), Sense::hover());
+                        let rect = egui::Rect::from_min_max(
+                            egui::pos2(slot.left(), slot.bottom() - TAB_H),
+                            slot.max,
+                        );
+                        let response = ui.interact(rect, ui.id().with(("tab", i)), Sense::click());
                         let painter = ui.painter_at(rect);
                         if active {
                             painter.rect_filled(
@@ -249,6 +261,22 @@ impl KelpApp {
     }
 }
 
+fn window_drag_area(ui: &egui::Ui) {
+    let bar = ui.interact(
+        ui.max_rect(),
+        egui::Id::new("window-drag"),
+        Sense::click_and_drag(),
+    );
+    if bar.drag_started() {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+    if bar.double_clicked() {
+        let maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+    }
+}
+
 fn kelp_mark(ui: &mut egui::Ui) {
     let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
     let p = |x: f32, y: f32| rect.min + vec2(x, y) * (18.0 / 56.0);
@@ -283,8 +311,12 @@ fn kelp_mark(ui: &mut egui::Ui) {
 }
 
 impl eframe::App for KelpApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        if !self.titlebar_unified {
+            crate::macos::unify_titlebar(frame);
+            self.titlebar_unified = true;
+        }
         for tab in &mut self.tabs {
             if let State::Loading(rx) = &tab.state
                 && let Ok(result) = rx.try_recv()
@@ -375,6 +407,8 @@ impl eframe::App for KelpApp {
 }
 
 const HELLO_SECONDS: f32 = 4.0;
+const TAB_STRIP_H: f32 = 40.0;
+const TAB_H: f32 = 32.0;
 const MASCOT_SIZE: f32 = 220.0;
 
 struct MascotScreen<'a> {
