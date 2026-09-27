@@ -161,8 +161,11 @@ How:
 - egui runs in reactive mode: no repaint unless there is input or a
   background task finished.
 - No animations that run in a loop.
-- File watching (to spot outside changes) is debounced, and paused
-  while the window is hidden.
+- File watching (to spot outside changes) uses FSEvents, waits for a
+  burst of events to settle (400 ms), and skips git-ignored files, so a
+  build writing to `target/` wakes nothing.
+- Auto-fetch runs every few minutes (default 5, off in Settings) as a
+  background job; between fetches the app sleeps.
 
 ## Milestones
 
@@ -189,9 +192,11 @@ Each milestone ends with a check we can actually run.
   (double-click resets) and scrolls sideways when there are more lanes
   than fit. (2026-09-27)
 - **License:** MIT, confirmed by the user. (2026-09-27)
-- **External changes:** instead of always-on file watching, Kelp reloads
-  refs and status when the window regains focus. Cheaper on power.
-  (2026-09-27)
+- **External changes:** Kelp watches the work tree and git folders and
+  reloads refs or status on its own, plus a background `git fetch --all
+  --prune` every 5 minutes (1, 5, 15 or 30 in Settings) so pushes from
+  others show up. Focus reload stays as a fallback. Replaces the earlier
+  focus-only choice at the user's request. (2026-09-27)
 
 Status: M0 to M6 done on 2026-09-27. Details and numbers in
 [LEDGER.md](LEDGER.md).

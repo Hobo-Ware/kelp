@@ -49,6 +49,9 @@ folder if it is a repo.
   commit and amend (hooks run as usual).
 - **Stashes:** stash, pop, apply, drop.
 - **Search:** Cmd+F across messages, authors, emails and hash prefixes.
+- **Stays current:** changes made from the command line or another app
+  show up on their own, and remotes are fetched in the background every
+  5 minutes (change or turn off in Settings).
 
 ## Keys
 

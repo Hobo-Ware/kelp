@@ -39,7 +39,13 @@ impl WorkingStatus {
 pub fn working_status(workdir: &Path) -> anyhow::Result<WorkingStatus> {
     let out = git_cli::run(
         workdir,
-        &["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        &[
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+        ],
     )?;
     Ok(parse_porcelain(&out))
 }

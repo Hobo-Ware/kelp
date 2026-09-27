@@ -98,7 +98,13 @@ pub fn parse_ahead_behind(out: &str) -> Option<(usize, usize)> {
 pub fn change_count(dir: &Path) -> Option<usize> {
     let out = git_cli::run(
         dir,
-        &["status", "--porcelain=v1", "-z", "--untracked-files=normal"],
+        &[
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=normal",
+        ],
     )
     .ok()?;
     Some(crate::status::parse_porcelain(&out).all().len())
