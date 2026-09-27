@@ -31,7 +31,10 @@ folder if it is a repo.
 - **Graph:** lanes with rounded corners, rows tinted in the branch
   color, avatars (GitHub, then Gravatar, then generated initials),
   branch and tag labels. Drag the graph column edge to resize; scroll
-  sideways for wide histories.
+  sideways for wide histories. Hover a commit to light up its path to
+  the branch tip and see its full message, author, date and hash.
+  Uncommitted changes show up for every worktree, each above its own
+  HEAD, with an Open button for the other worktrees.
 - **Labels you can use:** click a branch or tag label to select its
   commit, right-click for its menu, double-click to check it out. The
   `+N` chip lists every ref on that commit, each with its own menu.
@@ -145,6 +148,7 @@ Developer switches (environment variables):
 | `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`), `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`), `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
+| `KELP_HOVER_ROW=<row>` | Draw the graph as if that commit row were hovered |
 | `KELP_OPEN_REBASE=<rev>` (or `<rev>:<letters>`, e.g. `HEAD~4:prsd`) | Open interactive rebase from a commit, optionally with actions preset |
 
 The plan, design rules and decisions are in [PLAN.md](PLAN.md); progress

@@ -153,5 +153,6 @@ pub fn apply(ctx: &egui::Context) {
         s.scroll = egui::style::ScrollStyle::floating();
         s.scroll.bar_width = 8.0;
         s.scroll.floating_allocated_width = 0.0;
+        style.interaction.tooltip_delay = 0.4;
     });
 }

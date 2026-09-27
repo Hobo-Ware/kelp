@@ -12,9 +12,12 @@ use kelp_core::commit::{self, ChangeKind, FileChange, Summary};
 use kelp_core::graph::EdgeKind;
 use kelp_core::history::History;
 use kelp_core::refs::RefLabel;
+use kelp_core::workspace::Worktree;
 
 use crate::avatars::AvatarStore;
 use crate::commands::Command;
+use crate::graph_hover::{HoverPath, VisiblePath};
+use crate::graph_rows::{Row, RowMap};
 use crate::ref_labels::{self, DropPlan, DropTarget, LabelEvent, MenuFor};
 use crate::repo_view::Selection;
 use crate::theme;
@@ -31,13 +34,17 @@ const MIN_GRAPH_W: f32 = 80.0;
 const DEFAULT_MAX_LANES: f32 = 14.0;
 const HEADER_H: f32 = 28.0;
 const WIP_GREY: Color32 = Color32::from_rgb(0x3a, 0x41, 0x50);
+const HOVER_LINE_W: f32 = 3.5;
+const OFF_PATH_OPACITY: f32 = 0.45;
+const OPEN_BUTTON_W: f32 = 56.0;
 
 pub struct GraphView {
     summaries: HashMap<usize, Summary>,
     pub scroll_to: Option<Selection>,
     graph_w: Option<f32>,
     lane_offset: f32,
-    context: Option<Selection>,
+    context: Option<Row>,
+    hover: Option<(usize, HoverPath)>,
     drag: Option<ref_labels::Drag>,
     drop: Option<DropPlan>,
 }
@@ -50,6 +57,7 @@ pub struct GraphInput<'a> {
     pub wip: Option<Wip<'a>>,
     pub lit: Option<&'a [bool]>,
     pub descriptions: bool,
+    pub other_wips: &'a [OtherWip<'a>],
 }
 
 #[derive(Clone, Copy)]
@@ -65,38 +73,22 @@ pub struct Wip<'a> {
     pub changes: &'a [FileChange],
 }
 
+pub struct OtherWip<'a> {
+    pub head_row: usize,
+    pub tree: &'a Worktree,
+    pub changes: usize,
+}
+
 pub enum Action {
     Select(Selection),
     Command(Command),
 }
 
-#[derive(Clone, Copy)]
-struct RowMap {
-    wip_at: Option<usize>,
-    commits: usize,
-}
-
-impl RowMap {
-    fn total(&self) -> usize {
-        self.commits + self.wip_at.is_some() as usize
-    }
-
-    fn resolve(&self, display: usize) -> Selection {
-        match self.wip_at {
-            Some(w) if display == w => Selection::Wip,
-            Some(w) if display > w => Selection::Commit(display - 1),
-            _ => Selection::Commit(display),
-        }
-    }
-
-    fn display(&self, selection: Selection) -> usize {
-        match (selection, self.wip_at) {
-            (Selection::Wip, Some(w)) => w,
-            (Selection::Wip, None) => 0,
-            (Selection::Commit(r), Some(w)) if r >= w => r + 1,
-            (Selection::Commit(r), _) => r,
-        }
-    }
+#[derive(Clone, Copy, PartialEq)]
+enum OnPath {
+    NoHover,
+    Yes,
+    No,
 }
 
 impl GraphView {
@@ -109,6 +101,7 @@ impl GraphView {
             context: None,
             drag: None,
             drop: None,
+            hover: None,
         }
     }
 
@@ -131,6 +124,7 @@ impl GraphView {
             wip,
             lit,
             descriptions,
+            other_wips,
         } = input;
         let content_w = history.layout.lane_count() as f32 * LANE_W + GRAPH_PAD * 2.0;
         let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
@@ -140,10 +134,12 @@ impl GraphView {
         let msg_x = LABELS_W + graph_w;
         self.header(ui, msg_x, auto_w, content_w > graph_w);
 
-        let map = RowMap {
-            wip_at: wip.as_ref().map(|w| w.head_row),
-            commits: history.len(),
-        };
+        let other_heads: Vec<usize> = other_wips.iter().map(|w| w.head_row).collect();
+        let map = RowMap::new(
+            history.len(),
+            wip.as_ref().map(|w| w.head_row),
+            &other_heads,
+        );
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
@@ -151,7 +147,7 @@ impl GraphView {
         let mut scroll = egui::ScrollArea::vertical().auto_shrink(false);
         if let Some(selection) = self.scroll_to.take() {
             let visible = ui.available_height();
-            let target = (map.display(selection) as f32 * ROW_H - visible / 3.0).max(0.0);
+            let target = (map.display_of(selection) as f32 * ROW_H - visible / 3.0).max(0.0);
             scroll = scroll.vertical_scroll_offset(target);
         }
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -162,9 +158,10 @@ impl GraphView {
         let drop = &mut self.drop;
         let open_refs = std::env::var("KELP_OPEN_REFS").ok();
         let open_drop = std::env::var("KELP_OPEN_DROP").ok();
+        let hover = &mut self.hover;
         scroll.show_rows(ui, ROW_H, map.total(), |ui, rows| {
             for display in rows.clone() {
-                if let Selection::Commit(row) = map.resolve(display) {
+                if let Row::Commit(row) = map.resolve(display) {
                     summaries.entry(row).or_insert_with(|| {
                         let summary = load_summary(repo, history, row);
                         crate::fonts::ensure_fallback(ui.ctx(), &summary.title);
@@ -183,9 +180,39 @@ impl GraphView {
                     *lane_offset = (*lane_offset - dx).clamp(0.0, (content_w - graph_w).max(0.0));
                 }
             }
+            let row_at = |y: f32| {
+                let display = rows.start + ((y - rect.top()) / ROW_H) as usize;
+                map.resolve(display.min(map.total().saturating_sub(1)))
+            };
+            let hovered_row = forced_hover_row().or_else(|| {
+                response
+                    .hover_pos()
+                    .filter(|_| !response.context_menu_opened())
+                    .and_then(|pos| match row_at(pos.y) {
+                        Row::Commit(row) => Some(row),
+                        _ => None,
+                    })
+            });
+            match hovered_row {
+                Some(row) if hover.as_ref().is_none_or(|(r, _)| *r != row) => {
+                    *hover = Some((row, trace_hover(history, row)));
+                }
+                None => *hover = None,
+                _ => {}
+            }
+            let first_commit = (rows.start..rows.end)
+                .find_map(|d| match map.resolve(d) {
+                    Row::Commit(row) => Some(row),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            let visible_path = hover
+                .as_ref()
+                .map(|(_, path)| path.visible(first_commit..first_commit + rows.len() + 1));
             let painter = ui.painter_at(rect);
             let mut label_events = Vec::new();
             let mut label_hits: Vec<(Rect, usize, RefLabel)> = Vec::new();
+            let mut open_buttons = Vec::new();
             for (i, display) in rows.clone().enumerate() {
                 let geo = RowGeo {
                     left: rect.left(),
@@ -194,18 +221,47 @@ impl GraphView {
                     msg_x,
                     lane_offset: *lane_offset,
                 };
-                let selection = map.resolve(display);
-                let is_selected = selected == Some(selection);
-                match (selection, &wip) {
-                    (Selection::Wip, Some(wip)) => {
-                        paint_wip_row(&painter, &geo, history, wip, is_selected)
+                let row_kind = map.resolve(display);
+                let is_selected =
+                    row_kind.selection().is_some() && row_kind.selection() == selected;
+                if let Row::Commit(row) = row_kind
+                    && hover.as_ref().is_some_and(|(h, _)| *h == row)
+                    && !is_selected
+                {
+                    let band =
+                        Rect::from_x_y_ranges(geo.msg_left()..=geo.right, geo.top..=geo.bottom());
+                    painter.rect_filled(band, 0.0, theme::with_alpha(Color32::WHITE, 0x06));
+                }
+                let on_path = |row: usize| match &visible_path {
+                    None => OnPath::NoHover,
+                    Some(path) if path.contains(row) => OnPath::Yes,
+                    Some(_) => OnPath::No,
+                };
+                match (row_kind, &wip) {
+                    (Row::CurrentWip, Some(wip)) => {
+                        let label = WipLabel {
+                            owner: "this worktree".into(),
+                            counts: counts_label(wip.changes),
+                        };
+                        paint_wip_row(&painter, &geo, history, wip.head_row, &label, is_selected);
                     }
-                    (Selection::Commit(row), _) => {
-                        let dashed_top = map.wip_at == Some(row);
+                    (Row::OtherWip(i), _) => {
+                        let other = &other_wips[i];
+                        let label = WipLabel {
+                            owner: other.tree.name(),
+                            counts: format!("{} changed", other.changes),
+                        };
+                        paint_wip_row(&painter, &geo, history, other.head_row, &label, false);
+                        let button = open_button_rect(&geo);
+                        let hot = response.hover_pos().is_some_and(|p| button.contains(p));
+                        paint_open_button(&painter, button, hot);
+                        open_buttons.push((button, other.tree.path.clone()));
+                    }
+                    (Row::Commit(row), _) => {
                         let avatar = avatars.texture(&summaries[&row].email, history.id(row));
                         let style = RowStyle {
                             selected: is_selected,
-                            dashed_top,
+                            dashed_top: map.has_wip_above(row),
                             faded: lit.is_some_and(|l| !l.get(row).copied().unwrap_or(true)),
                             descriptions,
                         };
@@ -213,10 +269,14 @@ impl GraphView {
                             &painter,
                             &geo,
                             history,
-                            row,
-                            &summaries[&row],
-                            avatar,
-                            style,
+                            RowPaint {
+                                row,
+                                summary: &summaries[&row],
+                                avatar,
+                                style,
+                                path: visible_path.as_ref(),
+                                on_path: on_path(row),
+                            },
                             now,
                         );
                         let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
@@ -234,21 +294,21 @@ impl GraphView {
                         );
                         label_events.extend(events.into_iter().map(|e| (row, e)));
                     }
-                    (Selection::Wip, None) => {}
+                    (Row::CurrentWip, None) => {}
                 }
             }
-            let row_at = |pos: Pos2| -> Option<usize> {
+            let commit_at = |pos: Pos2| -> Option<usize> {
                 if !rect.contains(pos) {
                     return None;
                 }
                 let display = rows.start + ((pos.y - rect.top()) / ROW_H) as usize;
                 match map.resolve(display.min(map.total().saturating_sub(1))) {
-                    Selection::Commit(row) => Some(row),
-                    Selection::Wip => None,
+                    Row::Commit(row) => Some(row),
+                    _ => None,
                 }
             };
             let target_at = |pos: Pos2| -> Option<DropTarget> {
-                let row = row_at(pos)?;
+                let row = commit_at(pos)?;
                 let label = label_hits
                     .iter()
                     .find(|(r, hit_row, _)| *hit_row == row && r.contains(pos))
@@ -288,8 +348,8 @@ impl GraphView {
             }
             if let Some(dragged) = drag.as_ref() {
                 if let Some(pos) = ui.ctx().pointer_latest_pos() {
-                    if let Some(target) = row_at(pos) {
-                        let display = map.display(Selection::Commit(target));
+                    if let Some(target) = commit_at(pos) {
+                        let display = map.display(Row::Commit(target));
                         if rows.contains(&display) {
                             let top = rect.top() + (display - rows.start) as f32 * ROW_H;
                             let row_rect = Rect::from_x_y_ranges(
@@ -318,14 +378,11 @@ impl GraphView {
                 && let Some((_, _, source_label)) =
                     label_hits.iter().find(|(_, _, l)| l.name == source)
                 && let Some(row) = rows.clone().find_map(|display| match map.resolve(display) {
-                    Selection::Commit(row) if history.id(row).to_string().starts_with(rev) => {
-                        Some(row)
-                    }
+                    Row::Commit(row) if history.id(row).to_string().starts_with(rev) => Some(row),
                     _ => None,
                 })
             {
-                let top =
-                    rect.top() + (map.display(Selection::Commit(row)) - rows.start) as f32 * ROW_H;
+                let top = rect.top() + (map.display(Row::Commit(row)) - rows.start) as f32 * ROW_H;
                 let label = label_hits
                     .iter()
                     .find(|(_, hit_row, l)| *hit_row == row && l.name != source)
@@ -342,30 +399,61 @@ impl GraphView {
                 });
                 egui::Popup::open_id(ui.ctx(), drop_menu_id());
             }
-            if (response.clicked() || response.secondary_clicked())
+            let clicked_at = response
+                .interact_pointer_pos()
+                .filter(|_| response.clicked() || response.double_clicked());
+            if let Some((_, path)) =
+                clicked_at.and_then(|pos| open_buttons.iter().find(|(r, _)| r.contains(pos)))
+            {
+                action = Some(Action::Command(Command::OpenRepo(path.clone())));
+            } else if (response.clicked() || response.secondary_clicked())
                 && let Some(pos) = response.interact_pointer_pos()
             {
-                let display = rows.start + ((pos.y - rect.top()) / ROW_H) as usize;
-                let selection = map.resolve(display.min(map.total().saturating_sub(1)));
-                action = Some(Action::Select(selection));
-                if response.secondary_clicked() {
-                    *context = Some(selection);
+                let row = row_at(pos.y);
+                if let Some(selection) = row.selection() {
+                    action = Some(Action::Select(selection));
                 }
+                if response.secondary_clicked() {
+                    *context = Some(row);
+                }
+            } else if response.double_clicked()
+                && let Some(pos) = response.interact_pointer_pos()
+                && let Row::OtherWip(i) = row_at(pos.y)
+            {
+                action = Some(Action::Command(Command::OpenRepo(
+                    other_wips[i].tree.path.clone(),
+                )));
             }
-            if let Some(selection) = *context {
-                let title = match selection {
-                    Selection::Commit(row) => summaries
-                        .get(&row)
-                        .map(|s| s.title.clone())
-                        .unwrap_or_default(),
-                    Selection::Wip => String::new(),
-                };
-                response.context_menu(|ui| menu(ui, MenuFor::Commit(selection, &title)));
+            if let Some(row) = *context {
+                response.context_menu(|ui| match row {
+                    Row::Commit(commit) => {
+                        let title = summaries
+                            .get(&commit)
+                            .map(|s| s.title.clone())
+                            .unwrap_or_default();
+                        menu(ui, MenuFor::Commit(Selection::Commit(commit), &title));
+                    }
+                    Row::CurrentWip => menu(ui, MenuFor::Commit(Selection::Wip, "")),
+                    Row::OtherWip(i) => {
+                        if let Some(other) = other_wips.get(i) {
+                            menu(ui, MenuFor::Worktree(other.tree));
+                        }
+                    }
+                });
+            }
+            if let Some((row, _)) = hover.as_ref()
+                && let Some(summary) = summaries.get(row)
+                && !response.context_menu_opened()
+            {
+                let id = history.id(*row);
+                response
+                    .clone()
+                    .on_hover_ui_at_pointer(|ui| commit_tooltip(ui, summary, id, now));
             }
             if std::env::var("KELP_OPEN_MENU").as_deref() == Ok("commit")
                 && let Some(selection) = selected
             {
-                let top = rect.top() + (map.display(selection) - rows.start) as f32 * ROW_H;
+                let top = rect.top() + (map.display_of(selection) - rows.start) as f32 * ROW_H;
                 let title = match selection {
                     Selection::Commit(row) => summaries[&row].title.clone(),
                     Selection::Wip => String::new(),
@@ -499,17 +587,30 @@ impl RowGeo {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+struct RowPaint<'a> {
+    row: usize,
+    summary: &'a Summary,
+    avatar: Option<egui::TextureId>,
+    style: RowStyle,
+    path: Option<&'a VisiblePath<'a>>,
+    on_path: OnPath,
+}
+
 fn paint_row(
     painter: &egui::Painter,
     geo: &RowGeo,
     history: &History,
-    row: usize,
-    summary: &Summary,
-    avatar: Option<egui::TextureId>,
-    style: RowStyle,
+    paint: RowPaint<'_>,
     now: i64,
 ) -> Vec<ref_labels::Placed> {
+    let RowPaint {
+        row,
+        summary,
+        avatar,
+        style,
+        path,
+        on_path,
+    } = paint;
     let RowStyle {
         selected,
         dashed_top,
@@ -528,6 +629,9 @@ fn paint_row(
     let mut graph_soft = graph.clone();
     if faded {
         graph_soft.multiply_opacity(0.35);
+    }
+    if on_path == OnPath::No {
+        graph_soft.multiply_opacity(OFF_PATH_OPACITY + 0.3);
     }
 
     let band_left = node.x.max(geo.graph_left());
@@ -559,7 +663,12 @@ fn paint_row(
         if edge.kind == EdgeKind::Pass && !geo.lane_visible(edge.lane) {
             continue;
         }
-        let stroke = Stroke::new(LINE_W, theme::lane(edge.color));
+        let lane_color = theme::lane(edge.color);
+        let stroke = match path.map(|p| p.carries(row, edge)) {
+            None => Stroke::new(LINE_W, lane_color),
+            Some(true) => Stroke::new(HOVER_LINE_W, lane_color),
+            Some(false) => Stroke::new(LINE_W, lane_color.gamma_multiply(OFF_PATH_OPACITY)),
+        };
         let x = geo.lane_x(edge.lane);
         match edge.kind {
             EdgeKind::Pass => {
@@ -603,16 +712,39 @@ fn paint_row(
     placed
 }
 
+struct WipLabel {
+    owner: String,
+    counts: String,
+}
+
+fn counts_label(changes: &[FileChange]) -> String {
+    let count = |k: ChangeKind| changes.iter().filter(|c| c.kind == k).count();
+    [
+        (
+            count(ChangeKind::Modified) + count(ChangeKind::Renamed),
+            "modified",
+        ),
+        (count(ChangeKind::Added), "added"),
+        (count(ChangeKind::Deleted), "deleted"),
+    ]
+    .into_iter()
+    .filter(|(n, _)| *n > 0)
+    .map(|(n, label)| format!("{n} {label}"))
+    .collect::<Vec<_>>()
+    .join(" · ")
+}
+
 fn paint_wip_row(
     painter: &egui::Painter,
     geo: &RowGeo,
     history: &History,
-    wip: &Wip<'_>,
+    head_row: usize,
+    label: &WipLabel,
     selected: bool,
 ) {
     let layout = &history.layout;
-    let head_lane = layout.node_lane(wip.head_row);
-    let head_color = theme::lane(layout.node_color(wip.head_row));
+    let head_lane = layout.node_lane(head_row);
+    let head_color = theme::lane(layout.node_color(head_row));
     let node = pos2(geo.lane_x(head_lane), geo.mid());
     let graph = geo.graph_clip(painter);
 
@@ -625,7 +757,7 @@ fn paint_wip_row(
         let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
         painter.rect_filled(bg, 0.0, theme::SELECTED_ROW);
     }
-    for edge in layout.edges(wip.head_row) {
+    for edge in layout.edges(head_row) {
         let from_above = matches!(edge.kind, EdgeKind::Pass | EdgeKind::Top | EdgeKind::JoinIn);
         if from_above && geo.lane_visible(edge.lane) {
             let x = geo.lane_x(edge.lane);
@@ -650,27 +782,8 @@ fn paint_wip_row(
         3.0,
         2.5,
     ));
-    graph.text(
-        node,
-        Align2::CENTER_CENTER,
-        "+",
-        FontId::proportional(13.0),
-        head_color,
-    );
+    paint_plus(&graph, node, 4.0, head_color);
 
-    let count = |k: ChangeKind| wip.changes.iter().filter(|c| c.kind == k).count();
-    let parts: Vec<String> = [
-        (
-            count(ChangeKind::Modified) + count(ChangeKind::Renamed),
-            "modified",
-        ),
-        (count(ChangeKind::Added), "added"),
-        (count(ChangeKind::Deleted), "deleted"),
-    ]
-    .into_iter()
-    .filter(|(n, _)| *n > 0)
-    .map(|(n, label)| format!("{n} {label}"))
-    .collect();
     let mut job = LayoutJob::default();
     let italic = TextFormat {
         italics: true,
@@ -678,7 +791,12 @@ fn paint_wip_row(
     };
     job.append("Uncommitted changes", 0.0, italic);
     job.append(
-        &parts.join(" · "),
+        &format!(" · {}", label.owner),
+        0.0,
+        TextFormat::simple(FontId::proportional(13.0), theme::TEXT_MUTED),
+    );
+    job.append(
+        &label.counts,
         10.0,
         TextFormat::simple(FontId::proportional(13.0), theme::TEXT_FAINT),
     );
@@ -687,6 +805,93 @@ fn paint_wip_row(
         pos2(geo.msg_left() + 15.0, geo.mid() - galley.size().y / 2.0),
         galley,
         theme::TEXT,
+    );
+}
+
+fn paint_plus(painter: &egui::Painter, center: Pos2, half: f32, color: Color32) {
+    let stroke = Stroke::new(1.6, color);
+    painter.line_segment([center - vec2(half, 0.0), center + vec2(half, 0.0)], stroke);
+    painter.line_segment([center - vec2(0.0, half), center + vec2(0.0, half)], stroke);
+}
+
+fn open_button_rect(geo: &RowGeo) -> Rect {
+    Rect::from_min_size(
+        pos2(geo.right - OPEN_BUTTON_W - 14.0, geo.top + 5.0),
+        vec2(OPEN_BUTTON_W, ROW_H - 10.0),
+    )
+}
+
+fn paint_open_button(painter: &egui::Painter, rect: Rect, hot: bool) {
+    let (fill, text) = if hot {
+        (theme::CONTROL_HOVER, theme::TEXT_STRONG)
+    } else {
+        (theme::CONTROL, theme::TEXT)
+    };
+    painter.rect(
+        rect,
+        CornerRadius::same(5),
+        fill,
+        Stroke::new(1.0, theme::BORDER),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        "Open",
+        FontId::proportional(12.0),
+        text,
+    );
+}
+
+fn forced_hover_row() -> Option<usize> {
+    std::env::var("KELP_HOVER_ROW").ok()?.parse().ok()
+}
+
+fn trace_hover(history: &History, row: usize) -> HoverPath {
+    HoverPath::toward_tip(
+        row,
+        |r| history.parents(r).first().copied(),
+        |r| history.refs.at_row(r).next().is_some(),
+        |r| history.layout.node_lane(r),
+    )
+}
+
+fn commit_tooltip(ui: &mut Ui, summary: &Summary, id: gix::ObjectId, now: i64) {
+    ui.set_max_width(420.0);
+    ui.spacing_mut().item_spacing.y = 4.0;
+    ui.label(
+        egui::RichText::new(&summary.title)
+            .family(theme::semibold())
+            .color(theme::TEXT_STRONG),
+    );
+    let body: Vec<&str> = summary
+        .body_preview
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .take(3)
+        .collect();
+    if !body.is_empty() {
+        ui.label(egui::RichText::new(body.join("\n")).color(theme::TEXT_MUTED));
+    }
+    ui.label(
+        egui::RichText::new(format!("{} <{}>", summary.author, summary.email))
+            .size(12.0)
+            .color(theme::TEXT),
+    );
+    ui.label(
+        egui::RichText::new(format!(
+            "{} · {}",
+            commit::calendar_time(summary.time),
+            commit::relative_time(summary.time, now)
+        ))
+        .size(12.0)
+        .color(theme::TEXT_FAINT),
+    );
+    ui.label(
+        egui::RichText::new(id.to_string())
+            .monospace()
+            .size(11.0)
+            .color(theme::TEXT_FAINT),
     );
 }
 
@@ -764,13 +969,13 @@ pub fn draw_avatar(
         None => {
             let (fill, ink) = theme::generated_avatar(email);
             painter.circle(center, radius, fill, Stroke::new(2.0, ring));
-            painter.text(
-                center,
-                Align2::CENTER_CENTER,
+            let galley = painter.layout_no_wrap(
                 avatar::initials(name),
                 FontId::new((radius * 0.8).max(8.0), theme::semibold()),
                 ink,
             );
+            let ink_center = galley.mesh_bounds.center().to_vec2();
+            painter.galley(center - ink_center, galley, ink);
         }
     }
 }
@@ -877,4 +1082,109 @@ fn paint_message(
         galley,
         theme::TEXT,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    use eframe::egui::{self, Event, Pos2, RawInput, Rect, vec2};
+    use kelp_core::history::History;
+
+    use super::{GraphInput, GraphView, HEADER_H, ROW_H};
+    use crate::avatars::AvatarStore;
+
+    fn scratch_repo(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kelp-graph-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |args: &[&str]| {
+            let ok = Command::new("git")
+                .current_dir(&dir)
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "t@example.com"]);
+        run(&["config", "user.name", "T"]);
+        for n in 0..3 {
+            std::fs::write(dir.join("a.txt"), n.to_string()).unwrap();
+            run(&["add", "."]);
+            run(&["commit", "-q", "-m", &format!("commit {n}")]);
+        }
+        dir
+    }
+
+    struct Harness {
+        ctx: egui::Context,
+        view: GraphView,
+        repo: gix::Repository,
+        history: History,
+        avatars: AvatarStore,
+    }
+
+    impl Harness {
+        fn frame(&mut self, events: Vec<Event>) {
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 400.0))),
+                events,
+                ..Default::default()
+            };
+            let Self {
+                ctx,
+                view,
+                repo,
+                history,
+                avatars,
+            } = self;
+            let _ = ctx.run_ui(input, |ui| {
+                let graph = GraphInput {
+                    repo,
+                    history,
+                    selected: None,
+                    head_row: Some(0),
+                    wip: None,
+                    lit: None,
+                    descriptions: false,
+                    other_wips: &[],
+                };
+                view.ui(ui, graph, avatars, |_, _| {});
+            });
+        }
+    }
+
+    #[test]
+    fn hovering_a_row_traces_its_path_to_the_branch_tip() {
+        let dir = scratch_repo("hover");
+        let (repo, history) = History::open(Path::new(&dir)).unwrap();
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut avatars = AvatarStore::new(ctx.clone(), None);
+        avatars.enabled = false;
+        let mut h = Harness {
+            ctx,
+            view: GraphView::new(),
+            repo,
+            history,
+            avatars,
+        };
+        h.frame(vec![]);
+        assert!(h.view.hover.is_none());
+
+        let pointer = Pos2::new(600.0, HEADER_H + ROW_H * 2.5);
+        h.frame(vec![Event::PointerMoved(pointer)]);
+        h.frame(vec![]);
+        let (row, path) = h.view.hover.as_ref().expect("a hovered row");
+        assert_eq!(*row, 2);
+        assert!((0..=2).all(|r| path.contains(r)));
+
+        h.frame(vec![Event::PointerGone]);
+        assert!(h.view.hover.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
