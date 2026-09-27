@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align2, Color32, FontId, Key, Margin, RichText, Sense, Stroke, vec2};
 use kelp_core::commit::{self, Details, FileChange};
+use kelp_core::conflict::{self, InProgress};
 use kelp_core::history::History;
 use kelp_core::ops::{self, Op};
 use kelp_core::refs::RefKind;
@@ -16,6 +17,7 @@ use kelp_core::{git_cli, status};
 
 use crate::avatars::AvatarStore;
 use crate::commands::Command;
+use crate::conflict_view::{self, ConflictView};
 use crate::dev_bench::ScrollBench;
 use crate::dialogs::{self, Dialog, NewWorktree, Outcome, force_push_dialog};
 use crate::diff_view::{self, DiffSource, DiffView};
@@ -109,6 +111,7 @@ pub enum FileListMode {
 pub enum Center {
     Graph,
     Diff(Box<DiffView>),
+    Conflict(Box<ConflictView>),
     Worktrees,
 }
 
@@ -149,6 +152,8 @@ pub struct Repo {
     lit_cache: Option<(LitKey, Vec<bool>)>,
     open_after_ops: Vec<PathBuf>,
     was_focused: Option<bool>,
+    pub operation: Option<InProgress>,
+    banner: conflict_view::Banner,
     diff_layout: diff_view::Layout,
     pub editor: String,
     _watcher: Option<Watcher>,
@@ -216,6 +221,8 @@ impl Repo {
             outbox: Vec::new(),
             open_after_ops: Vec::new(),
             was_focused: None,
+            operation: None,
+            banner: conflict_view::Banner::new(),
             diff_layout: diff_view::Layout::default(),
             editor: String::new(),
             _watcher: watcher,
@@ -270,6 +277,15 @@ impl Repo {
         }
         if std::env::var_os("KELP_SELECT_WIP").is_some() {
             ready.selected = Some(Selection::Wip);
+        }
+        ready.operation = conflict::in_progress(ready.repo.path());
+        if let Ok(target) = std::env::var("KELP_OPEN_CONFLICT") {
+            let (path, picks) = target.split_once('#').unwrap_or((&target, ""));
+            ready.selected = Some(Selection::Wip);
+            ready.open_conflict(path);
+            if let Center::Conflict(view) = &mut ready.center {
+                view.preselect(picks);
+            }
         }
         if let Some(path) = std::env::var("KELP_OPEN_DIFF")
             .ok()
@@ -390,6 +406,39 @@ impl Repo {
             Ok(view) => self.show_diff(view),
             Err(e) => self.notify(format!("Could not open file: {e:#}"), true),
         }
+    }
+
+    pub fn open_conflict(&mut self, path: &str) {
+        let Some(workdir) = self.workdir.clone() else {
+            return;
+        };
+        match ConflictView::load(&workdir, path) {
+            Ok(view) => self.center = Center::Conflict(Box::new(view)),
+            Err(e) => self.notify(format!("Could not open conflict: {e:#}"), true),
+        }
+    }
+
+    fn run_conflict_job(&mut self, job: conflict_view::Job) {
+        if matches!(
+            job,
+            conflict_view::Job::Resolve { .. } | conflict_view::Job::TakeSide { .. }
+        ) {
+            self.center = Center::Graph;
+        }
+        let label = job.label();
+        let dir = self.dir.clone();
+        let job_label = label.clone();
+        self.jobs.spawn(label, move || JobOutput::Op {
+            label: job_label.clone(),
+            quiet: false,
+            commit: false,
+            force_retry: None,
+            result: job.run(&dir),
+            undo: undo::Outcome::NotUndoable {
+                label: job_label,
+                reason: "conflict steps are not tracked",
+            },
+        });
     }
 
     pub fn open_working_diff(&mut self, path: &str, staged: bool) {
@@ -759,6 +808,12 @@ impl Repo {
                     if std::mem::take(&mut self.status_again) {
                         self.refresh_status();
                     }
+                    self.operation = conflict::in_progress(self.repo.path());
+                    if let Center::Conflict(view) = &self.center
+                        && !working.conflicted.contains(&view.path)
+                    {
+                        self.center = Center::Graph;
+                    }
                     self.wip = working.all();
                     self.status = working;
                     if let Center::Diff(view) = &mut self.center
@@ -978,6 +1033,17 @@ impl Repo {
             )
             .show(ui, |ui| details::ui(ui, self));
 
+        if let Some(operation) = self.operation.clone() {
+            let conflicted = self.status.conflicted.len();
+            let job = egui::Panel::top("operation-banner")
+                .frame(egui::Frame::NONE)
+                .show(ui, |ui| self.banner.ui(ui, &operation, conflicted))
+                .inner;
+            if let Some(job) = job {
+                self.run_conflict_job(job);
+            }
+        }
+
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BG))
             .show(ui, |ui| match &mut self.center {
@@ -1002,6 +1068,11 @@ impl Repo {
                         diff_view::Event::None => {}
                     }
                 }
+                Center::Conflict(view) => match view.ui(ui) {
+                    conflict_view::Event::Close => self.center = Center::Graph,
+                    conflict_view::Event::Run(job) => self.run_conflict_job(job),
+                    conflict_view::Event::None => {}
+                },
                 Center::Worktrees => worktrees_view::ui(ui, self, &mut commands),
                 Center::Graph => self.graph_center(ui, &mut commands, settings),
             });
