@@ -15,6 +15,24 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-09-27
 
+- **Previews, tab strip alignment, split/unified fix (user feedback).**
+  - Preview mode in the diff view: images (PNG, JPEG, GIF, WebP, BMP,
+    ICO, TIFF) and SVG (resvg) side by side before/after on a
+    checkerboard with dimensions and sizes, decoded off the UI thread;
+    Markdown rendered with egui_commonmark. README-style HTML (centered
+    logo `img` tags, wrapper `p`/`div`) is rewritten to Markdown, and
+    relative images load from the same commit, index or work tree (SVGs
+    rasterized at their `width`). Binary images open in Preview; SVG and
+    Markdown open in Diff with Preview one click away, or in Preview when
+    browsing a file.
+  - Split/Unified: both header toggles shared interaction ids, so clicks
+    could land on the other control (headless click test added, fails
+    on the old ids). The chosen layout now carries over between files,
+    and watcher reloads keep comment drafts.
+  - Tab strip: wordmark removed, small leaf mark, and the mark, tabs and
+    + all centered on the window-button line.
+  - 67 tests pass.
+
 - **Window, menus and controls pass (user feedback).**
   - Title bar folded into the tab strip: fullsize content view, hidden
     title, and an empty compact unified toolbar so AppKit centers the
