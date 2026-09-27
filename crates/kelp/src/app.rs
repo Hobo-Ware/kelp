@@ -127,6 +127,9 @@ impl KelpApp {
             )
             .show(ui, |ui| {
                 window_drag_area(ui);
+                if self.screenshot.is_some() && cfg!(target_os = "macos") {
+                    paint_window_buttons(ui);
+                }
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     let fullscreen = ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
@@ -232,6 +235,25 @@ impl KelpApp {
             let ctx = self.ctx.clone();
             self.open_tab(&ctx, folder);
         }
+    }
+}
+
+fn paint_window_buttons(ui: &egui::Ui) {
+    let colors = [
+        Color32::from_rgb(0xff, 0x5f, 0x57),
+        Color32::from_rgb(0xfe, 0xbc, 0x2e),
+        Color32::from_rgb(0x28, 0xc8, 0x40),
+    ];
+    let top = ui.max_rect().top();
+    let left = ui.max_rect().left() - 10.0;
+    for (i, color) in colors.into_iter().enumerate() {
+        let center = egui::pos2(left + 19.0 + i as f32 * 20.0, top + TAB_STRIP_H / 2.0);
+        ui.painter().circle(
+            center,
+            6.0,
+            color,
+            Stroke::new(0.5, Color32::from_black_alpha(60)),
+        );
     }
 }
 
