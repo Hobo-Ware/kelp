@@ -177,6 +177,7 @@ Each milestone ends with a check we can actually run.
 | M4 | Worktrees: list, add (dialog shows the git command), remove, prune, open in tab | Round trip on a scratch repo. |
 | M5 | File tree and review: tree mode, file view, inline comments, Markdown export | Comments survive restart and follow their line after an edit above them. |
 | M6 | Polish: repo tabs, focus-path dimming, search, settings, `.app` bundle | Usable as a daily driver. |
+| M7 | Staging and committing: staged/unstaged lists, stage/unstage/discard files, stage/unstage hunks, commit and amend | Round-trip tests on scratch repos: stage one hunk of two, unstage it, commit, amend, discard. |
 
 ## Decisions
 
@@ -187,6 +188,7 @@ Each milestone ends with a check we can actually run.
 - **Wide histories:** the graph column is resizable from its header
   (double-click resets) and scrolls sideways when there are more lanes
   than fit. (2026-09-27)
+- **License:** MIT, confirmed by the user. (2026-09-27)
 - **External changes:** instead of always-on file watching, Kelp reloads
   refs and status when the window regains focus. Cheaper on power.
   (2026-09-27)
@@ -198,11 +200,8 @@ Status: M0 to M6 done on 2026-09-27. Details and numbers in
 
 - Should the "Send to Claude" review button be in scope, and what should
   it send? (The review card has Copy as Markdown for now.)
-- License: the workspace manifest says MIT, but there is no LICENSE file
-  yet. Confirm the license before sharing the repo.
-- Next features worth considering, not in the original scope: staging
-  and committing, undo/redo, interactive rebase, a resizable split
-  between graph and details.
+- Next features worth considering, not in the original scope: undo/redo,
+  interactive rebase, line-level staging.
 - Signing and notarizing the `.app` if it will be shared with others.
 - Linux: code paths exist (fonts, cache, terminal), but nothing has been
   tested there.
