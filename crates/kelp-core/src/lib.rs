@@ -8,6 +8,7 @@ pub mod history;
 pub mod markdown;
 pub mod ops;
 pub mod preview;
+pub mod rebase;
 pub mod refs;
 pub mod review;
 pub mod search;
