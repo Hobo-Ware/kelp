@@ -1,0 +1,191 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. v0.2.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve version
+        id: v
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          [ "${{ github.event_name }}" = "workflow_dispatch" ] && TAG="${{ inputs.tag }}"
+          VERSION="${TAG#v}"
+          CARGO_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$VERSION" != "$CARGO_VERSION" ]; then
+            echo "Tag $TAG does not match Cargo.toml version $CARGO_VERSION" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Build (both arches)
+        run: |
+          cargo build --release -p kelp --target aarch64-apple-darwin
+          cargo build --release -p kelp --target x86_64-apple-darwin
+
+      - name: Assemble Kelp.app (universal)
+        run: |
+          VERSION="${{ steps.v.outputs.version }}"
+          APP="dist/Kelp.app"
+          rm -rf dist && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          lipo -create -output "$APP/Contents/MacOS/kelp" \
+            target/aarch64-apple-darwin/release/kelp \
+            target/x86_64-apple-darwin/release/kelp
+          chmod +x "$APP/Contents/MacOS/kelp"
+          cp crates/kelp/assets/Kelp.icns "$APP/Contents/Resources/Kelp.icns"
+          sed "s/__VERSION__/${VERSION}/g" packaging/Info.plist > "$APP/Contents/Info.plist"
+
+      - name: Sign & notarize (optional)
+        id: sign
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ] || [ -z "$MACOS_CERT_PASSWORD" ] || \
+             [ -z "$NOTARY_KEY_ID" ] || [ -z "$NOTARY_ISSUER" ] || [ -z "$NOTARY_KEY" ]; then
+            echo "Signing secrets not configured - shipping ad-hoc signed. Setup: packaging/README.md."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          APP="dist/Kelp.app"
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          KC_PASS="$(uuidgen)"
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" login.keychain
+          IDENTITY=$(security find-identity -v -p codesigning "$KC" | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+          [ -n "$IDENTITY" ] || { echo "No Developer ID Application identity in MACOS_CERT_P12" >&2; exit 1; }
+          codesign --deep --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          echo "$NOTARY_KEY" > "$RUNNER_TEMP/notary.p8"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" --wait
+          xcrun stapler staple "$APP"
+          spctl --assess --type execute -v "$APP"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Package zip
+        id: pkg
+        run: |
+          ZIP="kelp-${{ steps.v.outputs.version }}-universal.app.zip"
+          (cd dist && ditto -c -k --sequesterRsrc --keepParent Kelp.app "$ZIP")
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "sha=$(shasum -a 256 "dist/$ZIP" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Homebrew cask
+        run: |
+          VERSION="${{ steps.v.outputs.version }}"
+          if [ "${{ steps.sign.outputs.signed }}" = "true" ]; then
+            POSTFLIGHT=""
+          else
+            POSTFLIGHT='
+            postflight_steps do
+              run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/Kelp.app"]
+            end
+          '
+          fi
+          cat > dist/kelp.rb <<EOF
+          cask "kelp" do
+            version "${VERSION}"
+            sha256 "${{ steps.pkg.outputs.sha }}"
+
+            url "https://github.com/Hobo-Ware/kelp/releases/download/${{ steps.v.outputs.tag }}/${{ steps.pkg.outputs.zip }}"
+            name "Kelp"
+            desc "Fast, low-power git client with a beautiful commit graph"
+            homepage "https://kelp.hoboware.dev"
+
+            depends_on :macos
+
+            app "Kelp.app"
+            binary "#{appdir}/Kelp.app/Contents/MacOS/kelp"
+          ${POSTFLIGHT}
+            zap trash: [
+              "~/Library/Application Support/kelp",
+              "~/Library/Caches/kelp",
+            ]
+          end
+          EOF
+          cat dist/kelp.rb
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.v.outputs.tag }}" \
+            "dist/${{ steps.pkg.outputs.zip }}" "dist/kelp.rb" \
+            --title "Kelp ${{ steps.v.outputs.version }}" \
+            --generate-notes \
+            --verify-tag
+
+      - name: Check tap deploy key
+        id: tapkey
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_DEPLOY_KEY" ]; then
+            echo "HOMEBREW_TAP_DEPLOY_KEY not configured - skipping the tap update. Setup: packaging/README.md."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.tapkey.outputs.present == 'true'
+        with:
+          repository: Hobo-Ware/homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          path: tap
+
+      - name: Update Homebrew tap
+        if: steps.tapkey.outputs.present == 'true'
+        run: |
+          VERSION="${{ steps.v.outputs.version }}"
+          CASK="tap/Casks/kelp.rb"
+          mkdir -p tap/Casks
+          CURRENT=$(sed -n 's/^  version "\(.*\)"$/\1/p' "$CASK" 2>/dev/null || true)
+          NEWEST=$(printf '%s\n%s\n' "$CURRENT" "$VERSION" | sort -V | tail -1)
+          if [ -n "$CURRENT" ] && [ "$NEWEST" != "$VERSION" ]; then
+            echo "Tap already ships $CURRENT (newer than $VERSION) - leaving it alone."
+            exit 0
+          fi
+          cp dist/kelp.rb "$CASK"
+          cd tap
+          git add Casks/kelp.rb
+          if git diff --cached --quiet; then
+            echo "Tap cask already matches this build."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "kelp ${VERSION}"
+          git push origin HEAD
