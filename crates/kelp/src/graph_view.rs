@@ -376,13 +376,13 @@ fn paint_row(
     graph_soft.rect_filled(
         band,
         0.0,
-        theme::with_alpha(color, if selected { 0x4d } else { 0x17 }),
+        theme::with_alpha(color, if selected { 0x33 } else { 0x0f }),
     );
     let strip = Rect::from_x_y_ranges(
         geo.msg_left()..=geo.msg_left() + 3.0,
         geo.top..=geo.bottom(),
     );
-    soft.rect_filled(strip, 0.0, color);
+    soft.rect_filled(strip, 0.0, theme::with_alpha(color, 0xb0));
     if selected {
         let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
         painter.rect_filled(bg, 0.0, theme::SELECTED_ROW);
@@ -594,7 +594,7 @@ pub fn draw_avatar(
             let rect = Rect::from_center_size(center, vec2(radius * 2.0, radius * 2.0));
             let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
             painter.image(id, rect, uv, Color32::WHITE);
-            painter.circle_stroke(center, radius, Stroke::new(2.0, ring));
+            painter.circle_stroke(center, radius, Stroke::new(1.5, ring));
         }
         None => {
             let (fill, ink) = theme::generated_avatar(email);
@@ -686,9 +686,11 @@ pub fn truncated(
 
 fn label_style(label: &RefLabel, lane: Color32) -> (Color32, Stroke, Color32) {
     match label.kind {
-        RefKind::Local if label.is_head => {
-            (lane, Stroke::NONE, Color32::from_rgb(0x0f, 0x1a, 0x1a))
-        }
+        RefKind::Local if label.is_head => (
+            theme::with_alpha(lane, 0x40),
+            Stroke::new(1.0, theme::with_alpha(lane, 0xcc)),
+            lane,
+        ),
         RefKind::Local => (
             theme::with_alpha(lane, 0x26),
             Stroke::new(1.0, theme::with_alpha(lane, 0x99)),
