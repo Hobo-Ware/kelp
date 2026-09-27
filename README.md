@@ -104,7 +104,7 @@ Developer switches (environment variables):
 | `KELP_BENCH_SCROLL=1` | Print graph frame times for random jumps and smooth scrolling |
 | `KELP_OFFLINE=1` | No avatar downloads |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
-| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree`, `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` | Open a screen on start |
+| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree`, `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
 
