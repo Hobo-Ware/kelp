@@ -5,14 +5,32 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** GitHub Pages site.
-- **Done:** M0 to M7, MIT license, polish pass, mascot.
-- **Queued (user asks, in order):** GitHub Pages
+- **Current milestone:** publishing (needs the user's go-ahead: public repo, tap, DNS).
+- **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
+  website, agent rules.
+- **Was queued:** GitHub Pages
   site like stdusk (SEO, OG images, upkeep instructions); Homebrew
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
 ## 2026-09-27
+
+- **Distribution, built locally.** Modeled on stdusk.
+  - In-app update check (stdusk has none): latest GitHub release at
+    start + every 6 h; dot on Settings and a tab-strip pill; background
+    `brew upgrade --cask hobo-ware/tap/kelp` when installed with brew,
+    then "Restart to update". Settings has an Updates section.
+  - `release.yml` (tag `v*`: tests, universal app, optional signing,
+    GitHub Release, cask pushed to `Hobo-Ware/homebrew-tap`),
+    `pages.yml`, `packaging/` docs and reference cask. Cask generation
+    simulated locally, `ruby -c` passes; `postflight_steps` confirmed in
+    Homebrew's source.
+  - Icon is now the mascot; `Kelp.icns` built from compressed PNGs.
+  - `site/` landing page with SEO, OG image and screenshots from public
+    repos only (git/git, the kelp repo), all rebuilt by
+    `scripts/make-site-assets.sh` with PSNR checks (47-59 dB).
+  - Agent rules (`AGENTS.md`, `.agents/rules/project.md`) with the
+    showcase check, like stdusk.
 
 - **Polish pass.** One global egui style (spacing, 4px controls with
   clear states, accent focus, soft popup and dialog shadows, floating

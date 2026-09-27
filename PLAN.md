@@ -196,6 +196,11 @@ Each milestone ends with a check we can actually run.
 Status: M0 to M6 done on 2026-09-27. Details and numbers in
 [LEDGER.md](LEDGER.md).
 
+- **Distribution:** Homebrew cask in `Hobo-Ware/homebrew-tap`, released by a
+  `v*` tag like stdusk. Installed copies update themselves in the
+  background via `brew upgrade` and ask for a restart. Site at
+  `kelp.hoboware.dev` from `site/`. (2026-09-27)
+
 ## Open questions
 
 - Should the "Send to Claude" review button be in scope, and what should
