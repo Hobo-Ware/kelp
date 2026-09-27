@@ -31,6 +31,13 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                         "Worktrees",
                         &format!("{} checked out", repo.workspace.worktrees.len()),
                         |ui| {
+                            if crate::widgets::close_button(ui, "Close (Esc)") {
+                                commands.push(match repo.selected {
+                                    Some(s) => Command::Reveal(s),
+                                    None => Command::Reveal(Selection::Commit(0)),
+                                });
+                            }
+                            ui.add_space(8.0);
                             if ui.add(accent_button("New worktree")).clicked() {
                                 let ctx = repo.menu_context();
                                 let start = repo.current_branch().unwrap_or("HEAD").to_string();
@@ -49,12 +56,6 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 .clicked()
                             {
                                 commands.push(Command::Run(Op::WorktreePrune));
-                            }
-                            if ui.add(plain_button("‹  Graph")).clicked() {
-                                commands.push(match repo.selected {
-                                    Some(s) => Command::Reveal(s),
-                                    None => Command::Reveal(Selection::Commit(0)),
-                                });
                             }
                         },
                     );
