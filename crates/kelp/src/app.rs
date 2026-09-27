@@ -91,7 +91,8 @@ impl KelpApp {
                 _ => t.path.clone(),
             })
             .collect();
-        if tabs != self.settings.open_tabs && self.screenshot.is_none() {
+        let dev_run = self.screenshot.is_some() || std::env::var_os("KELP_BENCH_SCROLL").is_some();
+        if tabs != self.settings.open_tabs && !dev_run {
             self.settings.open_tabs = tabs;
             self.settings.save();
         }
@@ -290,7 +291,7 @@ impl eframe::App for KelpApp {
         let mut open = Vec::new();
         for (i, tab) in self.tabs.iter_mut().enumerate() {
             if let State::Ready(repo) = &mut tab.state {
-                repo.avatars.enabled = self.settings.load_avatars;
+                repo.avatars.enabled = self.settings.avatars_enabled();
                 repo.poll(&ctx);
                 if i != self.active {
                     open.append(&mut repo.outbox);

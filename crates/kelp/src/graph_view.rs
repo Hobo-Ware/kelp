@@ -597,14 +597,14 @@ pub fn draw_avatar(
             painter.circle_stroke(center, radius, Stroke::new(2.0, ring));
         }
         None => {
-            let fill = theme::AVATARS[avatar::color_index(email, theme::AVATARS.len())];
+            let (fill, ink) = theme::generated_avatar(email);
             painter.circle(center, radius, fill, Stroke::new(2.0, ring));
             painter.text(
                 center,
                 Align2::CENTER_CENTER,
                 avatar::initials(name),
-                FontId::proportional((radius * 0.8).max(8.0)),
-                theme::AVATAR_INK,
+                FontId::new((radius * 0.8).max(8.0), theme::semibold()),
+                ink,
             );
         }
     }

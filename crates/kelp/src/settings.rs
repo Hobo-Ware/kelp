@@ -12,6 +12,8 @@ pub struct Settings {
     pub load_avatars: bool,
     pub show_descriptions: bool,
     pub open_tabs: Vec<PathBuf>,
+    #[serde(skip)]
+    offline: bool,
 }
 
 impl Default for Settings {
@@ -21,6 +23,7 @@ impl Default for Settings {
             load_avatars: true,
             show_descriptions: true,
             open_tabs: Vec::new(),
+            offline: false,
         }
     }
 }
@@ -45,10 +48,12 @@ impl Settings {
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default();
-        if std::env::var_os("KELP_OFFLINE").is_some() {
-            settings.load_avatars = false;
-        }
+        settings.offline = std::env::var_os("KELP_OFFLINE").is_some();
         settings
+    }
+
+    pub fn avatars_enabled(&self) -> bool {
+        self.load_avatars && !self.offline
     }
 
     pub fn save(&self) {
