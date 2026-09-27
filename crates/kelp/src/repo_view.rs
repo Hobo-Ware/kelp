@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align2, Color32, FontId, Key, Margin, RichText, Sense, Stroke, vec2};
@@ -8,6 +9,7 @@ use kelp_core::history::History;
 use kelp_core::ops::Op;
 use kelp_core::refs::RefKind;
 use kelp_core::review::{self, Review};
+use kelp_core::watch::{self, Watcher};
 use kelp_core::workspace::{self, Stash, Worktree};
 use kelp_core::{git_cli, status};
 
@@ -34,6 +36,7 @@ pub enum JobOutput {
     Status(anyhow::Result<status::WorkingStatus>),
     CommitGraph(anyhow::Result<()>),
     Workspace(Box<WorkspaceInfo>),
+    AutoFetch(anyhow::Result<String>),
     Op {
         label: String,
         quiet: bool,
@@ -125,6 +128,12 @@ pub struct Repo {
     lit_cache: Option<(LitKey, Vec<bool>)>,
     open_after_ops: Vec<PathBuf>,
     was_focused: Option<bool>,
+    _watcher: Option<Watcher>,
+    watch_events: mpsc::Receiver<watch::Change>,
+    reload_again: bool,
+    status_again: bool,
+    last_fetch: Instant,
+    auto_fetch_failed: bool,
     bench: Option<ScrollBench>,
 }
 
@@ -141,6 +150,15 @@ impl Repo {
             AvatarStore::new(ctx.clone(), kelp_core::avatar::GitHubRepo::from_repo(&repo));
         let review = Review::load(repo.common_dir());
         let author = review::author_name(&repo);
+        let (watch_tx, watch_events) = mpsc::channel();
+        let repaint = ctx.clone();
+        let watcher = Watcher::start(watch::Layout::of(&repo), move |change| {
+            if watch_tx.send(change).is_ok() {
+                repaint.request_repaint();
+            }
+        })
+        .inspect_err(|e| eprintln!("kelp: not watching {}: {e:#}", dir.display()))
+        .ok();
         let mut ready = Self {
             review,
             author,
@@ -172,6 +190,12 @@ impl Repo {
             outbox: Vec::new(),
             open_after_ops: Vec::new(),
             was_focused: None,
+            _watcher: watcher,
+            watch_events,
+            reload_again: false,
+            status_again: false,
+            last_fetch: Instant::now(),
+            auto_fetch_failed: false,
             bench: ScrollBench::from_env(),
         };
         if let Some(row) = ready.head_row() {
@@ -511,6 +535,7 @@ impl Repo {
             return;
         };
         if self.jobs.is_running("Checking changes") {
+            self.status_again = true;
             return;
         }
         self.jobs.spawn("Checking changes", move || {
@@ -556,6 +581,7 @@ impl Repo {
 
     pub fn reload(&mut self) {
         if self.jobs.is_running("Reloading") {
+            self.reload_again = true;
             return;
         }
         let dir = self.dir.clone();
@@ -564,11 +590,14 @@ impl Repo {
         });
     }
 
-    pub fn poll(&mut self, ctx: &egui::Context) {
+    pub fn poll(&mut self, ctx: &egui::Context, fetch_every: Option<Duration>) {
         self.avatars.poll();
         for output in self.jobs.finished() {
             match output {
                 JobOutput::Status(Ok(working)) => {
+                    if std::mem::take(&mut self.status_again) {
+                        self.refresh_status();
+                    }
                     self.wip = working.all();
                     self.status = working;
                     if let Center::Diff(view) = &mut self.center
@@ -589,11 +618,25 @@ impl Repo {
                     }
                 }
                 JobOutput::Status(Err(e)) => self.notify(format!("{e:#}"), true),
-                JobOutput::Reloaded(Ok(history)) => {
-                    self.replace_history(*history);
-                    self.refresh_workspace();
+                JobOutput::Reloaded(result) => {
+                    match result {
+                        Ok(history) => {
+                            self.replace_history(*history);
+                            self.refresh_workspace();
+                        }
+                        Err(e) => self.notify(format!("Reload failed: {e:#}"), true),
+                    }
+                    if std::mem::take(&mut self.reload_again) {
+                        self.reload();
+                    }
                 }
-                JobOutput::Reloaded(Err(e)) => self.notify(format!("Reload failed: {e:#}"), true),
+                JobOutput::AutoFetch(Ok(_)) => self.auto_fetch_failed = false,
+                JobOutput::AutoFetch(Err(e)) => {
+                    if !self.auto_fetch_failed {
+                        self.notify(format!("Auto-fetch failed: {e:#}"), true);
+                    }
+                    self.auto_fetch_failed = true;
+                }
                 JobOutput::CommitGraph(Ok(())) => {}
                 JobOutput::CommitGraph(Err(e)) => {
                     self.notify(format!("Could not write commit-graph: {e:#}"), true)
@@ -642,6 +685,47 @@ impl Repo {
             }
         }
         self.watch_focus(ctx);
+        self.apply_watch_events();
+        self.auto_fetch(ctx, fetch_every);
+    }
+
+    fn apply_watch_events(&mut self) {
+        let mut history = false;
+        let mut status = false;
+        for change in self.watch_events.try_iter() {
+            history |= change.history;
+            status |= change.status;
+        }
+        if history {
+            self.reload();
+        }
+        if status {
+            self.refresh_status();
+        }
+    }
+
+    fn auto_fetch(&mut self, ctx: &egui::Context, every: Option<Duration>) {
+        let Some(every) = every else {
+            return;
+        };
+        if self.repo.remote_names().is_empty() {
+            return;
+        }
+        let due = self.last_fetch + every;
+        let now = Instant::now();
+        if now < due {
+            ctx.request_repaint_after(due - now);
+            return;
+        }
+        self.last_fetch = now;
+        ctx.request_repaint_after(every);
+        if self.jobs.is_running("Fetching") || self.jobs.is_running("Auto-fetching") {
+            return;
+        }
+        let dir = self.dir.clone();
+        self.jobs.spawn("Auto-fetching", move || {
+            JobOutput::AutoFetch(Op::Fetch.run(&dir))
+        });
     }
 
     fn replace_history(&mut self, history: History) {

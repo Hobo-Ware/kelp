@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use eframe::egui::{self, Color32, Margin, RichText, Stroke};
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,8 @@ pub struct Settings {
     pub open_tabs: Vec<PathBuf>,
     pub check_updates: bool,
     pub auto_update: bool,
+    pub auto_fetch: bool,
+    pub fetch_minutes: u32,
     #[serde(skip)]
     offline: bool,
 }
@@ -27,6 +30,8 @@ impl Default for Settings {
             open_tabs: Vec::new(),
             check_updates: true,
             auto_update: true,
+            auto_fetch: true,
+            fetch_minutes: 5,
             offline: false,
         }
     }
@@ -68,6 +73,11 @@ impl Settings {
         if let Ok(json) = serde_json::to_vec_pretty(self) {
             let _ = std::fs::write(file, json);
         }
+    }
+
+    pub fn fetch_interval(&self) -> Option<Duration> {
+        (self.auto_fetch && !self.offline)
+            .then(|| Duration::from_secs(u64::from(self.fetch_minutes.max(1)) * 60))
     }
 
     pub fn updates_enabled(&self) -> bool {
@@ -116,6 +126,29 @@ impl Settings {
                     "Load avatars from GitHub and Gravatar",
                     "Off means generated initials only, and no network requests.",
                 );
+                option(
+                    ui,
+                    &mut self.auto_fetch,
+                    "Fetch from remotes in the background",
+                    "Keeps remote branches current. Local changes show up on their own.",
+                );
+                ui.add_enabled_ui(self.auto_fetch, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(24.0);
+                        ui.label(RichText::new("Every").color(theme::TEXT));
+                        egui::ComboBox::from_id_salt("fetch-minutes")
+                            .selected_text(format!("{} min", self.fetch_minutes))
+                            .show_ui(ui, |ui| {
+                                for minutes in [1, 5, 15, 30] {
+                                    ui.selectable_value(
+                                        &mut self.fetch_minutes,
+                                        minutes,
+                                        format!("{minutes} min"),
+                                    );
+                                }
+                            });
+                    });
+                });
                 ui.separator();
                 updater.settings_section(ui, &mut self.auto_update, &mut self.check_updates);
                 ui.add_space(4.0);

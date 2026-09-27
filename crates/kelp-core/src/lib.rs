@@ -10,4 +10,5 @@ pub mod review;
 pub mod search;
 pub mod status;
 pub mod update;
+pub mod watch;
 pub mod workspace;
