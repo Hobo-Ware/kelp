@@ -18,6 +18,8 @@ pub struct KelpApp {
     screenshot: Option<DevScreenshot>,
     settings: Settings,
     show_settings: bool,
+    started: Instant,
+    ctx: egui::Context,
 }
 
 struct Tab {
@@ -79,6 +81,8 @@ impl KelpApp {
             screenshot: DevScreenshot::from_env(),
             settings: Settings::load(),
             show_settings: std::env::var_os("KELP_OPEN_SETTINGS").is_some(),
+            started: Instant::now(),
+            ctx: ctx.clone(),
         }
     }
 
@@ -219,12 +223,18 @@ impl KelpApp {
                 self.active -= 1;
             }
         }
-        if pick_folder
-            && let Some(folder) = rfd::FileDialog::new()
-                .set_title("Open a repository")
-                .pick_folder()
+        if pick_folder {
+            self.pick_folder();
+        }
+    }
+
+    fn pick_folder(&mut self) {
+        if let Some(folder) = rfd::FileDialog::new()
+            .set_title("Open a repository")
+            .pick_folder()
         {
-            self.open_tab(ui.ctx(), folder);
+            let ctx = self.ctx.clone();
+            self.open_tab(&ctx, folder);
         }
     }
 }
@@ -303,17 +313,39 @@ impl eframe::App for KelpApp {
             .get_mut(self.active)
             .map(|t| (&t.path, &mut t.state))
         {
-            None => empty(ui),
-            Some((path, State::Loading(_))) => centered(
-                ui,
-                &format!("Loading {}…", path.display()),
-                theme::TEXT_MUTED,
-            ),
-            Some((path, State::Failed(err))) => centered(
-                ui,
-                &format!("Could not open {}: {err}", path.display()),
-                theme::DELETED,
-            ),
+            None => {
+                let waving = self.started.elapsed().as_secs_f32() < HELLO_SECONDS;
+                let screen = MascotScreen {
+                    title: "Welcome to Kelp",
+                    subtitle: "Open a repository to see its history.".into(),
+                    color: theme::TEXT_MUTED,
+                    button: Some("Open a repository"),
+                    animate: waving,
+                };
+                if screen.show(ui) {
+                    self.pick_folder();
+                }
+            }
+            Some((path, State::Loading(_))) => {
+                let screen = MascotScreen {
+                    title: "Loading history",
+                    subtitle: path.display().to_string(),
+                    color: theme::TEXT_MUTED,
+                    button: None,
+                    animate: true,
+                };
+                screen.show(ui);
+            }
+            Some((path, State::Failed(err))) => {
+                let screen = MascotScreen {
+                    title: "Could not open this repository",
+                    subtitle: format!("{}: {err}", path.display()),
+                    color: theme::DELETED,
+                    button: None,
+                    animate: false,
+                };
+                screen.show(ui);
+            }
             Some((_, State::Ready(repo))) => {
                 repo.ui(ui, &self.settings);
                 open.append(&mut repo.outbox);
@@ -329,16 +361,91 @@ impl eframe::App for KelpApp {
     }
 }
 
-fn centered(ui: &mut egui::Ui, text: &str, color: Color32) {
-    egui::CentralPanel::default().show(ui, |ui| {
-        ui.centered_and_justified(|ui| ui.label(RichText::new(text).color(color)));
-    });
+const HELLO_SECONDS: f32 = 4.0;
+const MASCOT_SIZE: f32 = 220.0;
+
+struct MascotScreen<'a> {
+    title: &'a str,
+    subtitle: String,
+    color: Color32,
+    button: Option<&'a str>,
+    animate: bool,
 }
 
-fn empty(ui: &mut egui::Ui) {
-    centered(
-        ui,
-        "Open a repository with the + button, or run: kelp <path>",
-        theme::TEXT_MUTED,
-    );
+impl MascotScreen<'_> {
+    fn show(self, ui: &mut egui::Ui) -> bool {
+        let mut clicked = false;
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(theme::BG))
+            .show(ui, |ui| {
+                let full = ui.max_rect();
+                let top = full.center().y - MASCOT_SIZE * 0.75;
+                let art = egui::Rect::from_center_size(
+                    egui::pos2(full.center().x, top + MASCOT_SIZE / 2.0),
+                    vec2(MASCOT_SIZE, MASCOT_SIZE),
+                );
+                let hovered = ui.rect_contains_pointer(art);
+                let animate = self.animate || hovered;
+                let time = ui.input(|i| i.time) as f32;
+                crate::mascot::paint(ui.painter(), art, time, animate);
+                if animate {
+                    ui.ctx().request_repaint();
+                }
+                let mut y = art.bottom() + 18.0;
+                let painter = ui.painter().clone();
+                let title = painter.layout_no_wrap(
+                    self.title.to_string(),
+                    FontId::new(22.0, theme::semibold()),
+                    theme::TEXT_STRONG,
+                );
+                painter.galley(
+                    egui::pos2(full.center().x - title.size().x / 2.0, y),
+                    title.clone(),
+                    theme::TEXT_STRONG,
+                );
+                y += title.size().y + 8.0;
+                let sub = painter.layout(
+                    self.subtitle,
+                    FontId::proportional(13.5),
+                    self.color,
+                    full.width().min(560.0),
+                );
+                painter.galley(
+                    egui::pos2(full.center().x - sub.size().x / 2.0, y),
+                    sub.clone(),
+                    self.color,
+                );
+                y += sub.size().y + 20.0;
+                if let Some(label) = self.button {
+                    let button = egui::Button::new(
+                        RichText::new(label)
+                            .family(theme::semibold())
+                            .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+                    )
+                    .fill(theme::ACCENT)
+                    .corner_radius(8)
+                    .min_size(vec2(200.0, 38.0));
+                    let rect = egui::Rect::from_center_size(
+                        egui::pos2(full.center().x, y + 19.0),
+                        vec2(200.0, 38.0),
+                    );
+                    clicked = ui.put(rect, button).clicked();
+                    let hint = painter.layout_no_wrap(
+                        "or run  kelp <path>".into(),
+                        FontId::monospace(12.0),
+                        theme::TEXT_FAINT,
+                    );
+                    painter.galley(
+                        egui::pos2(full.center().x - hint.size().x / 2.0, rect.bottom() + 12.0),
+                        hint,
+                        theme::TEXT_FAINT,
+                    );
+                }
+            });
+        if self.animate {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(16));
+        }
+        clicked
+    }
 }

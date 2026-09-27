@@ -1105,12 +1105,17 @@ impl Repo {
                 .size(11.0)
                 .color(theme::TEXT_MUTED),
             );
+            let time = ui.input(|i| i.time) as f32;
+            let mut any_job = false;
             for job in self.jobs.running() {
-                ui.label(
-                    RichText::new(format!("{job}…"))
-                        .size(11.0)
-                        .color(theme::ACCENT),
-                );
+                any_job = true;
+                let (dot, _) = ui.allocate_exact_size(vec2(12.0, 14.0), Sense::hover());
+                crate::mascot::bubbles(ui.painter(), dot.center(), time, theme::ACCENT);
+                ui.add_space(-12.0);
+                ui.label(RichText::new(job).size(11.0).color(theme::ACCENT));
+            }
+            if any_job {
+                ui.ctx().request_repaint_after(Duration::from_millis(33));
             }
             let rect = ui.max_rect();
             ui.painter().text(
