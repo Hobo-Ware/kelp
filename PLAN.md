@@ -191,8 +191,18 @@ Each milestone ends with a check we can actually run.
   refs and status when the window regains focus. Cheaper on power.
   (2026-09-27)
 
+Status: M0 to M6 done on 2026-09-27. Details and numbers in
+[LEDGER.md](LEDGER.md).
+
 ## Open questions
 
 - Should the "Send to Claude" review button be in scope, and what should
-  it send?
-- App icon and final logo.
+  it send? (The review card has Copy as Markdown for now.)
+- License: the workspace manifest says MIT, but there is no LICENSE file
+  yet. Confirm the license before sharing the repo.
+- Next features worth considering, not in the original scope: staging
+  and committing, undo/redo, interactive rebase, a resizable split
+  between graph and details.
+- Signing and notarizing the `.app` if it will be shared with others.
+- Linux: code paths exist (fonts, cache, terminal), but nothing has been
+  tested there.

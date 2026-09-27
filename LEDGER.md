@@ -5,12 +5,49 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** M6 (polish).
-- **Done:** M0, M1, M2, M3, M4, M5.
-- **Next up:** settings, focus-path dimming, search, design fonts,
-  `.app` bundle, README.
+- **All milestones done (M0 to M6).**
+- **Next up:** see Open questions in PLAN.md (license, Send to Claude,
+  staging/committing, signing).
 
 ## 2026-09-27
+
+- **M6 done.**
+  - Settings window, saved to Application Support: descriptions in the
+    graph, fade commits outside the selected history, avatar downloads.
+  - Cmd+F search in the background over messages, authors, emails and
+    hash prefixes, with next/previous; non-matches fade.
+  - Bundled IBM Plex Sans (Regular, SemiBold) and JetBrains Mono, as in
+    the design. Semibold headings and selected row.
+  - Fallback font (23 MB) now loads on demand: memory with trakt-web
+    open went from ~174 MB to ~130 MB (under the 150 MB target).
+  - `scripts/bundle-macos.sh` builds `target/Kelp.app` (13 MB) with an
+    icon rendered from `crates/kelp/assets/icon.svg`.
+  - Session restore: reopens last tabs; Finder launch shows the empty
+    state instead of failing on `/`.
+  - README.
+
+### Final numbers (release build, M-series Mac)
+
+| What | Result | Target |
+|---|---|---|
+| Load trakt-web (5.9k commits) | 21-23 ms | - |
+| Load git/git (86k), with commit-graph | 151 ms | under 200 ms for 100k |
+| Layout, 1M generated commits | 14 ms | - |
+| Graph frame, smooth scroll, trakt-web | 0.09 ms avg, 0.15 ms p95 | under 2 ms |
+| Graph frame, smooth scroll, git/git | 0.24 ms avg, 0.40 ms p95 | under 2 ms |
+| Graph frame, random jumps, git/git | 1.88 ms avg, 2.97 ms p95 | under 2 ms |
+| Idle CPU | 0.0% | 0% |
+| Memory, trakt-web open | ~130 MB | under 150 MB |
+| Tests | 41 passing | - |
+
+Known limits:
+- History loads in one go; paging is still needed before a 1M-commit
+  real repo (layout itself handles 1M in 14 ms).
+- Random jumps on huge repos can spike to ~3 ms (text layout of all-new
+  rows).
+- egui has no right-to-left text reordering.
+- This machine blocks network for new binaries, so live avatar HTTP was
+  verified via curl with the same rules; expect a firewall prompt.
 
 - **M5 done.**
   - Details: Path/Tree toggle, "All files" browser (lazy folders),
