@@ -1,30 +1,30 @@
 use eframe::egui::{self, Color32};
 
-pub const BG: Color32 = Color32::from_rgb(0x15, 0x18, 0x1e);
-pub const PANEL: Color32 = Color32::from_rgb(0x1a, 0x1d, 0x24);
-pub const BORDER: Color32 = Color32::from_rgb(0x25, 0x29, 0x32);
-pub const HEADER: Color32 = Color32::from_rgb(0x17, 0x1a, 0x20);
-pub const TEXT: Color32 = Color32::from_rgb(0xe8, 0xe6, 0xe1);
-pub const TEXT_STRONG: Color32 = Color32::from_rgb(0xf3, 0xf1, 0xec);
-pub const TEXT_MUTED: Color32 = Color32::from_rgb(0x9a, 0xa1, 0xad);
-pub const TEXT_FAINT: Color32 = Color32::from_rgb(0x7d, 0x84, 0x91);
-pub const ACCENT: Color32 = Color32::from_rgb(0x8f, 0xd1, 0x6a);
-pub const SELECTED_ROW: Color32 = Color32::from_rgb(0x1f, 0x2c, 0x40);
-pub const SIDEBAR_SELECTED: Color32 = Color32::from_rgb(0x1f, 0x2f, 0x33);
+pub const BG: Color32 = Color32::from_rgb(0x1b, 0x1e, 0x25);
+pub const PANEL: Color32 = Color32::from_rgb(0x1f, 0x23, 0x2a);
+pub const BORDER: Color32 = Color32::from_rgb(0x2c, 0x31, 0x3a);
+pub const HEADER: Color32 = Color32::from_rgb(0x1d, 0x20, 0x27);
+pub const TEXT: Color32 = Color32::from_rgb(0xcd, 0xd0, 0xd5);
+pub const TEXT_STRONG: Color32 = Color32::from_rgb(0xe1, 0xe3, 0xe6);
+pub const TEXT_MUTED: Color32 = Color32::from_rgb(0x8f, 0x96, 0xa2);
+pub const TEXT_FAINT: Color32 = Color32::from_rgb(0x72, 0x79, 0x86);
+pub const ACCENT: Color32 = Color32::from_rgb(0xa6, 0xd1, 0x89);
+pub const SELECTED_ROW: Color32 = Color32::from_rgb(0x26, 0x2e, 0x3b);
+pub const SIDEBAR_SELECTED: Color32 = Color32::from_rgb(0x25, 0x2e, 0x33);
 
-pub const MODIFIED: Color32 = Color32::from_rgb(0xf0, 0xb0, 0x60);
-pub const ADDED: Color32 = Color32::from_rgb(0x5f, 0xd0, 0xa0);
-pub const DELETED: Color32 = Color32::from_rgb(0xff, 0x8a, 0x80);
+pub const MODIFIED: Color32 = Color32::from_rgb(0xe5, 0xb8, 0x7e);
+pub const ADDED: Color32 = Color32::from_rgb(0x8f, 0xc9, 0xa8);
+pub const DELETED: Color32 = Color32::from_rgb(0xe0, 0x8c, 0x8c);
 
 pub const LANES: [Color32; 8] = [
-    Color32::from_rgb(0x2d, 0xd4, 0xbf),
-    Color32::from_rgb(0xfb, 0x92, 0x3c),
-    Color32::from_rgb(0xc0, 0x84, 0xfc),
-    Color32::from_rgb(0x60, 0xa5, 0xfa),
-    Color32::from_rgb(0xf4, 0x72, 0xb6),
-    Color32::from_rgb(0xfa, 0xcc, 0x15),
-    Color32::from_rgb(0x4a, 0xde, 0x80),
-    Color32::from_rgb(0xf8, 0x71, 0x71),
+    Color32::from_rgb(0x7f, 0xc8, 0xbc),
+    Color32::from_rgb(0xe8, 0xa0, 0x78),
+    Color32::from_rgb(0xb9, 0x9c, 0xe0),
+    Color32::from_rgb(0x86, 0xa9, 0xe6),
+    Color32::from_rgb(0xe0, 0x9e, 0xc4),
+    Color32::from_rgb(0xdc, 0xc3, 0x86),
+    Color32::from_rgb(0x9c, 0xcc, 0x86),
+    Color32::from_rgb(0xe0, 0x8a, 0x8a),
 ];
 
 pub const AVATARS: [Color32; 8] = [
@@ -61,13 +61,13 @@ pub fn with_alpha(c: Color32, alpha: u8) -> Color32 {
     Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), alpha)
 }
 
-pub const POPUP: Color32 = Color32::from_rgb(0x1e, 0x23, 0x2c);
-pub const POPUP_BORDER: Color32 = Color32::from_rgb(0x34, 0x3b, 0x48);
-pub const CONTROL: Color32 = Color32::from_rgb(0x25, 0x2a, 0x33);
-pub const CONTROL_HOVER: Color32 = Color32::from_rgb(0x2e, 0x35, 0x42);
-pub const CONTROL_ACTIVE: Color32 = Color32::from_rgb(0x36, 0x3e, 0x4d);
-pub const FIELD: Color32 = Color32::from_rgb(0x12, 0x15, 0x1a);
-pub const MENU_HOVER: Color32 = Color32::from_rgb(0x2b, 0x34, 0x45);
+pub const POPUP: Color32 = Color32::from_rgb(0x23, 0x27, 0x30);
+pub const POPUP_BORDER: Color32 = Color32::from_rgb(0x37, 0x3d, 0x49);
+pub const CONTROL: Color32 = Color32::from_rgb(0x2a, 0x2f, 0x38);
+pub const CONTROL_HOVER: Color32 = Color32::from_rgb(0x32, 0x38, 0x43);
+pub const CONTROL_ACTIVE: Color32 = Color32::from_rgb(0x3a, 0x41, 0x4d);
+pub const FIELD: Color32 = Color32::from_rgb(0x17, 0x1a, 0x20);
+pub const MENU_HOVER: Color32 = Color32::from_rgb(0x2f, 0x37, 0x45);
 
 pub fn apply(ctx: &egui::Context) {
     use egui::{CornerRadius, Margin, Shadow, Stroke, vec2};
@@ -136,9 +136,10 @@ pub fn apply(ctx: &egui::Context) {
         state.corner_radius = radius;
         state.expansion = 0.0;
     }
-    ctx.set_visuals(visuals);
+    ctx.set_theme(egui::Theme::Dark);
+    ctx.set_visuals_of(egui::Theme::Dark, visuals);
 
-    ctx.global_style_mut(|style| {
+    ctx.style_mut_of(egui::Theme::Dark, |style| {
         let s = &mut style.spacing;
         s.item_spacing = vec2(8.0, 6.0);
         s.button_padding = vec2(12.0, 6.0);
