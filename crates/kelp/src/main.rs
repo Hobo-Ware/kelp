@@ -10,6 +10,7 @@ mod fonts;
 mod graph_view;
 mod icons;
 mod jobs;
+mod macos;
 mod mascot;
 mod menus;
 mod repo_view;
@@ -18,6 +19,7 @@ mod sidebar;
 mod staging;
 mod theme;
 mod updater;
+mod widgets;
 mod worktrees_view;
 
 use std::path::PathBuf;
@@ -29,6 +31,10 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Kelp")
+            .with_icon(app_icon())
+            .with_fullsize_content_view(true)
+            .with_titlebar_shown(false)
+            .with_title_shown(false)
             .with_inner_size([1440.0, 900.0])
             .with_min_inner_size([900.0, 560.0]),
         ..Default::default()
@@ -42,6 +48,17 @@ fn main() -> eframe::Result {
             Ok(Box::new(app::KelpApp::open(cc.egui_ctx.clone(), paths)))
         }),
     )
+}
+
+fn app_icon() -> egui::IconData {
+    let image = image::load_from_memory(include_bytes!("../assets/icon-512.png"))
+        .expect("bundled icon is a valid PNG")
+        .into_rgba8();
+    egui::IconData {
+        width: image.width(),
+        height: image.height(),
+        rgba: image.into_raw(),
+    }
 }
 
 fn startup_paths() -> Vec<PathBuf> {
