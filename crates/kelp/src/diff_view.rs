@@ -840,7 +840,7 @@ impl DiffView {
         let draft = self.replies.entry(id).or_default();
         child.add(
             egui::TextEdit::multiline(draft)
-                .hint_text("Reply…  (⌘↵ to send)")
+                .hint_text("Reply…  (⌘ Enter to send)")
                 .desired_rows(1)
                 .desired_width(f32::INFINITY),
         );
@@ -926,7 +926,7 @@ impl DiffView {
         );
         let edit = child.add(
             egui::TextEdit::multiline(&mut self.draft)
-                .hint_text("Write a comment…  (⌘↵ to save)")
+                .hint_text("Write a comment…  (⌘ Enter to save)")
                 .desired_rows(2)
                 .desired_width(f32::INFINITY),
         );

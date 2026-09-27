@@ -179,12 +179,26 @@ impl Repo {
         }
         ready.refresh_status();
         ready.refresh_workspace();
+
+        if let Some(row) = std::env::var("KELP_SELECT_COMMIT")
+            .ok()
+            .and_then(|rev| ready.repo.rev_parse_single(rev.as_str()).ok())
+            .and_then(|id| ready.history.row(&id.detach()))
+        {
+            ready.selected = None;
+            ready.reveal(Selection::Commit(row));
+        }
+        let wanted_path = std::env::var("KELP_OPEN_DIFF")
+            .ok()
+            .and_then(|v| v.strip_prefix("path:").map(str::to_string));
         if std::env::var_os("KELP_OPEN_DIFF").is_some()
-            && let Some(path) = ready
-                .details
-                .as_ref()
-                .and_then(|d| d.changes.first())
-                .map(|c| c.path.clone())
+            && let Some(path) = wanted_path.or_else(|| {
+                ready
+                    .details
+                    .as_ref()
+                    .and_then(|d| d.changes.first())
+                    .map(|c| c.path.clone())
+            })
         {
             ready.open_diff(&path);
             if std::env::var("KELP_OPEN_DIFF").as_deref() == Ok("split")

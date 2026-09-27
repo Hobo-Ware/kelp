@@ -448,7 +448,7 @@ fn commit_box(ui: &mut Ui, repo: &mut Repo) {
             let hint = if staged == 0 && !repo.amend {
                 "Stage changes first"
             } else {
-                "Commit (⌘↵)"
+                "Commit (⌘ Enter)"
             };
             if (ui.add_enabled(ready, button).on_hover_text(hint).clicked() || shortcut) && ready {
                 repo.commit();

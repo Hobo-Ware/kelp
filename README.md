@@ -1,12 +1,22 @@
+<p align="center"><img src="site/mascot.svg" width="140" alt="Kelp mascot"></p>
+
 # Kelp
 
-A small, fast, low-power git client for macOS, written in Rust with
+A small, fast, low-power git client for macOS ([kelp.hoboware.dev](https://kelp.hoboware.dev)), written in Rust with
 [egui](https://github.com/emilk/egui) and
 [gitoxide](https://github.com/GitoxideLabs/gitoxide). It draws a
 GitKraken-style commit graph and covers the everyday work: branches,
 worktrees, stashes, inspecting commits and reviewing files.
 
-## Run it
+## Install
+
+```sh
+brew install hobo-ware/tap/kelp
+```
+
+Kelp updates itself in the background when installed with Homebrew.
+
+## Run from source
 
 ```sh
 cargo run --release -- ~/path/to/repo      # open a repo
@@ -35,6 +45,8 @@ folder if it is a repo.
   it runs.
 - **Worktrees:** list, create (new or existing branch), remove, prune,
   open in a new tab or a terminal.
+- **Staging:** unstaged and staged lists, stage or unstage files and single hunks, discard,
+  commit and amend (hooks run as usual).
 - **Stashes:** stash, pop, apply, drop.
 - **Search:** Cmd+F across messages, authors, emails and hash prefixes.
 
@@ -88,8 +100,10 @@ Developer switches (environment variables):
 | `KELP_SCREENSHOT=out.png` | Save the window to a PNG and quit (`KELP_SCREENSHOT_WAIT=2` waits first) |
 | `KELP_BENCH_SCROLL=1` | Print graph frame times for random jumps and smooth scrolling |
 | `KELP_OFFLINE=1` | No avatar downloads |
-| `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of HEAD |
-| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree`, `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text` | Open a screen on start |
+| `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
+| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree`, `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` | Open a screen on start |
+| `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `unstaged:<file>` | Select a commit or file on start |
+| `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
 
 The plan, design rules and decisions are in [PLAN.md](PLAN.md); progress
 is logged in [LEDGER.md](LEDGER.md). Fonts: IBM Plex Sans and JetBrains
