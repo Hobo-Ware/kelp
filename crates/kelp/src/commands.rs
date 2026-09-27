@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use kelp_core::ops::Op;
 
 use crate::dialogs::Dialog;
+use crate::rebase_view;
 use crate::repo_view::Selection;
 
 pub enum Command {
@@ -18,4 +19,6 @@ pub enum Command {
     OpenInEditor(String),
     RevealFile(String),
     Undo,
+    OpenRebase(String),
+    StartRebase(rebase_view::Start),
 }

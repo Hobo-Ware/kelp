@@ -25,6 +25,7 @@ use crate::graph_view::{self, GraphView};
 use crate::icons::{self, Icon};
 use crate::jobs::Jobs;
 use crate::menus::{self, MenuContext};
+use crate::rebase_view::{self, HeadReach, RebaseView};
 use crate::settings::Settings;
 use crate::{details, sidebar, theme, worktrees_view};
 
@@ -113,6 +114,7 @@ pub enum Center {
     Diff(Box<DiffView>),
     Conflict(Box<ConflictView>),
     Worktrees,
+    Rebase(Box<RebaseView>),
 }
 
 pub struct Toast {
@@ -163,6 +165,7 @@ pub struct Repo {
     last_fetch: Instant,
     auto_fetch_failed: bool,
     undo: undo::Stack,
+    head_reach: HeadReach,
     bench: Option<ScrollBench>,
 }
 
@@ -232,6 +235,7 @@ impl Repo {
             last_fetch: Instant::now(),
             auto_fetch_failed: false,
             undo: undo::Stack::default(),
+            head_reach: HeadReach::new(),
             bench: ScrollBench::from_env(),
         };
         if let Some(row) = ready.head_row() {
@@ -247,6 +251,11 @@ impl Repo {
         {
             ready.selected = None;
             ready.reveal(Selection::Commit(row));
+        }
+        if let Ok(wanted) = std::env::var("KELP_OPEN_REBASE") {
+            let (base, actions) = wanted.split_once(':').unwrap_or((&wanted, ""));
+            let view = RebaseView::open(ctx, ready.dir.clone(), base.to_string());
+            ready.center = Center::Rebase(Box::new(view.with_actions(actions)));
         }
         let open_diff = std::env::var("KELP_OPEN_DIFF").unwrap_or_default();
         let wanted_preview = open_diff.strip_prefix("preview:").map(str::to_string);
@@ -561,6 +570,26 @@ impl Repo {
                 }
                 Command::Reveal(selection) => self.reveal(selection),
                 Command::ShowWorktrees => self.center = Center::Worktrees,
+                Command::OpenRebase(base) => {
+                    let view = RebaseView::open(ctx, self.dir.clone(), base);
+                    self.center = Center::Rebase(Box::new(view));
+                }
+                Command::StartRebase(start) => {
+                    let dir = self.dir.clone();
+                    self.center = Center::Graph;
+                    self.jobs.spawn("Rebasing", move || JobOutput::Op {
+                        label: "Interactive rebase".into(),
+                        quiet: false,
+                        commit: false,
+                        force_retry: None,
+                        result: start.run(&dir),
+                        undo: undo::Outcome::NotUndoable {
+                            label: "Interactive rebase".into(),
+                            reason: "interactive rebases are not tracked yet (the reflog keeps the old commits)",
+                        },
+                    });
+                    ran_op = true;
+                }
                 Command::OpenRepo(path) => {
                     let path = if path.is_relative() {
                         self.dir.join(path)
@@ -1074,6 +1103,11 @@ impl Repo {
                     conflict_view::Event::None => {}
                 },
                 Center::Worktrees => worktrees_view::ui(ui, self, &mut commands),
+                Center::Rebase(view) => match view.ui(ui) {
+                    rebase_view::Event::Close => self.center = Center::Graph,
+                    rebase_view::Event::Start(start) => commands.push(Command::StartRebase(start)),
+                    rebase_view::Event::None => {}
+                },
                 Center::Graph => self.graph_center(ui, &mut commands, settings),
             });
 
@@ -1115,6 +1149,7 @@ impl Repo {
             avatars,
             wip: changes,
             lit_cache,
+            head_reach,
             ..
         } = self;
         let wip = (!changes.is_empty()).then(|| graph_view::Wip {
@@ -1138,7 +1173,8 @@ impl Repo {
             Selection::Commit(row) => {
                 let id = history.id(row).to_string();
                 let parents = history.parents(row).len();
-                menus::commit(ui, &id, parents, title, &menu_ctx, commands)
+                let can_rebase = head_reach.can_rebase_from(history, head_row, row);
+                menus::commit(ui, &id, parents, title, &menu_ctx, can_rebase, commands)
             }
         });
         if let Some(bench) = bench {

@@ -62,6 +62,9 @@ folder if it is a repo.
   by side, ours and theirs, with Use ours / theirs / both per conflict,
   a preview of the result, and whole-file choices (including delete vs
   modify).
+- **Interactive rebase:** right-click a commit, then reorder the commits after it by
+  dragging, and pick, reword, squash, fixup or drop each one. Messages are edited
+  inline; no editor opens.
 - **Search:** Cmd+F across messages, authors, emails and hash prefixes.
 - **Files:** right-click any file for Open in editor, Reveal in Finder and
   Copy path; the diff header has an editor button too. Pick the editor in
@@ -91,6 +94,7 @@ folder if it is a repo.
 | Drag a tab | Reorder tabs |
 | Drop a folder on the window | Open it (a file opens the repository it is in) |
 | Double-click a branch | Check it out |
+| P / R / S / F / D | In interactive rebase: pick, reword, squash, fixup or drop the hovered commit |
 
 ## Where Kelp keeps things
 
@@ -135,6 +139,7 @@ Developer switches (environment variables):
 | `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`), `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`), `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
+| `KELP_OPEN_REBASE=<rev>` (or `<rev>:<letters>`, e.g. `HEAD~4:prsd`) | Open interactive rebase from a commit, optionally with actions preset |
 
 The plan, design rules and decisions are in [PLAN.md](PLAN.md); progress
 is logged in [LEDGER.md](LEDGER.md). Fonts: IBM Plex Sans and JetBrains

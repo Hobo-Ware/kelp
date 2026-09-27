@@ -273,6 +273,7 @@ pub fn commit(
     parents: usize,
     title: &str,
     ctx: &MenuContext,
+    can_rebase: bool,
     out: &mut Vec<Command>,
 ) {
     menu_width(ui, 250.0);
@@ -307,6 +308,15 @@ pub fn commit(
             commit: id.to_string(),
             merge,
         })
+    });
+    ui.add_enabled_ui(can_rebase, |ui| {
+        item(
+            ui,
+            Icon::Rebase,
+            "Interactive rebase from here…",
+            out,
+            || Command::OpenRebase(id.to_string()),
+        );
     });
     separator(ui);
     heading(
