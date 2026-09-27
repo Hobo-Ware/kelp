@@ -18,6 +18,7 @@ pub enum MenuFor<'a> {
     Commit(Selection, &'a str),
     Ref(&'a RefLabel),
     Drop(&'a DropPlan),
+    Worktree(&'a kelp_core::workspace::Worktree),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

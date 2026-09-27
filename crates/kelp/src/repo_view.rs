@@ -102,6 +102,7 @@ pub struct WorkspaceInfo {
 pub struct WorktreeRow {
     pub tree: Worktree,
     pub changes: Option<usize>,
+    pub current: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -797,6 +798,7 @@ impl Repo {
             .map(|l| l.name.clone())
             .collect();
         self.jobs.spawn("Reading worktrees", move || {
+            let here = std::fs::canonicalize(&dir).ok();
             let worktrees = workspace::worktrees(&dir)
                 .unwrap_or_default()
                 .into_iter()
@@ -806,7 +808,12 @@ impl Repo {
                     } else {
                         workspace::change_count(&tree.path)
                     };
-                    WorktreeRow { tree, changes }
+                    let current = std::fs::canonicalize(&tree.path).ok() == here;
+                    WorktreeRow {
+                        tree,
+                        changes,
+                        current,
+                    }
                 })
                 .collect();
             let ahead_behind = branches
@@ -1158,12 +1165,27 @@ impl Repo {
             wip: changes,
             lit_cache,
             head_reach,
+            workspace,
             ..
         } = self;
         let wip = (!changes.is_empty()).then(|| graph_view::Wip {
             head_row: head_row.unwrap_or(0),
             changes,
         });
+        let other_wips: Vec<graph_view::OtherWip> = workspace
+            .worktrees
+            .iter()
+            .filter(|w| !w.current)
+            .filter_map(|w| {
+                let changes = w.changes.filter(|&n| n > 0)?;
+                let id = gix::ObjectId::from_hex(w.tree.head.as_bytes()).ok()?;
+                Some(graph_view::OtherWip {
+                    head_row: history.row(&id)?,
+                    tree: &w.tree,
+                    changes,
+                })
+            })
+            .collect();
         if let Some(bench) = bench {
             graph.scroll_to = Some(Selection::Commit(bench.next_row(history.len())));
         }
@@ -1176,8 +1198,10 @@ impl Repo {
             wip,
             lit: lit_cache.as_ref().map(|(_, lit)| lit.as_slice()),
             descriptions: settings.show_descriptions,
+            other_wips: &other_wips,
         };
         let action = graph.ui(ui, input, avatars, |ui, target| match target {
+            MenuFor::Worktree(tree) => menus::worktree(ui, tree, commands),
             MenuFor::Commit(Selection::Wip, _) => menus::wip(ui, commands),
             MenuFor::Commit(Selection::Commit(row), title) => {
                 let id = history.id(row).to_string();

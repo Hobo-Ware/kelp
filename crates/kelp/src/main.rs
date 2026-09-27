@@ -8,6 +8,8 @@ mod dev_screenshot;
 mod dialogs;
 mod diff_view;
 mod fonts;
+mod graph_hover;
+mod graph_rows;
 mod graph_view;
 mod icons;
 mod jobs;
