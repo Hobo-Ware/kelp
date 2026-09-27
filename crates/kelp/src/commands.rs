@@ -7,6 +7,8 @@ use crate::repo_view::Selection;
 
 pub enum Command {
     Run(Op),
+    Push(String),
+    ResetHard(String),
     Open(Dialog),
     Copy(String),
     Reveal(Selection),

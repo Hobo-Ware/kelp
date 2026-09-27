@@ -28,6 +28,64 @@ pub enum Dialog {
         op: Op,
         danger: bool,
     },
+    PushTo {
+        branch: String,
+        remote: String,
+        remotes: Vec<String>,
+    },
+}
+
+pub fn reset_hard_dialog(branch: &str, commit: &str, dropped: usize, dirty: usize) -> Dialog {
+    let short = &commit[..commit.len().min(7)];
+    let plural =
+        |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+    let mut lost = Vec::new();
+    if dropped > 0 {
+        lost.push(format!(
+            "{} will no longer be on {branch}",
+            plural(dropped, "commit", "commits")
+        ));
+    }
+    if dirty > 0 {
+        lost.push(format!(
+            "uncommitted changes in {} are discarded",
+            plural(dirty, "file", "files")
+        ));
+    }
+    let consequence = match lost.as_slice() {
+        [] => "Nothing is lost".to_string(),
+        [one] => capitalize(one),
+        [first, second] => format!("{} and {second}", capitalize(first)),
+        _ => unreachable!(),
+    };
+    Dialog::Confirm {
+        title: "Reset hard?".into(),
+        body: format!("{branch} moves to {short}. {consequence}. Untracked files stay."),
+        op: Op::Reset {
+            commit: commit.to_string(),
+            mode: kelp_core::ops::ResetMode::Hard,
+        },
+        danger: true,
+    }
+}
+
+fn capitalize(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
+pub fn force_push_dialog(op: Op) -> Dialog {
+    Dialog::Confirm {
+        title: "Force push (with lease)?".into(),
+        body: "The remote has commits your branch does not. Forcing replaces them with yours, \
+               and stops if someone pushed after your last fetch."
+            .into(),
+        op,
+        danger: true,
+    }
 }
 
 pub struct NewWorktree {
@@ -157,6 +215,11 @@ pub fn show(ctx: &egui::Context, dialog: &mut Dialog) -> Outcome {
                     op,
                     danger,
                 } => confirm(ui, title, body, op, *danger),
+                Dialog::PushTo {
+                    branch,
+                    remote,
+                    remotes,
+                } => push_to(ui, branch, remote, remotes),
             };
         });
     if modal.should_close() {
@@ -427,9 +490,63 @@ fn confirm(ui: &mut Ui, title_text: &str, body: &str, op: &Op, danger: bool) -> 
     )
 }
 
+fn push_to(ui: &mut Ui, branch: &str, remote: &mut String, remotes: &[String]) -> Outcome {
+    title(ui, &format!("Push {branch}"));
+    ui.label(
+        RichText::new("This branch has no upstream yet. Pick the remote to push to and track.")
+            .color(theme::TEXT_MUTED),
+    );
+    ui.label(
+        RichText::new("Remote")
+            .size(12.0)
+            .color(egui::Color32::from_rgb(0xb4, 0xb9, 0xc2)),
+    );
+    egui::ComboBox::from_id_salt("push-remote")
+        .width(ui.available_width())
+        .selected_text(remote.clone())
+        .show_ui(ui, |ui| {
+            for name in remotes {
+                ui.selectable_value(remote, name.clone(), name);
+            }
+        });
+    let op = Op::Push {
+        branch: branch.to_string(),
+        remote: remote.clone(),
+        set_upstream: true,
+        force_with_lease: false,
+    };
+    preview(ui, &op);
+    with(buttons(ui, "Push", true, false), || vec![Command::Run(op)])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn body(dialog: Dialog) -> String {
+        match dialog {
+            Dialog::Confirm { body, .. } => body,
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn hard_reset_says_what_is_lost() {
+        assert_eq!(
+            body(reset_hard_dialog("main", "abc1234def", 2, 1)),
+            "main moves to abc1234. 2 commits will no longer be on main and uncommitted \
+             changes in 1 file are discarded. Untracked files stay."
+        );
+        assert_eq!(
+            body(reset_hard_dialog("main", "abc1234def", 0, 3)),
+            "main moves to abc1234. Uncommitted changes in 3 files are discarded. \
+             Untracked files stay."
+        );
+        assert_eq!(
+            body(reset_hard_dialog("HEAD", "abc1234def", 0, 0)),
+            "HEAD moves to abc1234. Nothing is lost. Untracked files stay."
+        );
+    }
 
     #[test]
     fn branch_names_follow_git_rules() {

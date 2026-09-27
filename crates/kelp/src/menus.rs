@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use eframe::egui::{Align2, Color32, FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
-use kelp_core::ops::Op;
+use kelp_core::ops::{Op, ResetMode};
 use kelp_core::refs::{RefKind, RefLabel};
 use kelp_core::workspace::{Stash, Worktree};
 
@@ -14,7 +14,7 @@ pub struct MenuContext {
     pub current_branch: Option<String>,
     pub repo_dir_name: String,
     pub local_branches: Vec<String>,
-    pub upstream: Option<String>,
+    pub head: Option<String>,
 }
 
 const ROW_H: f32 = 30.0;
@@ -190,17 +190,7 @@ pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Co
             if current == Some(name.as_str()) {
                 item(ui, Icon::Pull, "Pull", out, || Command::Run(Op::Pull));
             }
-            let upstream = if current == Some(name.as_str()) {
-                ctx.upstream.clone()
-            } else {
-                None
-            };
-            item(ui, Icon::Push, "Push", out, || {
-                Command::Run(Op::Push {
-                    branch: name.clone(),
-                    remote: upstream,
-                })
-            });
+            item(ui, Icon::Push, "Push", out, || Command::Push(name.clone()));
             item(ui, Icon::Copy, "Copy branch name", out, || {
                 Command::Copy(name.clone())
             });
@@ -277,8 +267,15 @@ pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Co
     }
 }
 
-pub fn commit(ui: &mut Ui, id: &str, title: &str, ctx: &MenuContext, out: &mut Vec<Command>) {
-    menu_width(ui, 230.0);
+pub fn commit(
+    ui: &mut Ui,
+    id: &str,
+    parents: usize,
+    title: &str,
+    ctx: &MenuContext,
+    out: &mut Vec<Command>,
+) {
+    menu_width(ui, 250.0);
     let short = &id[..7.min(id.len())];
     heading(ui, short);
     item(ui, Icon::Check, "Check out (detached)", out, || {
@@ -294,6 +291,45 @@ pub fn commit(ui: &mut Ui, id: &str, title: &str, ctx: &MenuContext, out: &mut V
             None,
             ctx.local_branches.clone(),
         )))
+    });
+    separator(ui);
+    let merge = parents > 1;
+    if ctx.head.as_deref() != Some(id) {
+        item(ui, Icon::CherryPick, "Cherry-pick", out, || {
+            Command::Run(Op::CherryPick {
+                commit: id.to_string(),
+                merge,
+            })
+        });
+    }
+    item(ui, Icon::Revert, "Revert commit", out, || {
+        Command::Run(Op::Revert {
+            commit: id.to_string(),
+            merge,
+        })
+    });
+    separator(ui);
+    heading(
+        ui,
+        &format!(
+            "Reset {} to here",
+            ctx.current_branch.as_deref().unwrap_or("HEAD")
+        ),
+    );
+    let reset = |mode| {
+        Command::Run(Op::Reset {
+            commit: id.to_string(),
+            mode,
+        })
+    };
+    item(ui, Icon::Reset, "Soft: keep changes staged", out, || {
+        reset(ResetMode::Soft)
+    });
+    item(ui, Icon::Reset, "Mixed: keep changes unstaged", out, || {
+        reset(ResetMode::Mixed)
+    });
+    danger(ui, Icon::Reset, "Hard: discard changes…", out, || {
+        Command::ResetHard(id.to_string())
     });
     separator(ui);
     item(ui, Icon::Copy, "Copy commit hash", out, || {

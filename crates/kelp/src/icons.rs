@@ -19,6 +19,9 @@ pub enum Icon {
     Terminal,
     Folder,
     Minus,
+    CherryPick,
+    Revert,
+    Reset,
 }
 
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -174,6 +177,29 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             ]);
         }
         Icon::Minus => line(&[(5.0, 12.0), (19.0, 12.0)]),
+        Icon::CherryPick => {
+            circle(7.0, 17.0, 3.0);
+            circle(17.0, 18.0, 3.0);
+            line(&[(8.0, 14.0), (12.5, 5.0), (16.5, 15.0)]);
+            line(&[(12.5, 5.0), (18.0, 3.5)]);
+        }
+        Icon::Revert => {
+            line(&[(9.0, 5.0), (5.0, 9.0), (9.0, 13.0)]);
+            line(&[
+                (5.0, 9.0),
+                (14.0, 9.0),
+                (17.5, 10.5),
+                (19.0, 14.0),
+                (17.5, 17.5),
+                (14.0, 19.0),
+                (8.0, 19.0),
+            ]);
+        }
+        Icon::Reset => {
+            circle(5.5, 12.0, 2.5);
+            line(&[(20.0, 12.0), (10.0, 12.0)]);
+            line(&[(14.0, 8.0), (10.0, 12.0), (14.0, 16.0)]);
+        }
     }
 }
 

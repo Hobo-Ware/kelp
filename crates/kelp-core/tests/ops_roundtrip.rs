@@ -3,7 +3,7 @@ mod common;
 use common::Scratch;
 use kelp_core::git_cli::run;
 use kelp_core::history::History;
-use kelp_core::ops::Op;
+use kelp_core::ops::{Op, ResetMode, push_rejected};
 use kelp_core::{search, workspace};
 
 #[test]
@@ -154,4 +154,107 @@ fn search_matches_message_author_and_hash_prefix() {
     let prefix = history.id(2).to_hex().to_string()[..8].to_string();
     assert_eq!(rows(&prefix), [2]);
     assert!(rows("nothing like this").is_empty());
+}
+
+fn head(repo: &Scratch) -> String {
+    repo.git(&["rev-parse", "HEAD"]).trim().to_string()
+}
+
+#[test]
+fn cherry_pick_and_revert() {
+    let repo = Scratch::new("pick");
+    Op::CreateBranch {
+        name: "side".into(),
+        start: "main".into(),
+        switch: true,
+    }
+    .run(repo.path())
+    .unwrap();
+    repo.commit("side.txt", "side", "on side");
+    let picked = head(&repo);
+    Op::Switch("main".into()).run(repo.path()).unwrap();
+    Op::CherryPick {
+        commit: picked,
+        merge: false,
+    }
+    .run(repo.path())
+    .unwrap();
+    assert!(repo.path().join("side.txt").exists());
+
+    Op::Revert {
+        commit: head(&repo),
+        merge: false,
+    }
+    .run(repo.path())
+    .unwrap();
+    assert!(!repo.path().join("side.txt").exists());
+    let subject = repo.git(&["log", "-1", "--format=%s"]);
+    assert!(subject.starts_with("Revert \"on side\""), "{subject}");
+}
+
+#[test]
+fn reset_modes_keep_or_drop_changes() {
+    let repo = Scratch::new("reset");
+    let target = head(&repo);
+    repo.commit("a.txt", "three", "third");
+    let status = |repo: &Scratch| repo.git(&["status", "--porcelain"]).trim_end().to_string();
+    let reset = |mode| {
+        Op::Reset {
+            commit: target.clone(),
+            mode,
+        }
+        .run(repo.path())
+        .unwrap()
+    };
+
+    reset(ResetMode::Soft);
+    assert_eq!(head(&repo), target);
+    assert_eq!(status(&repo), "M  a.txt");
+
+    reset(ResetMode::Mixed);
+    assert_eq!(status(&repo), " M a.txt");
+
+    reset(ResetMode::Hard);
+    assert_eq!(status(&repo), "");
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("a.txt")).unwrap(),
+        "two"
+    );
+}
+
+#[test]
+fn push_sets_upstream_then_forces_with_lease_after_a_rewrite() {
+    let repo = Scratch::new("push");
+    let bare_dir = repo.path().with_file_name(format!(
+        "{}-remote.git",
+        repo.path().file_name().unwrap().to_string_lossy()
+    ));
+    let _ = std::fs::remove_dir_all(&bare_dir);
+    run(
+        repo.path().parent().unwrap(),
+        &["init", "-q", "--bare", bare_dir.to_str().unwrap()],
+    )
+    .unwrap();
+    let _bare = Scratch(bare_dir.clone());
+    repo.git(&["remote", "add", "origin", bare_dir.to_str().unwrap()]);
+    let push = |set_upstream, force_with_lease| Op::Push {
+        branch: "main".into(),
+        remote: "origin".into(),
+        set_upstream,
+        force_with_lease,
+    };
+
+    push(true, false).run(repo.path()).unwrap();
+    let opened = gix::open(repo.path()).unwrap();
+    assert_eq!(
+        workspace::upstream_remote(&opened, "main").as_deref(),
+        Some("origin")
+    );
+
+    repo.git(&["commit", "-q", "--amend", "-m", "second, reworded"]);
+    let rejected = push(false, false).run(repo.path()).unwrap_err();
+    assert!(push_rejected(&format!("{rejected:#}")), "{rejected:#}");
+
+    push(false, true).run(repo.path()).unwrap();
+    assert_eq!(workspace::ahead_behind(repo.path(), "main"), Some((0, 0)));
 }
