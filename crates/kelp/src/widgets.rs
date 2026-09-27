@@ -65,6 +65,23 @@ pub fn segmented<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, options: &[(T,
     }
 }
 
+pub fn icon_button(ui: &mut Ui, icon: crate::icons::Icon, hint: &str) -> bool {
+    let (rect, response) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::click());
+    let response = response
+        .on_hover_text(hint)
+        .on_hover_cursor(CursorIcon::PointingHand);
+    let color = if response.hovered() {
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(5), theme::CONTROL_HOVER);
+        theme::TEXT_STRONG
+    } else {
+        theme::TEXT_MUTED
+    };
+    let glyph = Rect::from_center_size(rect.center(), vec2(15.0, 15.0));
+    crate::icons::paint(ui.painter(), glyph, icon, color);
+    response.clicked()
+}
+
 pub fn close_button(ui: &mut Ui, hint: &str) -> bool {
     let (rect, response) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::click());
     let response = response

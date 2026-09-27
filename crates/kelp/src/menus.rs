@@ -340,6 +340,23 @@ pub fn commit(
     });
 }
 
+pub fn file(ui: &mut Ui, path: &str, out: &mut Vec<Command>) {
+    menu_width(ui, 210.0);
+    file_items(ui, path, out);
+}
+
+pub fn file_items(ui: &mut Ui, path: &str, out: &mut Vec<Command>) {
+    item(ui, Icon::Pencil, "Open in editor", out, || {
+        Command::OpenInEditor(path.to_string())
+    });
+    item(ui, Icon::Folder, "Reveal in Finder", out, || {
+        Command::RevealFile(path.to_string())
+    });
+    item(ui, Icon::Copy, "Copy path", out, || {
+        Command::Copy(path.to_string())
+    });
+}
+
 pub fn wip(ui: &mut Ui, out: &mut Vec<Command>) {
     menu_width(ui, 200.0);
     item(ui, Icon::Stash, "Stash all changes", out, || {

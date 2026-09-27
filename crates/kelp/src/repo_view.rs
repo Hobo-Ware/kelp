@@ -37,6 +37,7 @@ pub enum JobOutput {
     CommitGraph(anyhow::Result<()>),
     Workspace(Box<WorkspaceInfo>),
     AutoFetch(anyhow::Result<String>),
+    Opened(Result<(), String>),
     Op {
         label: String,
         quiet: bool,
@@ -136,6 +137,7 @@ pub struct Repo {
     open_after_ops: Vec<PathBuf>,
     was_focused: Option<bool>,
     diff_layout: diff_view::Layout,
+    pub editor: String,
     _watcher: Option<Watcher>,
     watch_events: mpsc::Receiver<watch::Change>,
     reload_again: bool,
@@ -199,6 +201,7 @@ impl Repo {
             open_after_ops: Vec::new(),
             was_focused: None,
             diff_layout: diff_view::Layout::default(),
+            editor: String::new(),
             _watcher: watcher,
             watch_events,
             reload_again: false,
@@ -509,8 +512,36 @@ impl Repo {
                         self.notify(format!("Could not open a terminal: {e}"), true);
                     }
                 }
+                Command::OpenInEditor(rel) => match self.working_file(&rel) {
+                    Some(path) => {
+                        let setting = self.editor.clone();
+                        self.jobs.spawn("Opening", move || {
+                            let app = crate::open_with::editor_app(&setting);
+                            JobOutput::Opened(
+                                crate::open_with::open_in_editor(&path, app.as_deref())
+                                    .map_err(|e| format!("Could not open {rel}: {e}")),
+                            )
+                        });
+                    }
+                    None => self.notify(format!("{rel} is not in the working tree"), true),
+                },
+                Command::RevealFile(rel) => match self.working_file(&rel) {
+                    Some(path) => {
+                        if let Err(e) = reveal_in_finder(&path) {
+                            self.notify(format!("Could not reveal {rel}: {e}"), true);
+                        }
+                    }
+                    None => self.notify(format!("{rel} is not in the working tree"), true),
+                },
             }
         }
+    }
+
+    fn working_file(&self, rel: &str) -> Option<PathBuf> {
+        self.workdir
+            .as_ref()
+            .map(|w| w.join(rel))
+            .filter(|p| p.exists())
     }
 
     fn push_plan(&self, branch: &str) -> PushPlan {
@@ -738,6 +769,8 @@ impl Repo {
                         self.reload();
                     }
                 }
+                JobOutput::Opened(Ok(())) => {}
+                JobOutput::Opened(Err(e)) => self.notify(e, true),
                 JobOutput::AutoFetch(Ok(_)) => self.auto_fetch_failed = false,
                 JobOutput::AutoFetch(Err(e)) => {
                     if !self.auto_fetch_failed {
@@ -933,6 +966,9 @@ impl Repo {
                             }
                         }
                         diff_view::Event::Run(op) => commands.push(Command::Run(op)),
+                        diff_view::Event::OpenInEditor => {
+                            commands.push(Command::OpenInEditor(view.path().to_string()))
+                        }
                         diff_view::Event::None => {}
                     }
                 }

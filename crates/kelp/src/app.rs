@@ -619,6 +619,7 @@ impl eframe::App for KelpApp {
         for (i, tab) in self.tabs.iter_mut().enumerate() {
             if let State::Ready(repo) = &mut tab.state {
                 repo.avatars.enabled = self.settings.avatars_enabled();
+                repo.editor.clone_from(&self.settings.editor);
                 repo.poll(&ctx, self.settings.fetch_interval());
                 if i != self.active {
                     open.append(&mut repo.outbox);
