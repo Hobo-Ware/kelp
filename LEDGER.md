@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** publishing (needs the user's go-ahead: public repo, tap, DNS).
+- **Current milestone:** publishing v0.1.0 (approved: public repo, tap, DNS).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,28 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-27
+
+- **Stays current, calmer colors, better marketing shots.**
+  - File watcher (`kelp-core/src/watch.rs`, FSEvents via `notify`):
+    ref/HEAD changes reload the graph, index and work-tree edits refresh
+    status. Bursts settle for 400 ms; git-ignored paths are skipped with a
+    cached `git check-ignore`, so builds in `target/` wake nothing. Status
+    runs with `--no-optional-locks` so our own `git status` does not
+    trigger itself. Reloads that arrive mid-reload run once more after.
+  - Auto-fetch: quiet `git fetch --all --prune` every 5 min (1/5/15/30 or
+    off in Settings); a failure toasts once until the next success.
+  - Verified: a CLI commit made while the app was open appeared on its
+    own; 3 watcher round-trip tests (commit, edit, ignored files quiet).
+    Idle CPU still 0.0%.
+  - White checkboxes and toggles came from egui's light theme on a
+    light-mode Mac. The app now forces dark and styles only that theme.
+  - Softer palette: lifted background, lower text contrast, muted lane
+    colors, tinted HEAD pill instead of a solid one, fainter row bands.
+  - Marketing shots now use a generated demo repo
+    (`scripts/make-demo-repo.py`, "tidepool", 36 commits, 6 authors)
+    instead of git/git's wall of merges. PSNR 51-60 dB.
+  - Screenshot runs drop keyboard input: typing elsewhere while one ran
+    moved the selection with J/K.
 
 - **Distribution, built locally.** Modeled on stdusk.
   - In-app update check (stdusk has none): latest GitHub release at
