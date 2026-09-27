@@ -36,6 +36,9 @@ folder if it is a repo.
   tree, or every file in the commit.
 - **Diffs:** unified or split, or the full file. Uncommitted changes get
   their own row above HEAD.
+- **Previews:** images (PNG, JPEG, GIF, WebP, BMP, ICO, TIFF) and SVGs
+  side by side before and after, and Markdown rendered with its images
+  loaded from the repo.
 - **Review:** hover a line in a diff, click **+**, and leave a comment.
   Threads support replies and resolving, and follow their line when code
   above them changes. Comments live in `.git/kelp/comments.json`, are
@@ -105,7 +108,7 @@ Developer switches (environment variables):
 | `KELP_OFFLINE=1` | No avatar downloads |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
 | `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree`, `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`) | Open a screen on start |
-| `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `unstaged:<file>` | Select a commit or file on start |
+| `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
 
 The plan, design rules and decisions are in [PLAN.md](PLAN.md); progress

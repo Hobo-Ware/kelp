@@ -214,9 +214,12 @@ impl Repo {
             ready.selected = None;
             ready.reveal(Selection::Commit(row));
         }
-        let wanted_path = std::env::var("KELP_OPEN_DIFF")
-            .ok()
-            .and_then(|v| v.strip_prefix("path:").map(str::to_string));
+        let open_diff = std::env::var("KELP_OPEN_DIFF").unwrap_or_default();
+        let wanted_preview = open_diff.strip_prefix("preview:").map(str::to_string);
+        let wanted_path = open_diff
+            .strip_prefix("path:")
+            .map(str::to_string)
+            .or(wanted_preview.clone());
         if std::env::var_os("KELP_OPEN_DIFF").is_some()
             && let Some(path) = wanted_path.or_else(|| {
                 ready
@@ -231,6 +234,11 @@ impl Repo {
                 && let Center::Diff(view) = &mut ready.center
             {
                 view.set_layout(diff_view::Layout::Split);
+            }
+            if wanted_preview.is_some()
+                && let Center::Diff(view) = &mut ready.center
+            {
+                view.show_preview();
             }
         }
         if std::env::var_os("KELP_SELECT_WIP").is_some() {

@@ -114,8 +114,16 @@ mod tests {
         let _ = ctx.run_ui(input, |ui| {
             ui.horizontal(|ui| {
                 let before = ui.min_rect();
-                segmented(ui, &mut state.first, &[(Pick::A, "Split"), (Pick::B, "Unified")]);
-                segmented(ui, &mut state.second, &[(Pick::A, "File"), (Pick::B, "Diff")]);
+                segmented(
+                    ui,
+                    &mut state.first,
+                    &[(Pick::A, "Split"), (Pick::B, "Unified")],
+                );
+                segmented(
+                    ui,
+                    &mut state.second,
+                    &[(Pick::A, "File"), (Pick::B, "Diff")],
+                );
                 state.rects = vec![before, ui.min_rect()];
             });
         });

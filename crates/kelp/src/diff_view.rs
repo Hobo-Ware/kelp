@@ -9,6 +9,7 @@ use kelp_core::diff::{self, Body, FileDiff, Line, LineKind};
 use kelp_core::ops::Op;
 use kelp_core::review::{Anchor, Comment, Review, Side, Thread};
 
+use crate::preview_view::Preview;
 use crate::{theme, widgets};
 
 const LINE_H: f32 = 22.0;
@@ -37,6 +38,7 @@ pub enum DiffSource {
 enum Mode {
     Diff,
     File,
+    Preview,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -71,6 +73,7 @@ pub struct DiffView {
     replies: HashMap<u64, String>,
     expanded: HashMap<u64, bool>,
     pending: Option<Op>,
+    preview: Option<Preview>,
 }
 
 pub enum Event {
@@ -112,10 +115,25 @@ impl DiffView {
                 .map(|t| t.lines().map(|l| l.replace('\t', "    ")).collect())
                 .unwrap_or_default()
         };
-        let mode = if matches!(source, DiffSource::File(_)) {
-            Mode::File
-        } else {
-            Mode::Diff
+        let read = |repo_path: &str| -> Option<Vec<u8>> {
+            match source {
+                DiffSource::Commit(id) | DiffSource::File(id) => {
+                    diff::file_at(repo, id, repo_path).ok().flatten()
+                }
+                DiffSource::Staged => diff::index_blob(repo, repo_path).ok().flatten(),
+                DiffSource::Unstaged => workdir.and_then(|w| std::fs::read(w.join(repo_path)).ok()),
+            }
+        };
+        let preview = diff
+            .preview
+            .as_ref()
+            .map(|sides| Preview::new(sides, path, &read));
+        let text_body = matches!(diff.body, Body::Text(_));
+        let mode = match (preview.is_some(), source) {
+            (true, _) if !text_body => Mode::Preview,
+            (true, DiffSource::File(_)) => Mode::Preview,
+            (_, DiffSource::File(_)) => Mode::File,
+            _ => Mode::Diff,
         };
         Ok(Self {
             source,
@@ -131,6 +149,7 @@ impl DiffView {
             replies: HashMap::new(),
             expanded: HashMap::new(),
             pending: None,
+            preview,
         })
     }
 
@@ -155,6 +174,14 @@ impl DiffView {
         self.draft = kept.draft;
         self.replies = kept.replies;
         self.expanded = kept.expanded;
+        if let (Some(old), Some(sides)) = (kept.preview, &self.diff.preview)
+            && old.same_content(sides)
+        {
+            self.preview = Some(old);
+        }
+        if self.mode == Mode::Preview && self.preview.is_none() {
+            self.mode = Mode::Diff;
+        }
         Ok(())
     }
 
@@ -173,6 +200,12 @@ impl DiffView {
         self.layout
     }
 
+    pub fn show_preview(&mut self) {
+        if self.preview.is_some() {
+            self.mode = Mode::Preview;
+        }
+    }
+
     pub fn set_layout(&mut self, layout: Layout) {
         self.layout = layout;
     }
@@ -189,6 +222,12 @@ impl DiffView {
             crate::fonts::ensure_fallback(ui.ctx(), text);
         }
         let mut event = self.header(ui, review);
+        if self.mode == Mode::Preview
+            && let Some(preview) = &mut self.preview
+        {
+            preview.ui(ui);
+            return event;
+        }
         match &self.diff.body {
             Body::Binary => notice(ui, "Binary file, no text to show."),
             Body::TooLarge => notice(ui, "This file is too large to show here."),
@@ -277,12 +316,18 @@ impl DiffView {
                                 &[(Layout::Split, "Split"), (Layout::Unified, "Unified")],
                             );
                         }
-                        if !matches!(self.source, DiffSource::File(_)) {
-                            widgets::segmented(
-                                ui,
-                                &mut self.mode,
-                                &[(Mode::File, "File"), (Mode::Diff, "Diff")],
-                            );
+                        let mut modes = Vec::new();
+                        if self.preview.is_some() {
+                            modes.push((Mode::Preview, "Preview"));
+                        }
+                        if matches!(self.diff.body, Body::Text(_)) {
+                            modes.push((Mode::File, "File"));
+                            if !matches!(self.source, DiffSource::File(_)) {
+                                modes.push((Mode::Diff, "Diff"));
+                            }
+                        }
+                        if modes.len() > 1 {
+                            widgets::segmented(ui, &mut self.mode, &modes);
                         }
                     });
                 });
@@ -328,6 +373,7 @@ impl DiffView {
         };
         let mut shown = Vec::new();
         match self.mode {
+            Mode::Preview => {}
             Mode::File => {
                 for i in 0..self.new_lines.len() {
                     items.push(Item::FileLine(i));
