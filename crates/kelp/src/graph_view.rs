@@ -228,6 +228,19 @@ impl GraphView {
                 };
                 response.context_menu(|ui| menu(ui, selection, &title));
             }
+            if std::env::var("KELP_OPEN_MENU").as_deref() == Ok("commit")
+                && let Some(selection) = selected
+            {
+                let top = rect.top() + (map.display(selection) - rows.start) as f32 * ROW_H;
+                let title = match selection {
+                    Selection::Commit(row) => summaries[&row].title.clone(),
+                    Selection::Wip => String::new(),
+                };
+                egui::Popup::context_menu(&response)
+                    .open(true)
+                    .at_position(egui::pos2(rect.left() + msg_x + 120.0, top + ROW_H))
+                    .show(|ui| menu(ui, selection, &title));
+            }
         });
         action
     }

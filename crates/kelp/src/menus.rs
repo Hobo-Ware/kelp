@@ -123,6 +123,7 @@ pub fn separator(ui: &mut Ui) {
 
 fn menu_width(ui: &mut Ui, width: f32) {
     ui.set_min_width(width);
+    ui.set_max_width(width);
     ui.spacing_mut().item_spacing.y = 0.0;
 }
 
