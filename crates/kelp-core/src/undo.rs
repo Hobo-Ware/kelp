@@ -236,7 +236,7 @@ impl Stack {
     pub fn record(&mut self, record: Record) -> Vec<Record> {
         self.last_skipped = None;
         self.undo.push(record);
-        let mut evicted: Vec<Record> = self.redo.drain(..).collect();
+        let mut evicted: Vec<Record> = std::mem::take(&mut self.redo);
         if self.undo.len() > MAX_ENTRIES {
             evicted.extend(self.undo.drain(..self.undo.len() - MAX_ENTRIES));
         }
