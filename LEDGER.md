@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.1.1 (window, previews, split fix). Waiting on the DNS record for kelp.hoboware.dev.
+- **Current milestone:** v0.1.2 (QoL batch, undo, interactive rebase, conflicts). Site live at kelp.hoboware.dev.
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
