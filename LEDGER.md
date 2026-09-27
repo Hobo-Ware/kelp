@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** publishing v0.1.0 (approved: public repo, tap, DNS).
+- **Current milestone:** v0.1.0 released. Waiting on the DNS record for kelp.hoboware.dev.
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,13 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-27
+
+- **v0.1.0 published.** Public repo `Hobo-Ware/kelp`, tap deploy key and
+  secret set, Pages on (workflow, `kelp.hoboware.dev`). Release run built
+  the universal app and pushed `Casks/kelp.rb` to the tap. Installed on
+  the dev Mac with `brew install --cask hobo-ware/tap/kelp`: app in
+  `/Applications`, `kelp` on PATH, no quarantine flag, launches fine.
+  DNS CNAME `kelp` -> `hobo-ware.github.io` still to add.
 
 - **Stays current, calmer colors, better marketing shots.**
   - File watcher (`kelp-core/src/watch.rs`, FSEvents via `notify`):
