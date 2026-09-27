@@ -13,6 +13,7 @@ mod jobs;
 mod macos;
 mod mascot;
 mod menus;
+mod preview_view;
 mod repo_view;
 mod settings;
 mod sidebar;
@@ -44,6 +45,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             theme::apply(&cc.egui_ctx);
+            egui_extras::install_image_loaders(&cc.egui_ctx);
             fonts::install(&cc.egui_ctx);
             Ok(Box::new(app::KelpApp::open(cc.egui_ctx.clone(), paths)))
         }),

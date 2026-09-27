@@ -3,6 +3,8 @@ use std::path::Path;
 use gix::ObjectId;
 use similar::{ChangeTag, TextDiff};
 
+use crate::preview::Sides;
+
 const CONTEXT_LINES: usize = 3;
 const MAX_DIFF_BYTES: usize = 8 * 1024 * 1024;
 
@@ -43,6 +45,7 @@ pub struct FileDiff {
     pub removed: usize,
     pub old_text: Option<String>,
     pub new_text: Option<String>,
+    pub preview: Option<Sides>,
 }
 
 pub fn commit_file(
@@ -78,7 +81,7 @@ pub fn unstaged_file(
     Ok(build(path, old.as_deref(), new.as_deref()))
 }
 
-fn index_blob(repo: &gix::Repository, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
+pub fn index_blob(repo: &gix::Repository, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
     let index = repo.index_or_empty()?;
     let Some(entry) = index.entry_by_path(path.into()) else {
         return Ok(None);
@@ -155,6 +158,7 @@ fn blob_at(tree: &gix::Tree<'_>, path: &str) -> anyhow::Result<Option<Vec<u8>>> 
 }
 
 pub fn build(path: &str, old: Option<&[u8]>, new: Option<&[u8]>) -> FileDiff {
+    let preview = Sides::capture(path, old, new);
     let old = old.unwrap_or_default();
     let new = new.unwrap_or_default();
     let empty = |body| FileDiff {
@@ -164,6 +168,7 @@ pub fn build(path: &str, old: Option<&[u8]>, new: Option<&[u8]>) -> FileDiff {
         removed: 0,
         old_text: None,
         new_text: None,
+        preview: preview.clone(),
     };
     if old.len() + new.len() > MAX_DIFF_BYTES {
         return empty(Body::TooLarge);
@@ -220,6 +225,7 @@ pub fn build(path: &str, old: Option<&[u8]>, new: Option<&[u8]>) -> FileDiff {
         removed,
         old_text: Some(old_text.to_string()),
         new_text: Some(new_text.to_string()),
+        preview,
     }
 }
 
