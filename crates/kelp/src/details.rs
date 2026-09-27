@@ -6,8 +6,9 @@ use eframe::egui::{
 use kelp_core::commit::{self, ChangeKind, FileChange};
 use kelp_core::review::Review;
 
+use crate::commands::Command;
 use crate::repo_view::{Center, FileListMode, Repo, Selection};
-use crate::theme;
+use crate::{menus, theme};
 
 const FILE_ROW_H: f32 = 28.0;
 const INDENT: f32 = 16.0;
@@ -17,7 +18,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
         crate::staging::ui(ui, repo);
         return;
     }
-    let mut open = None;
+    let mut picks = Picks::default();
     let mut reveal = None;
     let review_card_h = if repo.review.threads.is_empty() {
         0.0
@@ -41,14 +42,16 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                 file_controls(ui, repo, &changes);
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let active = open_diff_path(repo);
-                open = match repo.file_list_mode {
-                    FileListMode::Path => path_list(ui, &changes, active.as_deref(), &repo.review),
-                    FileListMode::Tree => tree_list(ui, &changes, active.as_deref(), &repo.review),
-                };
-                if repo.show_all_files
-                    && let Some(path) = all_files(ui, repo, &changes, active.as_deref())
-                {
-                    open = Some(path);
+                match repo.file_list_mode {
+                    FileListMode::Path => {
+                        path_list(ui, &changes, active.as_deref(), &repo.review, &mut picks)
+                    }
+                    FileListMode::Tree => {
+                        tree_list(ui, &changes, active.as_deref(), &repo.review, &mut picks)
+                    }
+                }
+                if repo.show_all_files {
+                    all_files(ui, repo, &changes, active.as_deref(), &mut picks);
                 }
             });
     });
@@ -58,7 +61,8 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
     if let Some(row) = reveal {
         repo.reveal(Selection::Commit(row));
     }
-    if let Some(path) = open {
+    repo.execute(ui.ctx(), picks.commands);
+    if let Some(path) = picks.open {
         repo.open_diff(&path);
     }
 }
@@ -218,8 +222,8 @@ fn path_list(
     changes: &[FileChange],
     active: Option<&str>,
     review: &Review,
-) -> Option<String> {
-    let mut clicked = None;
+    picks: &mut Picks,
+) {
     for change in changes {
         let row = FileRow {
             kind: Some(change.kind),
@@ -229,11 +233,23 @@ fn path_list(
             active: active == Some(change.path.as_str()),
             comments: review.count_for(&change.path),
         };
-        if row.show(ui).clicked() {
-            clicked = Some(change.path.clone());
-        }
+        picks.take(row.show(ui), &change.path);
     }
-    clicked
+}
+
+#[derive(Default)]
+struct Picks {
+    open: Option<String>,
+    commands: Vec<Command>,
+}
+
+impl Picks {
+    fn take(&mut self, row: egui::Response, path: &str) {
+        if row.clicked() {
+            self.open = Some(path.to_string());
+        }
+        row.context_menu(|ui| menus::file(ui, path, &mut self.commands));
+    }
 }
 
 #[derive(Default)]
@@ -247,7 +263,8 @@ fn tree_list(
     changes: &[FileChange],
     active: Option<&str>,
     review: &Review,
-) -> Option<String> {
+    picks: &mut Picks,
+) {
     let mut root = Folder::default();
     for change in changes {
         let mut folder = &mut root;
@@ -258,9 +275,7 @@ fn tree_list(
         }
         folder.files.push(change);
     }
-    let mut clicked = None;
-    show_folder(ui, &root, "", 0, active, review, &mut clicked);
-    clicked
+    show_folder(ui, &root, "", 0, active, review, picks);
 }
 
 fn show_folder(
@@ -270,7 +285,7 @@ fn show_folder(
     depth: usize,
     active: Option<&str>,
     review: &Review,
-    clicked: &mut Option<String>,
+    picks: &mut Picks,
 ) {
     for (name, child) in &folder.folders {
         let mut path = format!("{prefix}{name}");
@@ -295,7 +310,7 @@ fn show_folder(
                 depth + 1,
                 active,
                 review,
-                clicked,
+                picks,
             );
         }
     }
@@ -309,9 +324,7 @@ fn show_folder(
             active: active == Some(change.path.as_str()),
             comments: review.count_for(&change.path),
         };
-        if row.show(ui).clicked() {
-            *clicked = Some(change.path.clone());
-        }
+        picks.take(row.show(ui), &change.path);
     }
 }
 
@@ -320,9 +333,10 @@ fn all_files(
     repo: &mut Repo,
     changes: &[FileChange],
     active: Option<&str>,
-) -> Option<String> {
+    picks: &mut Picks,
+) {
     let Some(Selection::Commit(row)) = repo.selected else {
-        return None;
+        return;
     };
     let id = repo.history.id(row);
     ui.add_space(10.0);
@@ -336,9 +350,7 @@ fn all_files(
                     .color(theme::TEXT_MUTED),
             );
         });
-    let mut clicked = None;
-    browse(ui, repo, id, "", 0, changes, active, &mut clicked);
-    clicked
+    browse(ui, repo, id, "", 0, changes, active, picks);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -350,7 +362,7 @@ fn browse(
     depth: usize,
     changes: &[FileChange],
     active: Option<&str>,
-    clicked: &mut Option<String>,
+    picks: &mut Picks,
 ) {
     let entries = match repo.tree_cache.get(dir) {
         Some(entries) => entries.clone(),
@@ -369,16 +381,7 @@ fn browse(
                 ui.data_mut(|d| d.insert_persisted(key, open));
             }
             if open {
-                browse(
-                    ui,
-                    repo,
-                    id,
-                    &entry.path,
-                    depth + 1,
-                    changes,
-                    active,
-                    clicked,
-                );
+                browse(ui, repo, id, &entry.path, depth + 1, changes, active, picks);
             }
         } else {
             let kind = changes
@@ -393,9 +396,7 @@ fn browse(
                 active: active == Some(entry.path.as_str()),
                 comments: repo.review.count_for(&entry.path),
             };
-            if row.show(ui).clicked() {
-                *clicked = Some(entry.path.clone());
-            }
+            picks.take(row.show(ui), &entry.path);
         }
     }
 }

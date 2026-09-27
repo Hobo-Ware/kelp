@@ -4,6 +4,7 @@ use eframe::egui::{
 use kelp_core::commit::{ChangeKind, FileChange};
 use kelp_core::ops::Op;
 
+use crate::commands::Command;
 use crate::dialogs::Dialog;
 use crate::icons::Icon;
 use crate::menus;
@@ -17,7 +18,7 @@ enum Action {
     Open(String, bool),
     Run(Op),
     Confirm(Dialog),
-    Copy(String),
+    Command(Command),
 }
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo) {
@@ -84,9 +85,9 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                         if menus::row(ui, Some(Icon::Plus), "Stage", None, false) {
                             actions.push(Action::Run(Op::Stage(vec![change.path.clone()])));
                         }
-                        if menus::row(ui, Some(Icon::Copy), "Copy path", None, false) {
-                            actions.push(Action::Copy(change.path.clone()));
-                        }
+                        let mut picked = Vec::new();
+                        menus::file_items(ui, &change.path, &mut picked);
+                        actions.extend(picked.into_iter().map(Action::Command));
                         menus::separator(ui);
                         let label = if untracked {
                             "Delete file…"
@@ -132,9 +133,9 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                                 has_head,
                             }));
                         }
-                        if menus::row(ui, Some(Icon::Copy), "Copy path", None, false) {
-                            actions.push(Action::Copy(change.path.clone()));
-                        }
+                        let mut picked = Vec::new();
+                        menus::file_items(ui, &change.path, &mut picked);
+                        actions.extend(picked.into_iter().map(Action::Command));
                     });
                 }
                 if repo.status.staged.is_empty() {
@@ -148,10 +149,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
             Action::Open(path, staged) => repo.open_working_diff(&path, staged),
             Action::Run(op) => repo.run_op(op),
             Action::Confirm(dialog) => repo.dialog = Some(dialog),
-            Action::Copy(text) => {
-                ui.ctx().copy_text(text.clone());
-                repo.notify(format!("Copied {text}"), false);
-            }
+            Action::Command(command) => repo.execute(ui.ctx(), vec![command]),
         }
     }
 }

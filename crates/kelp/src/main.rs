@@ -13,6 +13,7 @@ mod jobs;
 mod macos;
 mod mascot;
 mod menus;
+mod open_with;
 mod preview_view;
 mod repo_view;
 mod settings;

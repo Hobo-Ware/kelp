@@ -54,6 +54,10 @@ folder if it is a repo.
   amend (hooks run as usual).
 - **Stashes:** stash, pop, apply, drop.
 - **Search:** Cmd+F across messages, authors, emails and hash prefixes.
+- **Files:** right-click any file for Open in editor, Reveal in Finder and
+  Copy path; the diff header has an editor button too. Pick the editor in
+  Settings (empty uses the first installed of Cursor, VS Code, Zed and
+  Sublime Text).
 - **Stays current:** changes made from the command line or another app
   show up on their own, and remotes are fetched in the background every
   5 minutes (change or turn off in Settings).

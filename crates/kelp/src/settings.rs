@@ -17,6 +17,7 @@ pub struct Settings {
     pub auto_update: bool,
     pub auto_fetch: bool,
     pub fetch_minutes: u32,
+    pub editor: String,
     pub window: Option<[f32; 4]>,
     #[serde(skip)]
     offline: bool,
@@ -33,6 +34,7 @@ impl Default for Settings {
             auto_update: true,
             auto_fetch: true,
             fetch_minutes: 5,
+            editor: String::new(),
             window: None,
             offline: false,
         }
@@ -154,6 +156,24 @@ impl Settings {
                                 }
                             });
                     });
+                });
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 4.0;
+                    ui.label(RichText::new("Open files with").color(theme::TEXT_STRONG));
+                    let detected = crate::open_with::editor_app("");
+                    let hint = detected
+                        .as_deref()
+                        .map_or("System default app".to_string(), |app| app.to_string());
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.editor)
+                            .hint_text(hint)
+                            .desired_width(260.0),
+                    );
+                    ui.label(
+                        RichText::new("An app name, like Visual Studio Code. Empty uses the first installed of Cursor, VS Code, Zed and Sublime Text.")
+                            .size(12.0)
+                            .color(theme::TEXT_FAINT),
+                    );
                 });
                 ui.separator();
                 updater.settings_section(ui, &mut self.auto_update, &mut self.check_updates);

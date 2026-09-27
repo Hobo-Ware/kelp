@@ -95,6 +95,7 @@ pub enum Event {
     Close,
     Changed,
     Run(Op),
+    OpenInEditor,
 }
 
 impl DiffView {
@@ -380,6 +381,9 @@ impl DiffView {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if widgets::close_button(ui, "Close (Esc)") {
                             event = Event::Close;
+                        }
+                        if widgets::icon_button(ui, crate::icons::Icon::Pencil, "Open in editor") {
+                            event = Event::OpenInEditor;
                         }
                         ui.add_space(4.0);
                         if self.mode == Mode::Diff {
