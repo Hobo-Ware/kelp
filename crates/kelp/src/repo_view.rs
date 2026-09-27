@@ -157,6 +157,7 @@ pub struct Repo {
     pub operation: Option<InProgress>,
     banner: conflict_view::Banner,
     diff_layout: diff_view::Layout,
+    center_mid_x: Option<f32>,
     pub editor: String,
     _watcher: Option<Watcher>,
     watch_events: mpsc::Receiver<watch::Change>,
@@ -227,6 +228,7 @@ impl Repo {
             operation: None,
             banner: conflict_view::Banner::new(),
             diff_layout: diff_view::Layout::default(),
+            center_mid_x: None,
             editor: String::new(),
             _watcher: watcher,
             watch_events,
@@ -1073,7 +1075,7 @@ impl Repo {
             }
         }
 
-        egui::CentralPanel::default()
+        let central = egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BG))
             .show(ui, |ui| match &mut self.center {
                 Center::Diff(view) => {
@@ -1110,6 +1112,11 @@ impl Repo {
                 },
                 Center::Graph => self.graph_center(ui, &mut commands, settings),
             });
+        let mid_x = central.response.rect.center().x;
+        if self.center_mid_x != Some(mid_x) {
+            self.center_mid_x = Some(mid_x);
+            ctx.request_repaint();
+        }
 
         if let Some(dialog) = &mut self.dialog {
             match dialogs::show(&ctx, dialog) {
@@ -1352,8 +1359,11 @@ impl Repo {
             picker(ui, "repository", &self.name());
             ui.label(RichText::new("›").color(Color32::from_rgb(0x4a, 0x50, 0x5c)));
             picker(ui, "branch", branch.as_deref().unwrap_or("detached"));
-            let spare = (ui.available_width() - TOOLBAR_W) / 2.0;
-            ui.add_space(spare.max(0.0));
+            let left = ui.cursor().left();
+            let right = ui.max_rect().right();
+            let center = self.center_mid_x.unwrap_or((left + right) / 2.0);
+            let start = (center - TOOLBAR_W / 2.0).clamp(left, (right - TOOLBAR_W).max(left));
+            ui.add_space(start - left);
             ui.spacing_mut().item_spacing.x = 4.0;
 
             let busy = |label: &str| self.jobs.running().any(|j| j.starts_with(label));
