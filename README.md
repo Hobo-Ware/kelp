@@ -94,3 +94,7 @@ Developer switches (environment variables):
 The plan, design rules and decisions are in [PLAN.md](PLAN.md); progress
 is logged in [LEDGER.md](LEDGER.md). Fonts: IBM Plex Sans and JetBrains
 Mono, both under the SIL Open Font License (see `crates/kelp/assets/fonts`).
+
+## License
+
+MIT, see [LICENSE](LICENSE).
