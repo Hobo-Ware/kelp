@@ -20,6 +20,7 @@ pub struct KelpApp {
     show_settings: bool,
     started: Instant,
     ctx: egui::Context,
+    updater: crate::updater::Updater,
 }
 
 struct Tab {
@@ -82,6 +83,7 @@ impl KelpApp {
             settings: Settings::load(),
             show_settings: std::env::var_os("KELP_OPEN_SETTINGS").is_some(),
             started: Instant::now(),
+            updater: crate::updater::Updater::new(ctx.clone()),
             ctx: ctx.clone(),
         }
     }
@@ -209,9 +211,17 @@ impl KelpApp {
                                 .color(theme::TEXT_MUTED),
                         )
                         .frame(false);
-                        if ui.add(settings).clicked() {
+                        let response = ui.add(settings);
+                        if self.updater.has_news() {
+                            let dot =
+                                egui::pos2(response.rect.right() - 2.0, response.rect.top() + 6.0);
+                            ui.painter().circle_filled(dot, 4.0, theme::ACCENT);
+                        }
+                        if response.clicked() {
                             self.show_settings = true;
                         }
+                        ui.add_space(8.0);
+                        self.updater.pill(ui);
                     });
                 });
             });
@@ -296,6 +306,8 @@ impl eframe::App for KelpApp {
             shot.tick(&ctx, active_ready);
         }
 
+        self.updater
+            .tick(self.settings.updates_enabled(), self.settings.auto_update);
         self.tab_strip(ui);
 
         let mut open = Vec::new();
@@ -356,7 +368,8 @@ impl eframe::App for KelpApp {
         }
         self.remember_tabs();
         if self.show_settings {
-            self.settings.window(&ctx, &mut self.show_settings);
+            self.settings
+                .window(&ctx, &mut self.show_settings, &mut self.updater);
         }
     }
 }
