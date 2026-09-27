@@ -1188,12 +1188,15 @@ impl Repo {
                 Some((_, behind)) if behind > 0 => format!("{behind} to pull"),
                 _ => "git pull".into(),
             };
-            if tool(
+            let (ahead, behind) = ahead_behind.unwrap_or_default();
+            let count = |n: usize, arrow: &str| (n > 0).then(|| format!("{arrow}{n}"));
+            if tool_with_badge(
                 ui,
                 Icon::Pull,
                 "Pull",
                 branch.is_some() && !busy("Pulling"),
                 &pull_hint,
+                count(behind, "↓"),
             ) {
                 commands.push(Command::Run(Op::Pull));
             }
@@ -1202,12 +1205,13 @@ impl Repo {
                 (Some(_), Some((ahead, _))) if ahead > 0 => format!("{ahead} to push"),
                 _ => "git push".into(),
             };
-            if tool(
+            if tool_with_badge(
                 ui,
                 Icon::Push,
                 "Push",
                 branch.is_some() && !busy("Pushing"),
                 &push_hint,
+                count(ahead, "↑"),
             ) && let Some(branch) = branch.clone()
             {
                 commands.push(Command::Push(branch));
@@ -1396,6 +1400,17 @@ fn picker(ui: &mut egui::Ui, caption: &str, value: &str) {
 }
 
 fn tool(ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool, hint: &str) -> bool {
+    tool_with_badge(ui, icon, label, enabled, hint, None)
+}
+
+fn tool_with_badge(
+    ui: &mut egui::Ui,
+    icon: Icon,
+    label: &str,
+    enabled: bool,
+    hint: &str,
+    badge: Option<String>,
+) -> bool {
     let (rect, response) = ui.allocate_exact_size(
         vec2(56.0, 48.0),
         if enabled {
@@ -1415,6 +1430,24 @@ fn tool(ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool, hint: &str) -
     };
     let icon_rect = icons::center_square(rect.translate(vec2(0.0, -7.0)), 18.0);
     icons::paint(&painter, icon_rect, icon, color);
+    if let Some(text) = badge {
+        let galley = painter.layout_no_wrap(
+            text,
+            FontId::new(10.0, theme::semibold()),
+            Color32::from_rgb(0x10, 0x13, 0x1a),
+        );
+        let size = vec2((galley.size().x + 8.0).max(15.0), 15.0);
+        let pill = egui::Rect::from_min_size(
+            egui::pos2(icon_rect.right() - 4.0, icon_rect.top() - 6.0),
+            size,
+        );
+        painter.rect_filled(pill, 7.5, theme::ACCENT);
+        painter.galley(
+            pill.center() - galley.size() / 2.0,
+            galley,
+            Color32::from_rgb(0x10, 0x13, 0x1a),
+        );
+    }
     painter.text(
         rect.center_bottom() - vec2(0.0, 9.0),
         Align2::CENTER_CENTER,
