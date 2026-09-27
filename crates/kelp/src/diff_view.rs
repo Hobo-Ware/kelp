@@ -6,6 +6,7 @@ use eframe::egui::{
 };
 use gix::ObjectId;
 use kelp_core::diff::{self, Body, FileDiff, Line, LineKind};
+use kelp_core::ops::Op;
 use kelp_core::review::{Anchor, Comment, Review, Side, Thread};
 
 use crate::theme;
@@ -27,7 +28,8 @@ const CONTEXT_TEXT: Color32 = Color32::from_rgb(0xb4, 0xb9, 0xc2);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffSource {
     Commit(ObjectId),
-    Working,
+    Unstaged,
+    Staged,
     File(ObjectId),
 }
 
@@ -67,12 +69,14 @@ pub struct DiffView {
     draft: String,
     replies: HashMap<u64, String>,
     expanded: HashMap<u64, bool>,
+    pending: Option<Op>,
 }
 
 pub enum Event {
     None,
     Close,
     Changed,
+    Run(Op),
 }
 
 impl DiffView {
@@ -84,8 +88,11 @@ impl DiffView {
     ) -> anyhow::Result<Self> {
         let diff = match (source, workdir) {
             (DiffSource::Commit(id), _) => diff::commit_file(repo, id, path)?,
-            (DiffSource::Working, Some(workdir)) => diff::working_file(repo, workdir, path)?,
-            (DiffSource::Working, None) => anyhow::bail!("this repository has no working tree"),
+            (DiffSource::Unstaged, Some(workdir)) => diff::unstaged_file(repo, workdir, path)?,
+            (DiffSource::Staged, Some(_)) => diff::staged_file(repo, path)?,
+            (DiffSource::Unstaged | DiffSource::Staged, None) => {
+                anyhow::bail!("this repository has no working tree")
+            }
             (DiffSource::File(id), _) => {
                 let content = diff::file_at(repo, id, path)?;
                 diff::build(path, content.as_deref(), content.as_deref())
@@ -122,11 +129,42 @@ impl DiffView {
             draft: String::new(),
             replies: HashMap::new(),
             expanded: HashMap::new(),
+            pending: None,
         })
     }
 
     pub fn path(&self) -> &str {
         &self.diff.path
+    }
+
+    pub fn is_staged(&self) -> bool {
+        self.source == DiffSource::Staged
+    }
+
+    pub fn is_working(&self) -> bool {
+        matches!(self.source, DiffSource::Unstaged | DiffSource::Staged)
+    }
+
+    pub fn reload(&mut self, repo: &gix::Repository, workdir: Option<&Path>) -> anyhow::Result<()> {
+        let fresh = Self::load(repo, workdir, self.source, &self.diff.path.clone())?;
+        let (mode, layout) = (self.mode, self.layout);
+        *self = Self {
+            mode,
+            layout,
+            ..fresh
+        };
+        Ok(())
+    }
+
+    fn hunk_action(&self) -> Option<&'static str> {
+        let whole_file = self.diff.old_text.as_deref().is_none_or(str::is_empty)
+            || self.diff.new_text.as_deref().is_none_or(str::is_empty);
+        match self.source {
+            _ if whole_file => None,
+            DiffSource::Unstaged => Some("Stage hunk"),
+            DiffSource::Staged => Some("Unstage hunk"),
+            _ => None,
+        }
     }
 
     pub fn show_split(&mut self) {
@@ -136,7 +174,7 @@ impl DiffView {
     fn commit(&self) -> Option<String> {
         match self.source {
             DiffSource::Commit(id) | DiffSource::File(id) => Some(id.to_string()),
-            DiffSource::Working => None,
+            DiffSource::Unstaged | DiffSource::Staged => None,
         }
     }
 
@@ -154,6 +192,9 @@ impl DiffView {
             Body::Text(_) => {
                 if self.body(ui, review, author) {
                     event = Event::Changed;
+                }
+                if let Some(op) = self.pending.take() {
+                    event = Event::Run(op);
                 }
             }
         }
@@ -213,7 +254,8 @@ impl DiffView {
                         DiffSource::Commit(id) | DiffSource::File(id) => {
                             format!("in {}", id.to_hex_with_len(7))
                         }
-                        DiffSource::Working => "uncommitted".into(),
+                        DiffSource::Unstaged => "unstaged".into(),
+                        DiffSource::Staged => "staged".into(),
                     };
                     ui.label(RichText::new(origin).size(12.0).color(theme::TEXT_FAINT));
                     let comments = review.count_for(self.path());
@@ -439,6 +481,22 @@ impl DiffView {
                                 font.clone(),
                                 Color32::from_rgb(0x8f, 0xb4, 0xe8),
                             );
+                            if let Some(label) = self.hunk_action() {
+                                let visible_right = rect.left() + viewport.max.x - viewport.min.x;
+                                let button_rect = Rect::from_min_size(
+                                    pos2(visible_right.min(rect.right()) - 130.0, rect.top() + 3.0),
+                                    vec2(118.0, rect.height() - 6.0),
+                                );
+                                let button = egui::Button::new(RichText::new(label).size(12.0))
+                                    .corner_radius(5)
+                                    .fill(Color32::from_rgb(0x24, 0x2c, 0x3a));
+                                if ui.put(button_rect, button).clicked()
+                                    && let Some(patch) = diff::hunk_patch(&self.diff, h)
+                                {
+                                    let reverse = self.source == DiffSource::Staged;
+                                    self.pending = Some(Op::ApplyToIndex { patch, reverse });
+                                }
+                            }
                         }
                         Item::OutsideHeader => {
                             ui.painter().rect_filled(

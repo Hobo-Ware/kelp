@@ -17,6 +17,31 @@ pub fn run(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+pub fn run_with_stdin(dir: &Path, args: &[&str], input: &str) -> anyhow::Result<String> {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("could not start git {}", args.join(" ")))?;
+    child
+        .stdin
+        .take()
+        .context("git stdin unavailable")?
+        .write_all(input.as_bytes())?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        bail!("git {} failed: {stderr}", args.join(" "));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 pub fn command_line(args: &[&str]) -> String {
     std::iter::once("git")
         .chain(args.iter().copied())

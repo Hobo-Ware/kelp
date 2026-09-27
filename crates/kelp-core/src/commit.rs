@@ -32,7 +32,7 @@ pub enum ChangeKind {
     Renamed,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileChange {
     pub path: String,
     pub kind: ChangeKind,
