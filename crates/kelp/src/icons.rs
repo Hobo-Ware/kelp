@@ -22,6 +22,7 @@ pub enum Icon {
     CherryPick,
     Revert,
     Reset,
+    Undo,
 }
 
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -199,6 +200,20 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             circle(5.5, 12.0, 2.5);
             line(&[(20.0, 12.0), (10.0, 12.0)]);
             line(&[(14.0, 8.0), (10.0, 12.0), (14.0, 16.0)]);
+        }
+        Icon::Undo => {
+            let turn: Vec<(f32, f32)> = (0..=12)
+                .map(|i| {
+                    let a = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * i as f32 / 12.0;
+                    (14.0 + 5.0 * a.cos(), 13.5 + 5.0 * a.sin())
+                })
+                .collect();
+            let path: Vec<(f32, f32)> = std::iter::once((5.0, 8.5))
+                .chain(turn)
+                .chain(std::iter::once((8.0, 18.5)))
+                .collect();
+            line(&path);
+            line(&[(8.5, 5.0), (5.0, 8.5), (8.5, 12.0)]);
         }
     }
 }

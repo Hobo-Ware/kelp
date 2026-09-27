@@ -9,6 +9,7 @@ use kelp_core::history::History;
 use kelp_core::ops::{self, Op};
 use kelp_core::refs::RefKind;
 use kelp_core::review::{self, Review};
+use kelp_core::undo;
 use kelp_core::watch::{self, Watcher};
 use kelp_core::workspace::{self, Stash, Worktree};
 use kelp_core::{git_cli, status};
@@ -24,6 +25,8 @@ use crate::jobs::Jobs;
 use crate::menus::{self, MenuContext};
 use crate::settings::Settings;
 use crate::{details, sidebar, theme, worktrees_view};
+
+mod undo_actions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Selection {
@@ -44,6 +47,16 @@ pub enum JobOutput {
         commit: bool,
         force_retry: Option<Op>,
         result: anyhow::Result<String>,
+        undo: undo::Outcome,
+    },
+    Undone {
+        record: Box<undo::Record>,
+        result: anyhow::Result<Vec<String>>,
+    },
+    Redone {
+        original: Box<undo::Record>,
+        result: anyhow::Result<String>,
+        outcome: undo::Outcome,
     },
     Search {
         query: String,
@@ -144,6 +157,7 @@ pub struct Repo {
     status_again: bool,
     last_fetch: Instant,
     auto_fetch_failed: bool,
+    undo: undo::Stack,
     bench: Option<ScrollBench>,
 }
 
@@ -159,6 +173,8 @@ impl Repo {
         let avatars =
             AvatarStore::new(ctx.clone(), kelp_core::avatar::GitHubRepo::from_repo(&repo));
         let review = Review::load(repo.common_dir());
+        let stale_undo_dir = dir.clone();
+        std::thread::spawn(move || undo::clear_saved(&stale_undo_dir));
         let author = review::author_name(&repo);
         let (watch_tx, watch_events) = mpsc::channel();
         let repaint = ctx.clone();
@@ -208,6 +224,7 @@ impl Repo {
             status_again: false,
             last_fetch: Instant::now(),
             auto_fetch_failed: false,
+            undo: undo::Stack::default(),
             bench: ScrollBench::from_env(),
         };
         if let Some(row) = ready.head_row() {
@@ -533,6 +550,7 @@ impl Repo {
                     }
                     None => self.notify(format!("{rel} is not in the working tree"), true),
                 },
+                Command::Undo => self.undo_last(),
             }
         }
     }
@@ -598,12 +616,16 @@ impl Repo {
             }),
             _ => None,
         };
-        self.jobs.spawn(label, move || JobOutput::Op {
-            label: job_label,
-            quiet,
-            commit,
-            force_retry,
-            result: op.run(&dir),
+        self.jobs.spawn(label, move || {
+            let (result, undo) = undo::run_recorded(&op, &dir);
+            JobOutput::Op {
+                label: job_label,
+                quiet,
+                commit,
+                force_retry,
+                result,
+                undo,
+            }
         });
     }
 
@@ -783,6 +805,12 @@ impl Repo {
                     self.notify(format!("Could not write commit-graph: {e:#}"), true)
                 }
                 JobOutput::Workspace(info) => self.workspace = *info,
+                JobOutput::Undone { record, result } => self.finish_undo(*record, result),
+                JobOutput::Redone {
+                    original,
+                    result,
+                    outcome,
+                } => self.finish_redo(*original, result, outcome),
                 JobOutput::Search { query, rows } => {
                     if query == self.search.query.trim() {
                         self.search.rows = rows.unwrap_or_default();
@@ -800,10 +828,12 @@ impl Repo {
                     commit,
                     force_retry,
                     result,
+                    undo,
                 } => {
                     if commit {
                         self.commit_in_flight = false;
                     }
+                    self.keep_undo(undo);
                     match result {
                         Ok(_) => {
                             if commit {
@@ -1151,6 +1181,15 @@ impl Repo {
         {
             return;
         }
+        let (undo, redo) = ui.input(|i| {
+            let z = i.modifiers.command && i.key_pressed(Key::Z);
+            (z && !i.modifiers.shift, z && i.modifiers.shift)
+        });
+        if undo {
+            self.undo_last();
+        } else if redo {
+            self.redo_last();
+        }
         if !matches!(self.center, Center::Graph) {
             if ui.input(|i| i.key_pressed(Key::Escape)) {
                 self.center = Center::Graph;
@@ -1211,6 +1250,10 @@ impl Repo {
             ui.spacing_mut().item_spacing.x = 4.0;
 
             let busy = |label: &str| self.jobs.running().any(|j| j.starts_with(label));
+            if tool(ui, Icon::Undo, "Undo", self.can_undo(), &self.undo_hint()) {
+                commands.push(Command::Undo);
+            }
+            divider(ui);
             if tool(
                 ui,
                 Icon::Fetch,
@@ -1419,7 +1462,7 @@ impl Repo {
     }
 }
 
-const TOOLBAR_W: f32 = 7.0 * 60.0 + 2.0 * 16.0;
+const TOOLBAR_W: f32 = 8.0 * 60.0 + 3.0 * 16.0;
 
 fn picker(ui: &mut egui::Ui, caption: &str, value: &str) {
     ui.vertical(|ui| {
