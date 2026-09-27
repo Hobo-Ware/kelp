@@ -34,8 +34,9 @@ folder if it is a repo.
   sideways for wide histories.
 - **Commits:** message, author, parents, changed files as a list or a
   tree, or every file in the commit.
-- **Diffs:** unified or split, or the full file. Uncommitted changes get
-  their own row above HEAD.
+- **Diffs:** unified or split, or the full file, with the changed words
+  highlighted inside each line. Jump between changes with the arrows or
+  Alt+Up / Alt+Down. Uncommitted changes get their own row above HEAD.
 - **Previews:** images (PNG, JPEG, GIF, WebP, BMP, ICO, TIFF) and SVGs
   side by side before and after, and Markdown rendered with its images
   loaded from the repo.
@@ -48,8 +49,9 @@ folder if it is a repo.
   it runs.
 - **Worktrees:** list, create (new or existing branch), remove, prune,
   open in a new tab or a terminal.
-- **Staging:** unstaged and staged lists, stage or unstage files and single hunks, discard,
-  commit and amend (hooks run as usual).
+- **Staging:** unstaged and staged lists, stage or unstage files, single hunks or
+  single lines (click line numbers, Shift-click for a range), discard, commit and
+  amend (hooks run as usual).
 - **Stashes:** stash, pop, apply, drop.
 - **Search:** Cmd+F across messages, authors, emails and hash prefixes.
 - **Stays current:** changes made from the command line or another app
@@ -69,6 +71,7 @@ folder if it is a repo.
 | Cmd+1 ... Cmd+9 | Go to a tab (Cmd+9 is the last one) |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
 | Cmd+R | Refresh the graph, changes and worktrees |
+| Alt+Up / Alt+Down | Previous / next change in a diff |
 | Right-click | Actions for commits, branches, tags, stashes, worktrees and tabs |
 | Middle-click a tab | Close it |
 | Drag a tab | Reorder tabs |
