@@ -20,7 +20,7 @@ pub fn segmented<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, options: &[(T,
         .map(|g| g.size().x + SEGMENT_PAD * 2.0)
         .collect();
     let total = widths.iter().sum::<f32>() + INSET * 2.0;
-    let (rect, _) = ui.allocate_exact_size(vec2(total, SEGMENT_H), Sense::hover());
+    let (rect, control) = ui.allocate_exact_size(vec2(total, SEGMENT_H), Sense::hover());
     let painter = ui.painter_at(rect.expand(1.0));
     painter.rect(
         rect,
@@ -37,7 +37,7 @@ pub fn segmented<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, options: &[(T,
         );
         x += widths[i];
         let response = ui
-            .interact(segment, ui.id().with(("segment", i)), Sense::click())
+            .interact(segment, control.id.with(i), Sense::click())
             .on_hover_cursor(CursorIcon::PointingHand);
         let active = *value == *option;
         let fill = if active {
@@ -85,4 +85,69 @@ pub fn close_button(ui: &mut Ui, hint: &str) -> bool {
     painter.line_segment([c + vec2(-d, -d), c + vec2(d, d)], stroke);
     painter.line_segment([c + vec2(-d, d), c + vec2(d, -d)], stroke);
     response.clicked()
+}
+
+#[cfg(test)]
+mod tests {
+    use eframe::egui::{self, Event, PointerButton, Pos2, RawInput, Rect, pos2, vec2};
+
+    use super::segmented;
+
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    enum Pick {
+        A,
+        B,
+    }
+
+    struct Frame {
+        first: Pick,
+        second: Pick,
+        rects: Vec<Rect>,
+    }
+
+    fn frame(ctx: &egui::Context, state: &mut Frame, events: Vec<Event>) {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(600.0, 200.0))),
+            events,
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| {
+            ui.horizontal(|ui| {
+                let before = ui.min_rect();
+                segmented(ui, &mut state.first, &[(Pick::A, "Split"), (Pick::B, "Unified")]);
+                segmented(ui, &mut state.second, &[(Pick::A, "File"), (Pick::B, "Diff")]);
+                state.rects = vec![before, ui.min_rect()];
+            });
+        });
+    }
+
+    fn click(ctx: &egui::Context, state: &mut Frame, at: Pos2) {
+        let press = |pressed| Event::PointerButton {
+            pos: at,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(ctx, state, vec![Event::PointerMoved(at)]);
+        frame(ctx, state, vec![press(true)]);
+        frame(ctx, state, vec![press(false)]);
+        frame(ctx, state, vec![]);
+    }
+
+    #[test]
+    fn each_control_toggles_on_its_own() {
+        let ctx = egui::Context::default();
+        let mut state = Frame {
+            first: Pick::B,
+            second: Pick::B,
+            rects: Vec::new(),
+        };
+        frame(&ctx, &mut state, vec![]);
+        let row = state.rects[1];
+        click(&ctx, &mut state, pos2(row.left() + 12.0, row.center().y));
+        assert_eq!((state.first, state.second), (Pick::A, Pick::B));
+        click(&ctx, &mut state, pos2(row.right() - 60.0, row.center().y));
+        assert_eq!(state.second, Pick::A);
+        assert_eq!(state.first, Pick::A);
+    }
 }

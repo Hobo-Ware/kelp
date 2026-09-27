@@ -128,6 +128,7 @@ pub struct Repo {
     lit_cache: Option<(LitKey, Vec<bool>)>,
     open_after_ops: Vec<PathBuf>,
     was_focused: Option<bool>,
+    diff_layout: diff_view::Layout,
     _watcher: Option<Watcher>,
     watch_events: mpsc::Receiver<watch::Change>,
     reload_again: bool,
@@ -190,6 +191,7 @@ impl Repo {
             outbox: Vec::new(),
             open_after_ops: Vec::new(),
             was_focused: None,
+            diff_layout: diff_view::Layout::default(),
             _watcher: watcher,
             watch_events,
             reload_again: false,
@@ -228,7 +230,7 @@ impl Repo {
             if std::env::var("KELP_OPEN_DIFF").as_deref() == Ok("split")
                 && let Center::Diff(view) = &mut ready.center
             {
-                view.show_split();
+                view.set_layout(diff_view::Layout::Split);
             }
         }
         if std::env::var_os("KELP_SELECT_WIP").is_some() {
@@ -327,7 +329,7 @@ impl Repo {
             None => return,
         };
         match DiffView::load(&self.repo, self.workdir.as_deref(), source, path) {
-            Ok(view) => self.center = Center::Diff(Box::new(view)),
+            Ok(view) => self.show_diff(view),
             Err(e) => self.notify(format!("Could not open file: {e:#}"), true),
         }
     }
@@ -339,9 +341,14 @@ impl Repo {
             DiffSource::Unstaged
         };
         match DiffView::load(&self.repo, self.workdir.as_deref(), source, path) {
-            Ok(view) => self.center = Center::Diff(Box::new(view)),
+            Ok(view) => self.show_diff(view),
             Err(e) => self.notify(format!("Could not open diff: {e:#}"), true),
         }
+    }
+
+    fn show_diff(&mut self, mut view: DiffView) {
+        view.set_layout(self.diff_layout);
+        self.center = Center::Diff(Box::new(view));
     }
 
     pub fn committing(&self) -> bool {
@@ -803,20 +810,24 @@ impl Repo {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BG))
             .show(ui, |ui| match &mut self.center {
-                Center::Diff(view) => match view.ui(ui, &mut self.review, &self.author) {
-                    diff_view::Event::Close => self.center = Center::Graph,
-                    diff_view::Event::Changed => {
-                        if let Err(e) = self.review.save() {
-                            self.toast = Some(Toast {
-                                text: format!("Could not save comment: {e:#}"),
-                                error: true,
-                                shown_at: Instant::now(),
-                            });
+                Center::Diff(view) => {
+                    let event = view.ui(ui, &mut self.review, &self.author);
+                    self.diff_layout = view.layout();
+                    match event {
+                        diff_view::Event::Close => self.center = Center::Graph,
+                        diff_view::Event::Changed => {
+                            if let Err(e) = self.review.save() {
+                                self.toast = Some(Toast {
+                                    text: format!("Could not save comment: {e:#}"),
+                                    error: true,
+                                    shown_at: Instant::now(),
+                                });
+                            }
                         }
+                        diff_view::Event::Run(op) => commands.push(Command::Run(op)),
+                        diff_view::Event::None => {}
                     }
-                    diff_view::Event::Run(op) => commands.push(Command::Run(op)),
-                    diff_view::Event::None => {}
-                },
+                }
                 Center::Worktrees => worktrees_view::ui(ui, self, &mut commands),
                 Center::Graph => self.graph_center(ui, &mut commands, settings),
             });
