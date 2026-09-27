@@ -10,6 +10,7 @@ mod fonts;
 mod graph_view;
 mod icons;
 mod jobs;
+mod mascot;
 mod menus;
 mod repo_view;
 mod settings;
