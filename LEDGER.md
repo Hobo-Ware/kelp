@@ -5,15 +5,24 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** M7 (staging and committing).
-- **Done:** M0 to M6, MIT license.
-- **Queued after M7 (user asks, in order):** polish pass on context
-  menus and all controls; Kelp mascot and load animations; GitHub Pages
+- **Current milestone:** polish pass (context menus and all controls).
+- **Done:** M0 to M7, MIT license.
+- **Queued (user asks, in order):** Kelp mascot and load animations; GitHub Pages
   site like stdusk (SEO, OG images, upkeep instructions); Homebrew
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
 ## 2026-09-27
+
+- **M7 done: staging and committing.**
+  - Unstaged / Staged / Conflicts sections with hover Stage/Unstage,
+    Stage all / Unstage all, discard with confirm.
+  - Staged and unstaged diffs with Stage hunk / Unstage hunk (exact
+    one-hunk patches via `git apply --cached`).
+  - Commit box with summary counter, description, amend, Cmd+Enter.
+  - 49 tests pass (6 new staging round trips, status split, hunk
+    patches). Checked visually on the demo repo with a partly staged
+    file.
 
 - Full retest after the user allowed Kelp through the firewall:
   - Live avatars work: with an empty cache Kelp fetched every visible
