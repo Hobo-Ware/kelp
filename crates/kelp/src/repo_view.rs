@@ -31,11 +31,13 @@ pub enum Selection {
 
 pub enum JobOutput {
     Reloaded(anyhow::Result<Box<History>>),
-    Status(anyhow::Result<Vec<FileChange>>),
+    Status(anyhow::Result<status::WorkingStatus>),
     CommitGraph(anyhow::Result<()>),
     Workspace(Box<WorkspaceInfo>),
     Op {
         label: String,
+        quiet: bool,
+        commit: bool,
         result: anyhow::Result<String>,
     },
     Search {
@@ -101,6 +103,11 @@ pub struct Repo {
     pub selected: Option<Selection>,
     pub details: Option<Details>,
     pub wip: Vec<FileChange>,
+    pub status: status::WorkingStatus,
+    pub commit_summary: String,
+    pub commit_body: String,
+    pub amend: bool,
+    commit_in_flight: bool,
     pub workspace: WorkspaceInfo,
     pub graph: GraphView,
     pub center: Center,
@@ -150,6 +157,11 @@ impl Repo {
             selected: None,
             details: None,
             wip: Vec::new(),
+            status: status::WorkingStatus::default(),
+            commit_summary: String::new(),
+            commit_body: String::new(),
+            amend: false,
+            commit_in_flight: false,
             workspace: WorkspaceInfo::default(),
             graph: GraphView::new(),
             center: Center::Graph,
@@ -180,6 +192,15 @@ impl Repo {
             {
                 view.show_split();
             }
+        }
+        if std::env::var_os("KELP_SELECT_WIP").is_some() {
+            ready.selected = Some(Selection::Wip);
+        }
+        if let Some(path) = std::env::var("KELP_OPEN_DIFF")
+            .ok()
+            .and_then(|v| v.strip_prefix("unstaged:").map(str::to_string))
+        {
+            ready.open_working_diff(&path, false);
         }
         if let Ok(query) = std::env::var("KELP_SEARCH") {
             ready.search.open = true;
@@ -244,7 +265,15 @@ impl Repo {
 
     pub fn open_diff(&mut self, path: &str) {
         let source = match self.selected {
-            Some(Selection::Wip) => DiffSource::Working,
+            Some(Selection::Wip) => {
+                let staged_only = self.status.staged.iter().any(|c| c.path == path)
+                    && !self.status.unstaged.iter().any(|c| c.path == path);
+                if staged_only {
+                    DiffSource::Staged
+                } else {
+                    DiffSource::Unstaged
+                }
+            }
             Some(Selection::Commit(row)) => {
                 let id = self.history.id(row);
                 let changed = self
@@ -262,6 +291,56 @@ impl Repo {
         match DiffView::load(&self.repo, self.workdir.as_deref(), source, path) {
             Ok(view) => self.center = Center::Diff(Box::new(view)),
             Err(e) => self.notify(format!("Could not open file: {e:#}"), true),
+        }
+    }
+
+    pub fn open_working_diff(&mut self, path: &str, staged: bool) {
+        let source = if staged {
+            DiffSource::Staged
+        } else {
+            DiffSource::Unstaged
+        };
+        match DiffView::load(&self.repo, self.workdir.as_deref(), source, path) {
+            Ok(view) => self.center = Center::Diff(Box::new(view)),
+            Err(e) => self.notify(format!("Could not open diff: {e:#}"), true),
+        }
+    }
+
+    pub fn committing(&self) -> bool {
+        self.commit_in_flight
+    }
+
+    pub fn has_head(&self) -> bool {
+        self.repo.head_id().is_ok()
+    }
+
+    pub fn commit(&mut self) {
+        let summary = self.commit_summary.trim();
+        if summary.is_empty() || (self.status.staged.is_empty() && !self.amend) {
+            return;
+        }
+        let body = self.commit_body.trim();
+        let message = if body.is_empty() {
+            summary.to_string()
+        } else {
+            format!("{summary}\n\n{body}")
+        };
+        self.commit_in_flight = true;
+        self.run_op(Op::Commit {
+            message,
+            amend: self.amend,
+        });
+    }
+
+    pub fn toggle_amend(&mut self) {
+        self.amend = !self.amend;
+        if self.amend
+            && self.commit_summary.trim().is_empty()
+            && let Some(head) = self.history.refs.head
+            && let Ok(details) = commit::details(&self.repo, head)
+        {
+            self.commit_summary = details.title;
+            self.commit_body = details.body;
         }
     }
 
@@ -334,8 +413,19 @@ impl Repo {
         let label = op.label();
         let dir = self.dir.clone();
         let job_label = label.clone();
+        let quiet = matches!(
+            op,
+            Op::Stage(_)
+                | Op::Unstage { .. }
+                | Op::StageAll
+                | Op::UnstageAll { .. }
+                | Op::ApplyToIndex { .. }
+        );
+        let commit = matches!(op, Op::Commit { .. });
         self.jobs.spawn(label, move || JobOutput::Op {
             label: job_label,
+            quiet,
+            commit,
             result: op.run(&dir),
         });
     }
@@ -410,7 +500,7 @@ impl Repo {
             return;
         }
         self.jobs.spawn("Checking changes", move || {
-            JobOutput::Status(status::working_changes(&workdir))
+            JobOutput::Status(status::working_status(&workdir))
         });
     }
 
@@ -464,8 +554,19 @@ impl Repo {
         self.avatars.poll();
         for output in self.jobs.finished() {
             match output {
-                JobOutput::Status(Ok(changes)) => {
-                    self.wip = changes;
+                JobOutput::Status(Ok(working)) => {
+                    self.wip = working.all();
+                    self.status = working;
+                    if let Center::Diff(view) = &mut self.center
+                        && view.is_working()
+                        && let Err(e) = view.reload(&self.repo, self.workdir.as_deref())
+                    {
+                        self.toast = Some(Toast {
+                            text: format!("{e:#}"),
+                            error: true,
+                            shown_at: Instant::now(),
+                        });
+                    }
                     if self.wip.is_empty() && self.selected == Some(Selection::Wip) {
                         self.selected = None;
                         if let Some(row) = self.head_row() {
@@ -495,10 +596,25 @@ impl Repo {
                         }
                     }
                 }
-                JobOutput::Op { label, result } => {
+                JobOutput::Op {
+                    label,
+                    quiet,
+                    commit,
+                    result,
+                } => {
+                    if commit {
+                        self.commit_in_flight = false;
+                    }
                     match result {
                         Ok(_) => {
-                            self.notify(format!("{} done", label), false);
+                            if commit {
+                                self.commit_summary.clear();
+                                self.commit_body.clear();
+                                self.amend = false;
+                            }
+                            if !quiet {
+                                self.notify(format!("{label} done"), false);
+                            }
                             self.outbox.append(&mut self.open_after_ops);
                         }
                         Err(e) => {
@@ -600,6 +716,7 @@ impl Repo {
                             });
                         }
                     }
+                    diff_view::Event::Run(op) => commands.push(Command::Run(op)),
                     diff_view::Event::None => {}
                 },
                 Center::Worktrees => worktrees_view::ui(ui, self, &mut commands),

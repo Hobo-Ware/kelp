@@ -14,6 +14,7 @@ mod menus;
 mod repo_view;
 mod settings;
 mod sidebar;
+mod staging;
 mod theme;
 mod worktrees_view;
 

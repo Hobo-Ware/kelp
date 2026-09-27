@@ -19,6 +19,7 @@ pub struct Line {
     pub old: Option<u32>,
     pub new: Option<u32>,
     pub text: String,
+    pub raw: String,
 }
 
 #[derive(Debug, Clone)]
@@ -58,17 +59,81 @@ pub fn commit_file(
     Ok(build(path, old.as_deref(), new.as_deref()))
 }
 
-pub fn working_file(
-    repo: &gix::Repository,
-    workdir: &Path,
-    path: &str,
-) -> anyhow::Result<FileDiff> {
+pub fn staged_file(repo: &gix::Repository, path: &str) -> anyhow::Result<FileDiff> {
     let old = match repo.head_commit() {
         Ok(head) => blob_at(&head.tree()?, path)?,
         Err(_) => None,
     };
+    let new = index_blob(repo, path)?;
+    Ok(build(path, old.as_deref(), new.as_deref()))
+}
+
+pub fn unstaged_file(
+    repo: &gix::Repository,
+    workdir: &Path,
+    path: &str,
+) -> anyhow::Result<FileDiff> {
+    let old = index_blob(repo, path)?;
     let new = std::fs::read(workdir.join(path)).ok();
     Ok(build(path, old.as_deref(), new.as_deref()))
+}
+
+fn index_blob(repo: &gix::Repository, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
+    let index = repo.index_or_empty()?;
+    let Some(entry) = index.entry_by_path(path.into()) else {
+        return Ok(None);
+    };
+    Ok(Some(repo.find_object(entry.id)?.detach().data))
+}
+
+pub fn hunk_patch(diff: &FileDiff, hunk: usize) -> Option<String> {
+    let Body::Text(hunks) = &diff.body else {
+        return None;
+    };
+    let lines = &hunks.get(hunk)?.lines;
+    let old_text = diff.old_text.as_deref().unwrap_or_default();
+    let new_text = diff.new_text.as_deref().unwrap_or_default();
+    let old_count = old_text.lines().count() as u32;
+    let new_count = new_text.lines().count() as u32;
+    let old_missing_newline = !old_text.is_empty() && !old_text.ends_with('\n');
+    let new_missing_newline = !new_text.is_empty() && !new_text.ends_with('\n');
+
+    let old_len = lines.iter().filter(|l| l.kind != LineKind::Added).count();
+    let new_len = lines.iter().filter(|l| l.kind != LineKind::Removed).count();
+    let old_start = if old_len == 0 {
+        0
+    } else {
+        lines.iter().find_map(|l| l.old).unwrap_or(0)
+    };
+    let new_start = if new_len == 0 {
+        0
+    } else {
+        lines.iter().find_map(|l| l.new).unwrap_or(0)
+    };
+
+    let path = &diff.path;
+    let mut patch = format!("diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n");
+    patch.push_str(&format!(
+        "@@ -{old_start},{old_len} +{new_start},{new_len} @@\n"
+    ));
+    for line in lines {
+        let prefix = match line.kind {
+            LineKind::Context => ' ',
+            LineKind::Added => '+',
+            LineKind::Removed => '-',
+        };
+        patch.push(prefix);
+        patch.push_str(&line.raw);
+        patch.push('\n');
+        let ends_old =
+            line.kind != LineKind::Added && old_missing_newline && line.old == Some(old_count);
+        let ends_new =
+            line.kind != LineKind::Removed && new_missing_newline && line.new == Some(new_count);
+        if ends_old || ends_new {
+            patch.push_str("\\ No newline at end of file\n");
+        }
+    }
+    Some(patch)
 }
 
 pub fn file_at(
@@ -134,6 +199,11 @@ pub fn build(path: &str, old: Option<&[u8]>, new: Option<&[u8]>) -> FileDiff {
                             .value()
                             .trim_end_matches(['\n', '\r'])
                             .replace('\t', "    "),
+                        raw: change
+                            .value()
+                            .strip_suffix('\n')
+                            .unwrap_or(change.value())
+                            .to_string(),
                     });
                 }
             }
@@ -208,6 +278,30 @@ mod tests {
     fn new_file_is_all_additions() {
         let d = build("n.txt", None, Some(b"a\nb\n"));
         assert_eq!((d.added, d.removed), (2, 0));
+    }
+
+    #[test]
+    fn hunk_patch_has_exact_header_and_raw_lines() {
+        let d = build(
+            "a.rs",
+            Some(b"one\n\ttwo\nthree\n"),
+            Some(b"one\n\t2\nthree\n"),
+        );
+        let patch = hunk_patch(&d, 0).unwrap();
+        assert_eq!(
+            patch,
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,3 +1,3 @@\n one\n-\ttwo\n+\t2\n three\n"
+        );
+    }
+
+    #[test]
+    fn hunk_patch_marks_missing_trailing_newline() {
+        let d = build("a.txt", Some(b"a\nb"), Some(b"a\nc"));
+        let patch = hunk_patch(&d, 0).unwrap();
+        assert!(
+            patch.ends_with("-b\n\\ No newline at end of file\n+c\n\\ No newline at end of file\n"),
+            "{patch}"
+        );
     }
 
     #[test]

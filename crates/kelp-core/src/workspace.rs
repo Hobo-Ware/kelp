@@ -101,7 +101,7 @@ pub fn change_count(dir: &Path) -> Option<usize> {
         &["status", "--porcelain=v1", "-z", "--untracked-files=normal"],
     )
     .ok()?;
-    Some(crate::status::parse_porcelain(&out).len())
+    Some(crate::status::parse_porcelain(&out).all().len())
 }
 
 #[cfg(test)]

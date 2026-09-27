@@ -13,6 +13,10 @@ const FILE_ROW_H: f32 = 28.0;
 const INDENT: f32 = 16.0;
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo) {
+    if repo.selected == Some(Selection::Wip) {
+        crate::staging::ui(ui, repo);
+        return;
+    }
     let mut open = None;
     let mut reveal = None;
     let review_card_h = if repo.review.threads.is_empty() {
@@ -25,10 +29,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
-                let changes = if repo.selected == Some(Selection::Wip) {
-                    wip_header(ui, repo);
-                    repo.wip.clone()
-                } else if let Some(details) = repo.details.clone() {
+                let changes = if let Some(details) = repo.details.clone() {
                     reveal = commit_header(ui, repo, &details);
                     details.changes.clone()
                 } else {
@@ -45,7 +46,6 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                     FileListMode::Tree => tree_list(ui, &changes, active.as_deref(), &repo.review),
                 };
                 if repo.show_all_files
-                    && repo.selected != Some(Selection::Wip)
                     && let Some(path) = all_files(ui, repo, &changes, active.as_deref())
                 {
                     open = Some(path);
@@ -149,24 +149,6 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
     reveal
 }
 
-fn wip_header(ui: &mut Ui, repo: &Repo) {
-    egui::Frame::new()
-        .inner_margin(Margin::same(16))
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 10.0;
-            ui.label(
-                RichText::new("Uncommitted changes")
-                    .size(17.0)
-                    .family(theme::semibold())
-                    .color(theme::TEXT_STRONG),
-            );
-            let branch = repo.current_branch().unwrap_or("detached HEAD");
-            ui.label(RichText::new(format!("on {branch}")).color(theme::TEXT_MUTED));
-            ui.separator();
-            stats(ui, &repo.wip);
-        });
-}
-
 fn file_controls(ui: &mut Ui, repo: &mut Repo, changes: &[FileChange]) {
     egui::Frame::new()
         .inner_margin(Margin {
@@ -208,14 +190,12 @@ fn file_controls(ui: &mut Ui, repo: &mut Repo, changes: &[FileChange]) {
                         }
                     });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if repo.selected != Some(Selection::Wip) {
-                        ui.checkbox(
-                            &mut repo.show_all_files,
-                            RichText::new("All files")
-                                .size(12.0)
-                                .color(theme::TEXT_MUTED),
-                        );
-                    }
+                    ui.checkbox(
+                        &mut repo.show_all_files,
+                        RichText::new("All files")
+                            .size(12.0)
+                            .color(theme::TEXT_MUTED),
+                    );
                     if changes.is_empty() {
                         ui.label(
                             RichText::new("no file changes")

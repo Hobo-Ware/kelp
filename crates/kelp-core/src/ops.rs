@@ -46,6 +46,25 @@ pub enum Op {
         force: bool,
     },
     WorktreePrune,
+    Stage(Vec<String>),
+    Unstage {
+        paths: Vec<String>,
+        has_head: bool,
+    },
+    StageAll,
+    UnstageAll {
+        has_head: bool,
+    },
+    DiscardChanges(Vec<String>),
+    DeleteUntracked(Vec<String>),
+    ApplyToIndex {
+        patch: String,
+        reverse: bool,
+    },
+    Commit {
+        message: String,
+        amend: bool,
+    },
 }
 
 impl Op {
@@ -99,6 +118,34 @@ impl Op {
             Op::WorktreeRemove { path, force: true } => v(&["worktree", "remove", "--force", path]),
             Op::WorktreeRemove { path, force: false } => v(&["worktree", "remove", path]),
             Op::WorktreePrune => v(&["worktree", "prune"]),
+            Op::Stage(paths) => with_paths(&["add", "--"], paths),
+            Op::Unstage {
+                paths,
+                has_head: true,
+            } => with_paths(&["restore", "--staged", "--"], paths),
+            Op::Unstage {
+                paths,
+                has_head: false,
+            } => with_paths(&["rm", "--cached", "-r", "-q", "--"], paths),
+            Op::StageAll => v(&["add", "-A"]),
+            Op::UnstageAll { has_head: true } => v(&["reset", "-q"]),
+            Op::UnstageAll { has_head: false } => v(&["rm", "--cached", "-r", "-q", "."]),
+            Op::DiscardChanges(paths) => with_paths(&["restore", "--"], paths),
+            Op::DeleteUntracked(paths) => with_paths(&["clean", "-f", "--"], paths),
+            Op::ApplyToIndex { reverse: false, .. } => {
+                v(&["apply", "--cached", "--whitespace=nowarn", "-"])
+            }
+            Op::ApplyToIndex { reverse: true, .. } => {
+                v(&["apply", "--cached", "--reverse", "--whitespace=nowarn", "-"])
+            }
+            Op::Commit {
+                message,
+                amend: false,
+            } => v(&["commit", "-m", message]),
+            Op::Commit {
+                message,
+                amend: true,
+            } => v(&["commit", "--amend", "-m", message]),
         }
     }
 
@@ -121,6 +168,17 @@ impl Op {
             Op::WorktreeAdd { path, .. } => format!("Adding worktree {path}"),
             Op::WorktreeRemove { path, .. } => format!("Removing worktree {path}"),
             Op::WorktreePrune => "Pruning worktrees".into(),
+            Op::Stage(paths) => format!("Staging {}", count(paths)),
+            Op::Unstage { paths, .. } => format!("Unstaging {}", count(paths)),
+            Op::StageAll => "Staging all changes".into(),
+            Op::UnstageAll { .. } => "Unstaging all changes".into(),
+            Op::DiscardChanges(paths) | Op::DeleteUntracked(paths) => {
+                format!("Discarding {}", count(paths))
+            }
+            Op::ApplyToIndex { reverse: false, .. } => "Staging hunk".into(),
+            Op::ApplyToIndex { reverse: true, .. } => "Unstaging hunk".into(),
+            Op::Commit { amend: false, .. } => "Committing".into(),
+            Op::Commit { amend: true, .. } => "Amending".into(),
         }
     }
 
@@ -131,8 +189,27 @@ impl Op {
 
     pub fn run(&self, dir: &Path) -> anyhow::Result<String> {
         let args = self.args();
-        let out = git_cli::run(dir, &args.iter().map(String::as_str).collect::<Vec<_>>())?;
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let out = match self {
+            Op::ApplyToIndex { patch, .. } => git_cli::run_with_stdin(dir, &args, patch)?,
+            _ => git_cli::run(dir, &args)?,
+        };
         Ok(out.trim().to_string())
+    }
+}
+
+fn with_paths(prefix: &[&str], paths: &[String]) -> Vec<String> {
+    prefix
+        .iter()
+        .map(|s| s.to_string())
+        .chain(paths.iter().cloned())
+        .collect()
+}
+
+fn count(paths: &[String]) -> String {
+    match paths {
+        [one] => one.clone(),
+        many => format!("{} files", many.len()),
     }
 }
 
