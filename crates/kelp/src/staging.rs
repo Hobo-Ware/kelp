@@ -16,6 +16,7 @@ const SUMMARY_LIMIT: usize = 72;
 
 enum Action {
     Open(String, bool),
+    OpenConflict(String),
     Run(Op),
     Confirm(Dialog),
     Command(Command),
@@ -47,16 +48,20 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                         None,
                         &mut actions,
                     );
+                    let open_conflict = match &repo.center {
+                        Center::Conflict(view) => Some(view.path.clone()),
+                        _ => None,
+                    };
                     for path in &repo.status.conflicted {
                         let change = FileChange {
                             path: path.clone(),
                             kind: ChangeKind::Modified,
                         };
-                        let (row, _) =
-                            file_row(ui, &change, false, None, Some("resolve, then stage"));
-                        row.on_hover_text(
-                            "Fix the conflict markers in your editor, then stage the file.",
-                        );
+                        let is_open = open_conflict.as_deref() == Some(path.as_str());
+                        let (row, _) = file_row(ui, &change, is_open, None, Some("resolve"));
+                        if row.on_hover_text("Pick a side for each conflict").clicked() {
+                            actions.push(Action::OpenConflict(path.clone()));
+                        }
                     }
                     ui.add_space(10.0);
                 }
@@ -147,6 +152,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
     for action in actions {
         match action {
             Action::Open(path, staged) => repo.open_working_diff(&path, staged),
+            Action::OpenConflict(path) => repo.open_conflict(&path),
             Action::Run(op) => repo.run_op(op),
             Action::Confirm(dialog) => repo.dialog = Some(dialog),
             Action::Command(command) => repo.execute(ui.ctx(), vec![command]),

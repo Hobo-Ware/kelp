@@ -57,6 +57,11 @@ folder if it is a repo.
   branch create/rename/delete, merge, rebase, pull, stash, discard,
   stage), and Cmd+Shift+Z redoes it. Undo refuses rather than lose work
   when the repo changed since; pushes and fetches can't be undone.
+- **Conflicts:** a stopped merge, rebase, cherry-pick or revert shows a
+  banner with Continue, Skip and Abort. Each conflicted file opens side
+  by side, ours and theirs, with Use ours / theirs / both per conflict,
+  a preview of the result, and whole-file choices (including delete vs
+  modify).
 - **Search:** Cmd+F across messages, authors, emails and hash prefixes.
 - **Files:** right-click any file for Open in editor, Reveal in Finder and
   Copy path; the diff header has an editor button too. Pick the editor in
@@ -127,7 +132,7 @@ Developer switches (environment variables):
 | `KELP_BENCH_SCROLL=1` | Print graph frame times for random jumps and smooth scrolling |
 | `KELP_OFFLINE=1` | No avatar downloads |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
-| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`), `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`) | Open a screen on start |
+| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`), `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`), `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
 

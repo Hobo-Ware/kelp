@@ -1,6 +1,7 @@
 mod app;
 mod avatars;
 mod commands;
+mod conflict_view;
 mod details;
 mod dev_bench;
 mod dev_screenshot;
