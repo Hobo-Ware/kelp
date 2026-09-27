@@ -39,8 +39,9 @@ enum Mode {
     File,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Layout {
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum Layout {
+    #[default]
     Unified,
     Split,
 }
@@ -147,12 +148,13 @@ impl DiffView {
 
     pub fn reload(&mut self, repo: &gix::Repository, workdir: Option<&Path>) -> anyhow::Result<()> {
         let fresh = Self::load(repo, workdir, self.source, &self.diff.path.clone())?;
-        let (mode, layout) = (self.mode, self.layout);
-        *self = Self {
-            mode,
-            layout,
-            ..fresh
-        };
+        let kept = std::mem::replace(self, fresh);
+        self.mode = kept.mode;
+        self.layout = kept.layout;
+        self.composer = kept.composer;
+        self.draft = kept.draft;
+        self.replies = kept.replies;
+        self.expanded = kept.expanded;
         Ok(())
     }
 
@@ -167,8 +169,12 @@ impl DiffView {
         }
     }
 
-    pub fn show_split(&mut self) {
-        self.layout = Layout::Split;
+    pub fn layout(&self) -> Layout {
+        self.layout
+    }
+
+    pub fn set_layout(&mut self, layout: Layout) {
+        self.layout = layout;
     }
 
     fn commit(&self) -> Option<String> {
