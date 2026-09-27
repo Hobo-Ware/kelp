@@ -37,10 +37,20 @@ pub const AVATARS: [Color32; 8] = [
     Color32::from_rgb(0xf5, 0xb3, 0xc8),
     Color32::from_rgb(0xc9, 0xcf, 0xd8),
 ];
-pub const AVATAR_INK: Color32 = Color32::from_rgb(0x16, 0x19, 0x1f);
 
 pub fn semibold() -> egui::FontFamily {
     egui::FontFamily::Name(crate::fonts::SEMIBOLD.into())
+}
+
+pub fn generated_avatar(key: &str) -> (Color32, Color32) {
+    let hue = AVATARS[kelp_core::avatar::color_index(key, AVATARS.len())];
+    let mix = |bg: u8, fg: u8| (bg as f32 + (fg as f32 - bg as f32) * 0.2).round() as u8;
+    let fill = Color32::from_rgb(
+        mix(BG.r(), hue.r()),
+        mix(BG.g(), hue.g()),
+        mix(BG.b(), hue.b()),
+    );
+    (fill, hue)
 }
 
 pub fn lane(color: u8) -> Color32 {

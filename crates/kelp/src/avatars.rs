@@ -1,12 +1,13 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 use eframe::egui::{self, ColorImage, TextureHandle, TextureId, TextureOptions};
 use gix::ObjectId;
 use kelp_core::avatar::{self, GitHubRepo, Image, Resolver};
 
 const WORKERS: usize = 4;
+const MAX_PENDING: usize = 48;
 
 enum Slot {
     Pending,
@@ -14,8 +15,36 @@ enum Slot {
     Missing,
 }
 
+#[derive(Default)]
+struct Queue {
+    items: Mutex<VecDeque<(String, String)>>,
+    ready: Condvar,
+}
+
+impl Queue {
+    fn push_newest(&self, item: (String, String)) -> Option<String> {
+        let mut items = self.items.lock().ok()?;
+        items.push_front(item);
+        let dropped = (items.len() > MAX_PENDING)
+            .then(|| items.pop_back())
+            .flatten();
+        self.ready.notify_one();
+        dropped.map(|(email, _)| email)
+    }
+
+    fn pop_newest(&self) -> Option<(String, String)> {
+        let mut items = self.items.lock().ok()?;
+        loop {
+            if let Some(item) = items.pop_front() {
+                return Some(item);
+            }
+            items = self.ready.wait(items).ok()?;
+        }
+    }
+}
+
 pub struct AvatarStore {
-    requests: Option<Sender<(String, String)>>,
+    queue: Option<Arc<Queue>>,
     results: Receiver<(String, Option<Image>)>,
     slots: HashMap<String, Slot>,
     ctx: egui::Context,
@@ -27,27 +56,25 @@ impl AvatarStore {
         let (result_tx, results) = mpsc::channel();
         if std::env::var_os("KELP_OFFLINE").is_some() {
             return Self {
-                requests: None,
+                queue: None,
                 results,
                 slots: HashMap::new(),
                 ctx,
                 enabled: false,
             };
         }
-        let (requests, request_rx) = mpsc::channel::<(String, String)>();
-        let request_rx = Arc::new(Mutex::new(request_rx));
+        let queue = Arc::new(Queue::default());
+        let worker_queue = queue.clone();
         let worker_ctx = ctx.clone();
         std::thread::spawn(move || {
             let resolver = Arc::new(Resolver::new(github, avatar::gh_token()));
             for _ in 0..WORKERS {
                 let resolver = resolver.clone();
-                let request_rx = request_rx.clone();
+                let queue = worker_queue.clone();
                 let result_tx: Sender<(String, Option<Image>)> = result_tx.clone();
                 let ctx = worker_ctx.clone();
                 std::thread::spawn(move || {
-                    loop {
-                        let next = request_rx.lock().ok().and_then(|rx| rx.recv().ok());
-                        let Some((email, commit)) = next else { break };
+                    while let Some((email, commit)) = queue.pop_newest() {
                         let image = resolver.resolve(&email, &commit);
                         if result_tx.send((email, image)).is_err() {
                             break;
@@ -58,7 +85,7 @@ impl AvatarStore {
             }
         });
         Self {
-            requests: Some(requests),
+            queue: Some(queue),
             results,
             slots: HashMap::new(),
             ctx,
@@ -75,11 +102,11 @@ impl AvatarStore {
             Some(Slot::Ready(texture)) => Some(texture.id()),
             Some(_) => None,
             None => {
-                let Some(requests) = &self.requests else {
-                    return None;
-                };
+                let queue = self.queue.as_ref()?;
                 self.slots.insert(key.clone(), Slot::Pending);
-                let _ = requests.send((key, commit.to_string()));
+                if let Some(dropped) = queue.push_newest((key, commit.to_string())) {
+                    self.slots.remove(&dropped);
+                }
                 None
             }
         }

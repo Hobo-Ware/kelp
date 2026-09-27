@@ -726,15 +726,19 @@ impl DiffView {
         let mut y = card.top() + 12.0;
         for comment in &thread.comments {
             let avatar = pos2(card.left() + 26.0, y + 12.0);
-            let fill = theme::AVATARS
-                [kelp_core::avatar::color_index(&comment.author, theme::AVATARS.len())];
-            ui.painter().circle_filled(avatar, 13.0, fill);
+            let (fill, ink) = theme::generated_avatar(&comment.author);
+            ui.painter().circle(
+                avatar,
+                13.0,
+                fill,
+                Stroke::new(1.5, theme::with_alpha(ink, 0x66)),
+            );
             ui.painter().text(
                 avatar,
                 Align2::CENTER_CENTER,
                 kelp_core::avatar::initials(&comment.author),
-                FontId::proportional(10.0),
-                theme::AVATAR_INK,
+                FontId::new(10.0, theme::semibold()),
+                ink,
             );
             let header = ui.painter().text(
                 pos2(card.left() + 50.0, y + 4.0),
