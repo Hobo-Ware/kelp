@@ -276,10 +276,11 @@ impl eframe::App for KelpApp {
                 };
             }
         }
-        let active_ready = self
-            .tabs
-            .get(self.active)
-            .is_some_and(|t| matches!(t.state, State::Ready(_)));
+        let active_ready = self.tabs.is_empty()
+            || self
+                .tabs
+                .get(self.active)
+                .is_some_and(|t| !matches!(t.state, State::Loading(_)));
         if let Some(shot) = &mut self.screenshot {
             shot.tick(&ctx, active_ready);
         }
