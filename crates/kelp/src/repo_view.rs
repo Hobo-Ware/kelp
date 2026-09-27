@@ -26,6 +26,7 @@ use crate::icons::{self, Icon};
 use crate::jobs::Jobs;
 use crate::menus::{self, MenuContext};
 use crate::rebase_view::{self, HeadReach, RebaseView};
+use crate::ref_labels::MenuFor;
 use crate::settings::Settings;
 use crate::{details, sidebar, theme, worktrees_view};
 
@@ -1171,24 +1172,29 @@ impl Repo {
             repo: git,
             history,
             selected: *selected,
+            head_row,
             wip,
             lit: lit_cache.as_ref().map(|(_, lit)| lit.as_slice()),
             descriptions: settings.show_descriptions,
         };
-        let action = graph.ui(ui, input, avatars, |ui, selection, title| match selection {
-            Selection::Wip => menus::wip(ui, commands),
-            Selection::Commit(row) => {
+        let action = graph.ui(ui, input, avatars, |ui, target| match target {
+            MenuFor::Commit(Selection::Wip, _) => menus::wip(ui, commands),
+            MenuFor::Commit(Selection::Commit(row), title) => {
                 let id = history.id(row).to_string();
                 let parents = history.parents(row).len();
                 let can_rebase = head_reach.can_rebase_from(history, head_row, row);
                 menus::commit(ui, &id, parents, title, &menu_ctx, can_rebase, commands)
             }
+            MenuFor::Ref(label) => menus::branch(ui, label, &menu_ctx, commands),
+            MenuFor::Drop(plan) => menus::drop(ui, plan, &menu_ctx, commands),
         });
         if let Some(bench) = bench {
             bench.record(ui.ctx(), started.elapsed());
         }
-        if let Some(graph_view::Action::Select(selection)) = action {
-            self.select(selection);
+        match action {
+            Some(graph_view::Action::Select(selection)) => self.select(selection),
+            Some(graph_view::Action::Command(command)) => commands.push(command),
+            None => {}
         }
     }
 

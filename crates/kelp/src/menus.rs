@@ -8,6 +8,7 @@ use kelp_core::workspace::{Stash, Worktree};
 use crate::commands::Command;
 use crate::dialogs::{Dialog, NewWorktree};
 use crate::icons::{self, Icon};
+use crate::ref_labels::{self, DropChoice, DropPlan};
 use crate::theme;
 
 pub struct MenuContext {
@@ -348,6 +349,97 @@ pub fn commit(
     item(ui, Icon::Copy, "Copy message", out, || {
         Command::Copy(title.to_string())
     });
+}
+
+pub fn drop(ui: &mut Ui, plan: &DropPlan, ctx: &MenuContext, out: &mut Vec<Command>) {
+    menu_width(ui, 270.0);
+    heading(
+        ui,
+        &format!(
+            "Drop {} on {}",
+            plan.source.name,
+            ref_labels::target_name(&plan.target)
+        ),
+    );
+    let choices =
+        ref_labels::drop_choices(&plan.source, &plan.target, ctx.current_branch.as_deref());
+    if choices.is_empty() {
+        ui.add_enabled_ui(false, |ui| row(ui, None, "Nothing to do here", None, false));
+    }
+    for choice in choices {
+        match choice {
+            DropChoice::Merge { source, into } => {
+                item(
+                    ui,
+                    Icon::Merge,
+                    &format!("Merge {source} into {into}"),
+                    out,
+                    || {
+                        confirm(
+                            format!("Merge {source} into {into}?"),
+                            "",
+                            Op::Merge(source.clone()),
+                            false,
+                        )
+                    },
+                );
+            }
+            DropChoice::CheckoutAndMerge { branch, source } => {
+                item(
+                    ui,
+                    Icon::Merge,
+                    &format!("Check out {branch} and merge {source}"),
+                    out,
+                    || {
+                        confirm(
+                            format!("Check out {branch} and merge {source} into it?"),
+                            "",
+                            Op::CheckoutAndMerge {
+                                branch: branch.clone(),
+                                source: source.clone(),
+                            },
+                            false,
+                        )
+                    },
+                );
+            }
+            DropChoice::Rebase { current, onto } => {
+                item(
+                    ui,
+                    Icon::Rebase,
+                    &format!("Rebase {current} onto {onto}"),
+                    out,
+                    || {
+                        confirm(
+                            format!("Rebase {current} onto {onto}?"),
+                            "Rewrites the commits on your current branch.",
+                            Op::Rebase(onto.clone()),
+                            false,
+                        )
+                    },
+                );
+            }
+            DropChoice::Reset { current, commit } => {
+                separator(ui);
+                heading(ui, &format!("Reset {current} to here"));
+                let reset = |mode| {
+                    Command::Run(Op::Reset {
+                        commit: commit.clone(),
+                        mode,
+                    })
+                };
+                item(ui, Icon::Reset, "Soft: keep changes staged", out, || {
+                    reset(ResetMode::Soft)
+                });
+                item(ui, Icon::Reset, "Mixed: keep changes unstaged", out, || {
+                    reset(ResetMode::Mixed)
+                });
+                danger(ui, Icon::Reset, "Hard: discard changes…", out, || {
+                    Command::ResetHard(commit.clone())
+                });
+            }
+        }
+    }
 }
 
 pub fn file(ui: &mut Ui, path: &str, out: &mut Vec<Command>) {

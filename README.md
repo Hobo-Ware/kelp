@@ -32,6 +32,10 @@ folder if it is a repo.
   color, avatars (GitHub, then Gravatar, then generated initials),
   branch and tag labels. Drag the graph column edge to resize; scroll
   sideways for wide histories.
+- **Labels you can use:** click a branch or tag label to select its
+  commit, right-click for its menu, double-click to check it out. The
+  `+N` chip lists every ref on that commit, each with its own menu.
+  Drag a label onto another commit or label to merge, rebase or reset.
 - **Commits:** message, author, parents, changed files as a list or a
   tree, or every file in the commit.
 - **Diffs:** unified or split, or the full file, with the changed words
@@ -94,6 +98,8 @@ folder if it is a repo.
 | Drag a tab | Reorder tabs |
 | Drop a folder on the window | Open it (a file opens the repository it is in) |
 | Double-click a branch | Check it out |
+| Double-click a graph label | Check out that branch |
+| Drag a graph label onto a commit | Merge, rebase or reset |
 | P / R / S / F / D | In interactive rebase: pick, reword, squash, fixup or drop the hovered commit |
 
 ## Where Kelp keeps things
@@ -136,7 +142,7 @@ Developer switches (environment variables):
 | `KELP_BENCH_SCROLL=1` | Print graph frame times for random jumps and smooth scrolling |
 | `KELP_OFFLINE=1` | No avatar downloads |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
-| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`), `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`), `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result) | Open a screen on start |
+| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`), `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`), `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
 | `KELP_OPEN_REBASE=<rev>` (or `<rev>:<letters>`, e.g. `HEAD~4:prsd`) | Open interactive rebase from a commit, optionally with actions preset |

@@ -17,6 +17,7 @@ mod menus;
 mod open_with;
 mod preview_view;
 mod rebase_view;
+mod ref_labels;
 mod repo_view;
 mod settings;
 mod sidebar;

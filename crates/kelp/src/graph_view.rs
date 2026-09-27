@@ -11,9 +11,11 @@ use kelp_core::avatar;
 use kelp_core::commit::{self, ChangeKind, FileChange, Summary};
 use kelp_core::graph::EdgeKind;
 use kelp_core::history::History;
-use kelp_core::refs::{RefKind, RefLabel};
+use kelp_core::refs::RefLabel;
 
 use crate::avatars::AvatarStore;
+use crate::commands::Command;
+use crate::ref_labels::{self, DropPlan, DropTarget, LabelEvent, MenuFor};
 use crate::repo_view::Selection;
 use crate::theme;
 
@@ -36,12 +38,15 @@ pub struct GraphView {
     graph_w: Option<f32>,
     lane_offset: f32,
     context: Option<Selection>,
+    drag: Option<ref_labels::Drag>,
+    drop: Option<DropPlan>,
 }
 
 pub struct GraphInput<'a> {
     pub repo: &'a gix::Repository,
     pub history: &'a History,
     pub selected: Option<Selection>,
+    pub head_row: Option<usize>,
     pub wip: Option<Wip<'a>>,
     pub lit: Option<&'a [bool]>,
     pub descriptions: bool,
@@ -62,6 +67,7 @@ pub struct Wip<'a> {
 
 pub enum Action {
     Select(Selection),
+    Command(Command),
 }
 
 #[derive(Clone, Copy)]
@@ -101,6 +107,8 @@ impl GraphView {
             graph_w: None,
             lane_offset: 0.0,
             context: None,
+            drag: None,
+            drop: None,
         }
     }
 
@@ -113,12 +121,13 @@ impl GraphView {
         ui: &mut Ui,
         input: GraphInput<'_>,
         avatars: &mut AvatarStore,
-        mut menu: impl FnMut(&mut Ui, Selection, &str),
+        mut menu: impl FnMut(&mut Ui, MenuFor<'_>),
     ) -> Option<Action> {
         let GraphInput {
             repo,
             history,
             selected,
+            head_row,
             wip,
             lit,
             descriptions,
@@ -149,6 +158,10 @@ impl GraphView {
         let lane_offset = &mut self.lane_offset;
         let summaries = &mut self.summaries;
         let context = &mut self.context;
+        let drag = &mut self.drag;
+        let drop = &mut self.drop;
+        let open_refs = std::env::var("KELP_OPEN_REFS").ok();
+        let open_drop = std::env::var("KELP_OPEN_DROP").ok();
         scroll.show_rows(ui, ROW_H, map.total(), |ui, rows| {
             for display in rows.clone() {
                 if let Selection::Commit(row) = map.resolve(display) {
@@ -171,6 +184,8 @@ impl GraphView {
                 }
             }
             let painter = ui.painter_at(rect);
+            let mut label_events = Vec::new();
+            let mut label_hits: Vec<(Rect, usize, RefLabel)> = Vec::new();
             for (i, display) in rows.clone().enumerate() {
                 let geo = RowGeo {
                     left: rect.left(),
@@ -194,7 +209,7 @@ impl GraphView {
                             faded: lit.is_some_and(|l| !l.get(row).copied().unwrap_or(true)),
                             descriptions,
                         };
-                        paint_row(
+                        let placed = paint_row(
                             &painter,
                             &geo,
                             history,
@@ -204,9 +219,128 @@ impl GraphView {
                             style,
                             now,
                         );
+                        let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
+                        let force_open = open_refs
+                            .as_deref()
+                            .is_some_and(|rev| history.id(row).to_string().starts_with(rev));
+                        for spot in &placed {
+                            if let ref_labels::Slot::Label(i) = spot.slot {
+                                label_hits.push((spot.rect, row, labels[i].clone()));
+                            }
+                        }
+                        let lane = theme::lane(history.layout.node_color(row));
+                        let events = ref_labels::interact(
+                            ui, row, &labels, &placed, lane, force_open, &mut menu,
+                        );
+                        label_events.extend(events.into_iter().map(|e| (row, e)));
                     }
                     (Selection::Wip, None) => {}
                 }
+            }
+            let row_at = |pos: Pos2| -> Option<usize> {
+                if !rect.contains(pos) {
+                    return None;
+                }
+                let display = rows.start + ((pos.y - rect.top()) / ROW_H) as usize;
+                match map.resolve(display.min(map.total().saturating_sub(1))) {
+                    Selection::Commit(row) => Some(row),
+                    Selection::Wip => None,
+                }
+            };
+            let target_at = |pos: Pos2| -> Option<DropTarget> {
+                let row = row_at(pos)?;
+                let label = label_hits
+                    .iter()
+                    .find(|(r, hit_row, _)| *hit_row == row && r.contains(pos))
+                    .map(|(_, _, label)| label.clone());
+                Some(DropTarget {
+                    row,
+                    commit: history.id(row).to_string(),
+                    label,
+                    is_head: head_row == Some(row),
+                })
+            };
+            for (row, event) in label_events {
+                match event {
+                    LabelEvent::Select => action = Some(Action::Select(Selection::Commit(row))),
+                    LabelEvent::Command(command) => action = Some(Action::Command(command)),
+                    LabelEvent::DragStart(label) => {
+                        *drag = Some(ref_labels::Drag {
+                            label,
+                            from_row: row,
+                        })
+                    }
+                    LabelEvent::DragStop => {
+                        let pos = ui.ctx().pointer_latest_pos();
+                        if let (Some(dragged), Some(pos)) = (drag.take(), pos)
+                            && let Some(target) = target_at(pos)
+                            && (target.row != dragged.from_row || target.label.is_some())
+                        {
+                            *drop = Some(DropPlan {
+                                source: dragged.label,
+                                target,
+                                pos,
+                            });
+                            egui::Popup::open_id(ui.ctx(), drop_menu_id());
+                        }
+                    }
+                }
+            }
+            if let Some(dragged) = drag.as_ref() {
+                if let Some(pos) = ui.ctx().pointer_latest_pos() {
+                    if let Some(target) = row_at(pos) {
+                        let display = map.display(Selection::Commit(target));
+                        if rows.contains(&display) {
+                            let top = rect.top() + (display - rows.start) as f32 * ROW_H;
+                            let row_rect = Rect::from_x_y_ranges(
+                                rect.left() + 2.0..=rect.right() - 2.0,
+                                top + 1.0..=top + ROW_H - 1.0,
+                            );
+                            painter.rect_stroke(
+                                row_rect,
+                                CornerRadius::same(5),
+                                Stroke::new(1.5, theme::with_alpha(theme::ACCENT, 0xb0)),
+                                egui::StrokeKind::Inside,
+                            );
+                        }
+                    }
+                    let lane = theme::lane(history.layout.node_color(dragged.from_row));
+                    ref_labels::paint_ghost(ui.ctx(), &dragged.label, pos, lane);
+                    ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+                }
+                if !ui.input(|i| i.pointer.primary_down()) {
+                    *drag = None;
+                }
+            }
+            if let Some(spec) = open_drop.as_deref()
+                && drop.is_none()
+                && let Some((source, rev)) = spec.split_once('@')
+                && let Some((_, _, source_label)) =
+                    label_hits.iter().find(|(_, _, l)| l.name == source)
+                && let Some(row) = rows.clone().find_map(|display| match map.resolve(display) {
+                    Selection::Commit(row) if history.id(row).to_string().starts_with(rev) => {
+                        Some(row)
+                    }
+                    _ => None,
+                })
+            {
+                let top =
+                    rect.top() + (map.display(Selection::Commit(row)) - rows.start) as f32 * ROW_H;
+                let label = label_hits
+                    .iter()
+                    .find(|(_, hit_row, l)| *hit_row == row && l.name != source)
+                    .map(|(_, _, l)| l.clone());
+                *drop = Some(DropPlan {
+                    source: source_label.clone(),
+                    target: DropTarget {
+                        row,
+                        commit: history.id(row).to_string(),
+                        label,
+                        is_head: head_row == Some(row),
+                    },
+                    pos: pos2(rect.left() + msg_x + 60.0, top + ROW_H),
+                });
+                egui::Popup::open_id(ui.ctx(), drop_menu_id());
             }
             if (response.clicked() || response.secondary_clicked())
                 && let Some(pos) = response.interact_pointer_pos()
@@ -226,7 +360,7 @@ impl GraphView {
                         .unwrap_or_default(),
                     Selection::Wip => String::new(),
                 };
-                response.context_menu(|ui| menu(ui, selection, &title));
+                response.context_menu(|ui| menu(ui, MenuFor::Commit(selection, &title)));
             }
             if std::env::var("KELP_OPEN_MENU").as_deref() == Ok("commit")
                 && let Some(selection) = selected
@@ -239,9 +373,24 @@ impl GraphView {
                 egui::Popup::context_menu(&response)
                     .open(true)
                     .at_position(egui::pos2(rect.left() + msg_x + 120.0, top + ROW_H))
-                    .show(|ui| menu(ui, selection, &title));
+                    .show(|ui| menu(ui, MenuFor::Commit(selection, &title)));
             }
         });
+        if let Some(plan) = self.drop.as_ref() {
+            let id = drop_menu_id();
+            egui::Popup::new(
+                id,
+                ui.ctx().clone(),
+                plan.pos,
+                egui::LayerId::new(egui::Order::Foreground, id),
+            )
+            .kind(egui::PopupKind::Menu)
+            .open_memory(None)
+            .show(|ui| menu(ui, MenuFor::Drop(plan)));
+            if !egui::Popup::is_id_open(ui.ctx(), id) {
+                self.drop = None;
+            }
+        }
         action
     }
 
@@ -360,7 +509,7 @@ fn paint_row(
     avatar: Option<egui::TextureId>,
     style: RowStyle,
     now: i64,
-) {
+) -> Vec<ref_labels::Placed> {
     let RowStyle {
         selected,
         dashed_top,
@@ -444,11 +593,14 @@ fn paint_row(
         }
     }
 
+    let mut placed = Vec::new();
     if node.x >= geo.graph_left() {
-        paint_labels(&soft, geo, history.refs.at_row(row), node, color);
+        let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
+        placed = paint_labels(&soft, geo, &labels, node, color);
     }
     paint_avatar(&graph_soft, node, summary, avatar, color, selected);
     paint_message(&soft, geo, summary, selected, descriptions, now);
+    placed
 }
 
 fn paint_wip_row(
@@ -623,56 +775,21 @@ pub fn draw_avatar(
     }
 }
 
-fn paint_labels<'a>(
+fn paint_labels(
     painter: &egui::Painter,
     geo: &RowGeo,
-    labels: impl Iterator<Item = &'a RefLabel>,
+    labels: &[&RefLabel],
     node: Pos2,
     lane: Color32,
-) {
-    let font = FontId::proportional(12.0);
-    let mut right = geo.left + LABELS_END;
-    let labels: Vec<&RefLabel> = labels.collect();
-    for (i, label) in labels.iter().enumerate() {
-        let text = match label.kind {
-            RefKind::Local if label.is_head => format!("✔ {}", label.name),
-            _ => label.name.clone(),
-        };
-        let galley = truncated(painter, text, font.clone(), Color32::PLACEHOLDER, 114.0);
-        let w = galley.size().x + 16.0;
-        let left_edge = geo.left + 8.0;
-        let remaining = labels.len() - i;
-        if right - w < left_edge || (i > 0 && right - w - 30.0 < left_edge) {
-            let more = format!("+{remaining}");
-            let g = painter.layout_no_wrap(more, font.clone(), theme::TEXT_MUTED);
-            let r = Rect::from_min_size(
-                pos2(right - g.size().x - 12.0, geo.mid() - 11.0),
-                vec2(g.size().x + 12.0, 22.0),
-            );
-            painter.rect_filled(r, CornerRadius::same(5), theme::with_alpha(lane, 0x26));
-            painter.galley(
-                pos2(r.left() + 6.0, geo.mid() - g.size().y / 2.0),
-                g,
-                theme::TEXT_MUTED,
-            );
-            break;
-        }
-        let rect = Rect::from_min_size(pos2(right - w, geo.mid() - 11.0), vec2(w, 22.0));
-        let (fill, stroke, ink) = label_style(label, lane);
-        painter.rect(
-            rect,
-            CornerRadius::same(5),
-            fill,
-            stroke,
-            egui::StrokeKind::Inside,
-        );
-        painter.galley(
-            pos2(rect.left() + 8.0, geo.mid() - galley.size().y / 2.0),
-            galley,
-            ink,
-        );
-        right -= w + 4.0;
-    }
+) -> Vec<ref_labels::Placed> {
+    let placed = ref_labels::paint(
+        painter,
+        geo.left + LABELS_END,
+        geo.left + 8.0,
+        geo.mid(),
+        labels,
+        lane,
+    );
     if !labels.is_empty() {
         let stroke = Stroke::new(1.0, theme::with_alpha(lane, 0x66));
         painter.line_segment(
@@ -683,6 +800,11 @@ fn paint_labels<'a>(
             stroke,
         );
     }
+    placed
+}
+
+fn drop_menu_id() -> egui::Id {
+    egui::Id::new("ref-drop-menu")
 }
 
 pub fn truncated(
@@ -695,31 +817,6 @@ pub fn truncated(
     let mut job = LayoutJob::simple_singleline(text, font, color);
     job.wrap = TextWrapping::truncate_at_width(max_width);
     painter.layout_job(job)
-}
-
-fn label_style(label: &RefLabel, lane: Color32) -> (Color32, Stroke, Color32) {
-    match label.kind {
-        RefKind::Local if label.is_head => (
-            theme::with_alpha(lane, 0x40),
-            Stroke::new(1.0, theme::with_alpha(lane, 0xcc)),
-            lane,
-        ),
-        RefKind::Local => (
-            theme::with_alpha(lane, 0x26),
-            Stroke::new(1.0, theme::with_alpha(lane, 0x99)),
-            theme::TEXT_STRONG,
-        ),
-        RefKind::Remote => (
-            Color32::TRANSPARENT,
-            Stroke::new(1.0, theme::with_alpha(lane, 0x99)),
-            theme::TEXT_STRONG,
-        ),
-        RefKind::Tag => (
-            Color32::from_rgb(0x1f, 0x23, 0x2b),
-            Stroke::new(1.0, Color32::from_rgb(0x4a, 0x51, 0x60)),
-            Color32::from_rgb(0xc9, 0xcc, 0xd2),
-        ),
-    }
 }
 
 fn paint_message(
