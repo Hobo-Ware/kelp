@@ -15,6 +15,35 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-09-27
 
+- **v0.1.2 feature batch (six parallel branches, merged and rebased on main).**
+  - Tabs and window: Cmd+T/O/W, Cmd+1..9, Ctrl+Tab, Cmd+R; drag to
+    reorder (tabs keyed by path); middle-click close; tab menu (close,
+    close others, reveal, copy path); drop a folder or a file inside a
+    repo to open it; window size and position remembered.
+  - Git actions: cherry-pick, revert, reset soft/mixed/hard (hard asks,
+    counting lost commits and files); push sets the upstream or asks for
+    a remote, and offers force-with-lease when rejected; ahead/behind
+    badges on Pull and Push.
+  - Diffs: previous/next change (arrows, Alt+Up/Down), word-level
+    highlights on paired lines, line-level staging (click or shift-click
+    line numbers); Open in editor / Reveal in Finder on every file row and
+    in the diff header, editor picked in Settings.
+  - Undo/redo (Cmd+Z / Cmd+Shift+Z) for every local op, recorded
+    generically around HEAD, refs, index, work tree and stashes with
+    snapshots under refs/kelp/undo; refuses when the repo moved on; push,
+    fetch and worktree ops are reported as not undoable. Interactive
+    rebase is not tracked yet.
+  - Interactive rebase view: reorder by drag, pick/reword/squash/fixup/
+    drop, inline messages, runs without an editor; refuses dirty trees
+    and merge commits in range.
+  - Conflicts: banner with Continue/Skip/Abort for merge, rebase,
+    cherry-pick and revert; side-by-side conflict view with ours/theirs/
+    both per conflict, result preview, whole-file choices, delete vs
+    modify.
+  - 140 tests pass. Not exercised by hand (screenshot runs ignore input):
+    real key presses, Finder drops, window restore, drags in the rebase
+    view, the enabled Undo button.
+
 - **Previews, tab strip alignment, split/unified fix (user feedback).**
   - Preview mode in the diff view: images (PNG, JPEG, GIF, WebP, BMP,
     ICO, TIFF) and SVG (resvg) side by side before/after on a
