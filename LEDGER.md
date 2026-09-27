@@ -5,11 +5,33 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **All milestones done (M0 to M6).**
-- **Next up:** see Open questions in PLAN.md (license, Send to Claude,
-  staging/committing, signing).
+- **Current milestone:** M7 (staging and committing).
+- **Done:** M0 to M6, MIT license.
+- **Queued after M7 (user asks, in order):** polish pass on context
+  menus and all controls; Kelp mascot and load animations; GitHub Pages
+  site like stdusk (SEO, OG images, upkeep instructions); Homebrew
+  publishing like stdusk with auto-install on release and an in-app
+  update check.
 
 ## 2026-09-27
+
+- Full retest after the user allowed Kelp through the firewall:
+  - Live avatars work: with an empty cache Kelp fetched every visible
+    trakt-web author itself (GitHub API, no-reply, Gravatar); an unknown
+    email gets a real "not found" in ~0.5 s and is cached as a miss.
+  - 41 tests pass, clippy clean, layout 1.4 ms / 14 ms (100k / 1M),
+    git/git loads in 133 ms.
+  - Scroll benchmarks now run ~2x slower than earlier because macOS
+    throttles Kelp's window to ~10 fps while it sits behind other
+    windows (slower CPU cores). Avatars on/off make no difference.
+    Still under target: smooth scroll 0.20 ms (trakt-web), 0.60 ms
+    (git/git).
+  - Bugs found and fixed: offline test runs saved "avatars off" and a
+    scratch repo into the user's real settings; avatar lookups could
+    queue without limit on huge repos (now a newest-first queue of 48).
+- User feedback "colors burn": the cause was the pastel fills of
+  generated avatars, not the lane colors. Generated avatars are now
+  dark tinted discs with colored initials. Lane palette unchanged.
 
 - **M6 done.**
   - Settings window, saved to Application Support: descriptions in the
