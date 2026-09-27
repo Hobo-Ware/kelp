@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, Align2, Color32, FontId, Key, Margin, RichText, Sense, Stroke, vec2};
 use kelp_core::commit::{self, Details, FileChange};
 use kelp_core::history::History;
-use kelp_core::ops::Op;
+use kelp_core::ops::{self, Op};
 use kelp_core::refs::RefKind;
 use kelp_core::review::{self, Review};
 use kelp_core::watch::{self, Watcher};
@@ -16,7 +16,7 @@ use kelp_core::{git_cli, status};
 use crate::avatars::AvatarStore;
 use crate::commands::Command;
 use crate::dev_bench::ScrollBench;
-use crate::dialogs::{self, Dialog, NewWorktree, Outcome};
+use crate::dialogs::{self, Dialog, NewWorktree, Outcome, force_push_dialog};
 use crate::diff_view::{self, DiffSource, DiffView};
 use crate::graph_view::{self, GraphView};
 use crate::icons::{self, Icon};
@@ -41,12 +41,19 @@ pub enum JobOutput {
         label: String,
         quiet: bool,
         commit: bool,
+        force_retry: Option<Op>,
         result: anyhow::Result<String>,
     },
     Search {
         query: String,
         rows: anyhow::Result<Vec<usize>>,
     },
+}
+
+enum PushPlan {
+    Run(Op),
+    Choose(Dialog),
+    NoRemote,
 }
 
 #[derive(Default)]
@@ -267,6 +274,29 @@ impl Repo {
                 ctx.local_branches,
             )));
         }
+        let branch = ready.current_branch().unwrap_or("HEAD").to_string();
+        match std::env::var("KELP_OPEN_DIALOG").as_deref() {
+            Ok("reset-hard") => {
+                if let Some(Selection::Commit(row)) = ready.selected {
+                    let id = ready.history.id(row).to_string();
+                    ready.execute(ctx, vec![Command::ResetHard(id)]);
+                }
+            }
+            Ok("push-to") => {
+                if let PushPlan::Choose(dialog) = ready.push_plan(&branch) {
+                    ready.dialog = Some(dialog);
+                }
+            }
+            Ok("force-push") => {
+                ready.dialog = Some(force_push_dialog(Op::Push {
+                    branch,
+                    remote: "origin".into(),
+                    set_upstream: false,
+                    force_with_lease: true,
+                }));
+            }
+            _ => {}
+        }
         if !git_cli::has_commit_graph(&ready.repo) {
             let dir = ready.repo.path().to_path_buf();
             ready.jobs.spawn("Speeding up history", move || {
@@ -420,9 +450,7 @@ impl Repo {
                 .of_kind(RefKind::Local)
                 .map(|l| l.name.clone())
                 .collect(),
-            upstream: self
-                .current_branch()
-                .and_then(|b| workspace::upstream_remote(&self.repo, b)),
+            head: self.history.refs.head.map(|h| h.to_string()),
         }
     }
 
@@ -433,6 +461,29 @@ impl Repo {
                 Command::Run(op) => {
                     self.run_op(op);
                     ran_op = true;
+                }
+                Command::Push(branch) => match self.push_plan(&branch) {
+                    PushPlan::Run(op) => {
+                        self.run_op(op);
+                        ran_op = true;
+                    }
+                    PushPlan::Choose(dialog) => self.dialog = Some(dialog),
+                    PushPlan::NoRemote => {
+                        self.notify("This repository has no remote to push to", true)
+                    }
+                },
+                Command::ResetHard(commit) => {
+                    let dropped = git_cli::run(
+                        &self.dir,
+                        &["rev-list", "--count", &format!("{commit}..HEAD")],
+                    )
+                    .ok()
+                    .and_then(|out| out.trim().parse().ok())
+                    .unwrap_or(0);
+                    let dirty = self.wip.len().saturating_sub(self.status.untracked.len());
+                    let branch = self.current_branch().unwrap_or("HEAD").to_string();
+                    self.dialog =
+                        Some(dialogs::reset_hard_dialog(&branch, &commit, dropped, dirty));
                 }
                 Command::Open(dialog) => self.dialog = Some(dialog),
                 Command::Copy(text) => {
@@ -462,6 +513,33 @@ impl Repo {
         }
     }
 
+    fn push_plan(&self, branch: &str) -> PushPlan {
+        let push = |remote: String, set_upstream| Op::Push {
+            branch: branch.to_string(),
+            remote,
+            set_upstream,
+            force_with_lease: false,
+        };
+        if let Some(remote) = workspace::upstream_remote(&self.repo, branch) {
+            return PushPlan::Run(push(remote, false));
+        }
+        let remotes: Vec<String> = self
+            .repo
+            .remote_names()
+            .iter()
+            .map(|r| r.to_string())
+            .collect();
+        match workspace::default_push_remote(&remotes) {
+            Some(remote) => PushPlan::Run(push(remote, true)),
+            None if remotes.is_empty() => PushPlan::NoRemote,
+            None => PushPlan::Choose(Dialog::PushTo {
+                branch: branch.to_string(),
+                remote: remotes[0].clone(),
+                remotes,
+            }),
+        }
+    }
+
     pub fn run_op(&mut self, op: Op) {
         let label = op.label();
         let dir = self.dir.clone();
@@ -475,10 +553,25 @@ impl Repo {
                 | Op::ApplyToIndex { .. }
         );
         let commit = matches!(op, Op::Commit { .. });
+        let force_retry = match &op {
+            Op::Push {
+                branch,
+                remote,
+                set_upstream,
+                force_with_lease: false,
+            } => Some(Op::Push {
+                branch: branch.clone(),
+                remote: remote.clone(),
+                set_upstream: *set_upstream,
+                force_with_lease: true,
+            }),
+            _ => None,
+        };
         self.jobs.spawn(label, move || JobOutput::Op {
             label: job_label,
             quiet,
             commit,
+            force_retry,
             result: op.run(&dir),
         });
     }
@@ -672,6 +765,7 @@ impl Repo {
                     label,
                     quiet,
                     commit,
+                    force_retry,
                     result,
                 } => {
                     if commit {
@@ -691,7 +785,13 @@ impl Repo {
                         }
                         Err(e) => {
                             self.open_after_ops.clear();
-                            self.notify(format!("{e:#}"), true);
+                            let error = format!("{e:#}");
+                            match force_retry {
+                                Some(op) if ops::push_rejected(&error) => {
+                                    self.dialog = Some(force_push_dialog(op))
+                                }
+                                _ => self.notify(error, true),
+                            }
                         }
                     }
                     self.reload();
@@ -899,7 +999,9 @@ impl Repo {
         let action = graph.ui(ui, input, avatars, |ui, selection, title| match selection {
             Selection::Wip => menus::wip(ui, commands),
             Selection::Commit(row) => {
-                menus::commit(ui, &history.id(row).to_string(), title, &menu_ctx, commands)
+                let id = history.id(row).to_string();
+                let parents = history.parents(row).len();
+                menus::commit(ui, &id, parents, title, &menu_ctx, commands)
             }
         });
         if let Some(bench) = bench {
@@ -1096,7 +1198,7 @@ impl Repo {
                 commands.push(Command::Run(Op::Pull));
             }
             let push_hint = match (&upstream, ahead_behind) {
-                (None, _) => "No upstream yet: pushes to origin and sets it".to_string(),
+                (None, _) => "No upstream yet: the first push sets one".to_string(),
                 (Some(_), Some((ahead, _))) if ahead > 0 => format!("{ahead} to push"),
                 _ => "git push".into(),
             };
@@ -1108,10 +1210,7 @@ impl Repo {
                 &push_hint,
             ) && let Some(branch) = branch.clone()
             {
-                commands.push(Command::Run(Op::Push {
-                    branch,
-                    remote: upstream.clone(),
-                }));
+                commands.push(Command::Push(branch));
             }
             divider(ui);
             let start = self.selected_ref();

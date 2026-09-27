@@ -8,7 +8,9 @@ pub enum Op {
     Pull,
     Push {
         branch: String,
-        remote: Option<String>,
+        remote: String,
+        set_upstream: bool,
+        force_with_lease: bool,
     },
     Switch(String),
     SwitchTrack(String),
@@ -65,6 +67,35 @@ pub enum Op {
         message: String,
         amend: bool,
     },
+    CherryPick {
+        commit: String,
+        merge: bool,
+    },
+    Revert {
+        commit: String,
+        merge: bool,
+    },
+    Reset {
+        commit: String,
+        mode: ResetMode,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResetMode {
+    Soft,
+    Mixed,
+    Hard,
+}
+
+impl ResetMode {
+    pub fn flag(self) -> &'static str {
+        match self {
+            ResetMode::Soft => "--soft",
+            ResetMode::Mixed => "--mixed",
+            ResetMode::Hard => "--hard",
+        }
+    }
 }
 
 impl Op {
@@ -75,12 +106,20 @@ impl Op {
             Op::Pull => v(&["pull"]),
             Op::Push {
                 branch,
-                remote: Some(remote),
-            } => v(&["push", remote, branch]),
-            Op::Push {
-                branch,
-                remote: None,
-            } => v(&["push", "-u", "origin", branch]),
+                remote,
+                set_upstream,
+                force_with_lease,
+            } => {
+                let mut args = v(&["push"]);
+                if *force_with_lease {
+                    args.push("--force-with-lease".into());
+                }
+                if *set_upstream {
+                    args.push("-u".into());
+                }
+                args.extend([remote.clone(), branch.clone()]);
+                args
+            }
             Op::Switch(branch) => v(&["switch", branch]),
             Op::SwitchTrack(remote_branch) => v(&["switch", "--track", remote_branch]),
             Op::SwitchDetached(commit) => v(&["switch", "--detach", commit]),
@@ -146,6 +185,9 @@ impl Op {
                 message,
                 amend: true,
             } => v(&["commit", "--amend", "-m", message]),
+            Op::CherryPick { commit, merge } => mainline(&["cherry-pick"], *merge, commit),
+            Op::Revert { commit, merge } => mainline(&["revert", "--no-edit"], *merge, commit),
+            Op::Reset { commit, mode } => v(&["reset", mode.flag(), commit]),
         }
     }
 
@@ -153,6 +195,11 @@ impl Op {
         match self {
             Op::Fetch => "Fetching".into(),
             Op::Pull => "Pulling".into(),
+            Op::Push {
+                branch,
+                force_with_lease: true,
+                ..
+            } => format!("Force pushing {branch}"),
             Op::Push { branch, .. } => format!("Pushing {branch}"),
             Op::Switch(b) | Op::SwitchTrack(b) => format!("Checking out {b}"),
             Op::SwitchDetached(c) => format!("Checking out {}", short(c)),
@@ -179,6 +226,9 @@ impl Op {
             Op::ApplyToIndex { reverse: true, .. } => "Unstaging hunk".into(),
             Op::Commit { amend: false, .. } => "Committing".into(),
             Op::Commit { amend: true, .. } => "Amending".into(),
+            Op::CherryPick { commit, .. } => format!("Cherry-picking {}", short(commit)),
+            Op::Revert { commit, .. } => format!("Reverting {}", short(commit)),
+            Op::Reset { commit, .. } => format!("Resetting to {}", short(commit)),
         }
     }
 
@@ -196,6 +246,20 @@ impl Op {
         };
         Ok(out.trim().to_string())
     }
+}
+
+pub fn push_rejected(error: &str) -> bool {
+    error.contains("[rejected]")
+        && (error.contains("non-fast-forward") || error.contains("fetch first"))
+}
+
+fn mainline(prefix: &[&str], merge: bool, commit: &str) -> Vec<String> {
+    let mut args: Vec<String> = prefix.iter().map(|s| s.to_string()).collect();
+    if merge {
+        args.extend(["-m".to_string(), "1".to_string()]);
+    }
+    args.push(commit.to_string());
+    args
 }
 
 fn with_paths(prefix: &[&str], paths: &[String]) -> Vec<String> {
@@ -221,18 +285,73 @@ fn short(commit: &str) -> &str {
 mod tests {
     use super::*;
 
+    fn push(remote: &str, branch: &str, set_upstream: bool, force_with_lease: bool) -> Op {
+        Op::Push {
+            branch: branch.into(),
+            remote: remote.into(),
+            set_upstream,
+            force_with_lease,
+        }
+    }
+
     #[test]
-    fn push_sets_upstream_only_when_missing() {
-        let with = Op::Push {
-            branch: "main".into(),
-            remote: Some("origin".into()),
+    fn push_sets_upstream_and_forces_with_lease_on_request() {
+        assert_eq!(
+            push("origin", "main", false, false).command_line(),
+            "git push origin main"
+        );
+        assert_eq!(
+            push("fork", "feat/x", true, false).command_line(),
+            "git push -u fork feat/x"
+        );
+        assert_eq!(
+            push("origin", "main", false, true).command_line(),
+            "git push --force-with-lease origin main"
+        );
+        assert_eq!(
+            push("origin", "main", false, true).label(),
+            "Force pushing main"
+        );
+    }
+
+    #[test]
+    fn rejected_pushes_are_recognised() {
+        let behind = " ! [rejected]        main -> main (non-fast-forward)\nerror: failed to push";
+        let fetch_first = " ! [rejected]        main -> main (fetch first)";
+        let hook = " ! [remote rejected] main -> main (pre-receive hook declined)";
+        assert!(push_rejected(behind));
+        assert!(push_rejected(fetch_first));
+        assert!(!push_rejected(hook));
+    }
+
+    #[test]
+    fn history_rewrites_match_git() {
+        let pick = |merge| Op::CherryPick {
+            commit: "abc1234def".into(),
+            merge,
         };
-        let without = Op::Push {
-            branch: "feat/x".into(),
-            remote: None,
-        };
-        assert_eq!(with.command_line(), "git push origin main");
-        assert_eq!(without.command_line(), "git push -u origin feat/x");
+        assert_eq!(pick(false).command_line(), "git cherry-pick abc1234def");
+        assert_eq!(pick(true).command_line(), "git cherry-pick -m 1 abc1234def");
+        assert_eq!(
+            Op::Revert {
+                commit: "abc1234def".into(),
+                merge: false
+            }
+            .command_line(),
+            "git revert --no-edit abc1234def"
+        );
+        for (mode, flag) in [
+            (ResetMode::Soft, "--soft"),
+            (ResetMode::Mixed, "--mixed"),
+            (ResetMode::Hard, "--hard"),
+        ] {
+            let op = Op::Reset {
+                commit: "abc1234def".into(),
+                mode,
+            };
+            assert_eq!(op.command_line(), format!("git reset {flag} abc1234def"));
+            assert_eq!(op.label(), "Resetting to abc1234");
+        }
     }
 
     #[test]

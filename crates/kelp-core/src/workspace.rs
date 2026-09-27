@@ -33,6 +33,13 @@ pub fn upstream_remote(repo: &gix::Repository, branch: &str) -> Option<String> {
         .map(|r| r.to_string())
 }
 
+pub fn default_push_remote(remotes: &[String]) -> Option<String> {
+    match remotes {
+        [only] => Some(only.clone()),
+        many => many.iter().find(|r| *r == "origin").cloned(),
+    }
+}
+
 pub fn stashes(dir: &Path) -> anyhow::Result<Vec<Stash>> {
     let out = git_cli::run(dir, &["stash", "list", "--format=%gd%x1f%s"])?;
     Ok(parse_stashes(&out))
@@ -113,6 +120,21 @@ pub fn change_count(dir: &Path) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn push_goes_to_the_only_remote_or_origin() {
+        let names = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            default_push_remote(&names(&["fork"])).as_deref(),
+            Some("fork")
+        );
+        assert_eq!(
+            default_push_remote(&names(&["fork", "origin"])).as_deref(),
+            Some("origin")
+        );
+        assert_eq!(default_push_remote(&names(&["fork", "upstream"])), None);
+        assert_eq!(default_push_remote(&[]), None);
+    }
 
     #[test]
     fn parses_worktree_porcelain() {
