@@ -182,6 +182,102 @@ Each milestone ends with a check we can actually run.
 | M6 | Polish: repo tabs, focus-path dimming, search, settings, `.app` bundle | Usable as a daily driver. |
 | M7 | Staging and committing: staged/unstaged lists, stage/unstage/discard files, stage/unstage hunks, commit and amend | Round-trip tests on scratch repos: stage one hunk of two, unstage it, commit, amend, discard. |
 
+## Road to 1.0
+
+Where 0.1.2 leaves us: a fast graph, staging down to lines, previews,
+undo, interactive rebase, conflicts, auto-refresh and self-updates. What
+1.0 still needs is a graph you can act on directly, less noise with many
+branches, and a way to reach every action from the keyboard. Each
+milestone is a release; each item ends with a check we can run.
+
+### v0.2 "A graph you can touch"
+
+| Item | Done when |
+|---|---|
+| Hidden refs: the `+2` chip opens a list of every branch and tag on that commit, each with its own menu (check out, rename, merge, delete, copy) | Screenshot of a commit with 3 labels shows all names; menu actions work on a scratch repo. |
+| Branch labels are clickable: click selects the branch tip, right-click opens the branch menu, double-click checks it out | Headless click tests on labels. |
+| Drag a branch label onto another commit or label: menu with Merge into, Rebase onto, Reset to here (asks first) | Round trip on a scratch repo for each choice. |
+| Hover a commit: its lane path to the tip lights up; tooltip with full message, author and date | Screenshot with a hovered row. |
+| Uncommitted rows say whose they are ("this worktree"), and other worktrees' changes get their own row at their HEAD with "Open worktree" and "Switch here" actions | A repo with 2 dirty worktrees shows 2 rows; the action opens the right tab. |
+| The `+` in the dashed circle is optically centered; same check for every glyph drawn in a circle | Zoomed screenshot comparison. |
+| Toolbar centered over the center column (graph + messages), not the window | Screenshot with sidebar and details at different widths. |
+| Solo or hide a branch from the sidebar (eye toggle); hidden branches drop out of the lane layout | Layout test: hiding a branch removes its lanes. |
+| Optional columns: author, date, short hash; resizable and remembered | Settings round trip. |
+
+### v0.3 "Find anything"
+
+| Item | Done when |
+|---|---|
+| Command palette (Cmd+K and Cmd+Shift+P): fuzzy search over actions, branches (enter checks out), commits by hash or message, files in the selected commit, open tabs and recent repos; shows each action's shortcut | Headless tests for ranking; every toolbar and menu action is listed. |
+| Sidebar folders: branches grouped by prefix (`feat/`, `fix/`, nested), collapsible with counts; remotes grouped by remote, then prefix; folder state remembered | Screenshot of trakt-web-sized ref lists; unit tests for grouping. |
+| Sidebar filter box, pinned branches on top, "hide merged", sort by name or last commit | Unit tests; setting persists. |
+| Welcome screen with recent repos, Clone (URL + folder, progress) and Init | Clone of a public repo shows progress and opens a tab. |
+| Collapse the sidebar and details panel (Cmd+Opt+S / Cmd+Opt+D), remember panel widths | Settings round trip. |
+| Zoom (Cmd+Plus / Cmd+Minus / Cmd+0) and a shortcut sheet (Cmd+/) | Screenshots at 3 zoom levels. |
+
+### v0.4 "Edit anything"
+
+| Item | Done when |
+|---|---|
+| Rename where you see it: F2 or Enter on a selected sidebar branch edits inline; also from graph labels and the palette. Remote branches rename as push new + delete old, with a confirm | Round trip for local and remote renames. |
+| Edit any commit message: HEAD amends, older commits reword through the interactive rebase engine, one click | Round trip rewording a commit 3 back. |
+| Rename and describe stashes, move worktrees (`git worktree move`), create, delete and push tags, rename remotes | Round trip per action. |
+| Undo covers interactive rebase and every new action | Undo round-trip tests for each. |
+| Rebase view gets Edit (stop at a commit, then continue) and handles merge commits (`--rebase-merges`) | Round trips with a stop and with a merge in range. |
+| Discard lines and hunks (not just stage them); stash selected files | Round trips like the staging ones. |
+
+### v0.5 "History tools"
+
+| Item | Done when |
+|---|---|
+| File history: every commit that touched a file, following renames | Test on a renamed file. |
+| Blame view with author avatars and jump to the commit | Screenshot; clicking a line selects its commit. |
+| Compare any two commits or branches (Cmd-click two rows) | Diff matches `git diff A B` on fixtures. |
+| Graph filters: author, path, date range, "only my commits"; matches keep their lanes, the rest fade | Unit tests for each filter. |
+| Reflog view as the safety net, with "restore this" | Recover a dropped commit on a scratch repo. |
+
+### v0.6 "Remotes and GitHub"
+
+| Item | Done when |
+|---|---|
+| Pull request badges on branches and labels (open, draft, merged), open in browser, create a PR from a branch; via `gh` when installed | Works on the kelp repo itself; hidden when `gh` is missing. |
+| CI status dots on commits (GitHub checks) | Screenshot with passing and failing commits. |
+| Remote management: add, remove, rename, fetch one remote, prune | Round trips. |
+| Signed commits: show a verified badge; setting to sign (GPG or SSH) | Test with an SSH-signed fixture. |
+| Submodules and Git LFS: shown and updated instead of breaking diffs | Fixture repos for both. |
+
+### v0.7 "Trust and polish"
+
+| Item | Done when |
+|---|---|
+| Git console: every command Kelp ran, with output and time; errors link to it | Failed op shows the full stderr. |
+| Light theme (follows macOS) built from the same tokens | Screenshots of every view in both themes. |
+| Keyboard reach: every action has a shortcut or palette entry; visible focus everywhere; AccessKit labels for VoiceOver | Checklist of all actions; VoiceOver pass on the main views. |
+| Scale: linux kernel (1.3M commits) opens and scrolls within the speed targets; memory under 400 MB | Numbers in `LEDGER.md`. |
+| Soak test: 8-hour session with watcher, auto-fetch and tab churn, no leaks or stalls | RSS and CPU logged over time. |
+| Commit box helpers: Conventional Commit type picker, co-author picker, commit and push | Headless tests. |
+
+### v1.0 "Ship"
+
+| Item | Done when |
+|---|---|
+| Signed and notarized app (Developer ID), no quarantine step in the cask | Gatekeeper accepts a fresh download. |
+| In-app "What's new" after each update; changelog page on the site | Shown once per version. |
+| Docs on the site: getting started, shortcuts, how undo works, FAQ | Linked from Settings and the palette. |
+| Bug bash and feature freeze: two weeks of daily use on work repos with no data-loss or crash reports | Zero open P0/P1 issues. |
+
+**1.0 means:** nothing Kelp does can lose work without a way back;
+every action is reachable from the keyboard; it stays fast and idle on
+the biggest repos we can find; and it installs cleanly for someone who
+has never heard of it.
+
+### After 1.0 (parked)
+
+- Linux builds (code paths exist, untested).
+- "Send to Claude" for review threads and commit messages.
+- Multiple windows, and split view of two repos.
+- GitLab and Bitbucket pull requests.
+
 ## Decisions
 
 - **Commit-graph:** when a repo has no commit-graph file, Kelp writes one
