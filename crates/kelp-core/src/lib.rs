@@ -1,5 +1,6 @@
 pub mod avatar;
 pub mod commit;
+pub mod conflict;
 pub mod diff;
 pub mod git_cli;
 pub mod graph;
