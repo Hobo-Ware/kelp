@@ -190,7 +190,7 @@ undo, interactive rebase, conflicts, auto-refresh and self-updates. What
 branches, and a way to reach every action from the keyboard. Each
 milestone is a release; each item ends with a check we can run.
 
-### v0.2 "A graph you can touch"
+### v0.2 "A graph you can touch" (done 2026-09-28)
 
 | Item | Done when |
 |---|---|

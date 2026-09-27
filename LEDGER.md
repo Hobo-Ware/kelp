@@ -5,13 +5,37 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.1.2 (QoL batch, undo, interactive rebase, conflicts). Site live at kelp.hoboware.dev.
+- **Current milestone:** v0.2 built on main, not released yet. Next: v0.3 "Find anything".
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
   site like stdusk (SEO, OG images, upkeep instructions); Homebrew
   publishing like stdusk with auto-install on release and an in-app
   update check.
+
+## 2026-09-28
+
+- **v0.2 "A graph you can touch", all items in (three parallel branches
+  plus the toolbar fix, merged on main).**
+  - `+N` chip lists every ref on a commit, each with its full menu;
+    labels: click selects, right-click menu, double-click checks out;
+    drag a label onto a commit for Merge / Check out and merge / Rebase
+    onto / Reset to here.
+  - Hover: the first-parent path to the nearest ref is drawn brighter,
+    other lanes dim; tooltip with title, body, author, date and hash.
+  - Uncommitted rows for every worktree ("this worktree", then
+    `<name> · N changed` with Open); the `+` and avatar initials are
+    optically centered.
+  - Hide or solo branches (sidebar eye, menus on labels and sidebar,
+    status chip to undo), saved per repo in `.git/kelp/view.json`.
+  - Optional Author, Date and Hash columns, resizable, saved in Settings.
+  - Toolbar centered over the center column.
+  - 171 tests pass; idle CPU 0.0%, 123 MB.
+
+| git/git scroll (background window) | Smooth avg | Smooth p95 | Jumps avg |
+|---|---|---|---|
+| Default columns | 0.30 ms | 0.69 ms | 1.87 ms |
+| All columns on | 0.34 ms | 0.74 ms | 1.97 ms |
 
 ## 2026-09-27
 
