@@ -53,6 +53,10 @@ folder if it is a repo.
   single lines (click line numbers, Shift-click for a range), discard, commit and
   amend (hooks run as usual).
 - **Stashes:** stash, pop, apply, drop.
+- **Undo:** Cmd+Z undoes the last thing Kelp did (commit, amend, checkout,
+  branch create/rename/delete, merge, rebase, pull, stash, discard,
+  stage), and Cmd+Shift+Z redoes it. Undo refuses rather than lose work
+  when the repo changed since; pushes and fetches can't be undone.
 - **Search:** Cmd+F across messages, authors, emails and hash prefixes.
 - **Files:** right-click any file for Open in editor, Reveal in Finder and
   Copy path; the diff header has an editor button too. Pick the editor in
@@ -75,6 +79,7 @@ folder if it is a repo.
 | Cmd+1 ... Cmd+9 | Go to a tab (Cmd+9 is the last one) |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
 | Cmd+R | Refresh the graph, changes and worktrees |
+| Cmd+Z / Cmd+Shift+Z | Undo / redo the last action |
 | Alt+Up / Alt+Down | Previous / next change in a diff |
 | Right-click | Actions for commits, branches, tags, stashes, worktrees and tabs |
 | Middle-click a tab | Close it |

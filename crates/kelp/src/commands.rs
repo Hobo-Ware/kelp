@@ -17,4 +17,5 @@ pub enum Command {
     OpenTerminal(PathBuf),
     OpenInEditor(String),
     RevealFile(String),
+    Undo,
 }

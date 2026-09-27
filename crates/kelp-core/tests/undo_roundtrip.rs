@@ -240,7 +240,9 @@ fn remote_actions_are_reported_as_not_undoable() {
     assert!(undo::not_undoable_reason(&Op::Fetch).is_some());
     let push = Op::Push {
         branch: "main".into(),
-        remote: Some("origin".into()),
+        remote: "origin".into(),
+        set_upstream: false,
+        force_with_lease: false,
     };
     assert_eq!(
         undo::not_undoable_reason(&push),
