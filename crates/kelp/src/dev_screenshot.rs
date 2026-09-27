@@ -29,6 +29,10 @@ impl DevScreenshot {
     }
 
     pub fn tick(&mut self, ctx: &egui::Context, ready: bool) {
+        ctx.input_mut(|i| {
+            i.events
+                .retain(|e| !matches!(e, egui::Event::Key { .. } | egui::Event::Text(_)))
+        });
         let images: Vec<_> = ctx.input(|i| {
             i.raw
                 .events
