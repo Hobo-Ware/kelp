@@ -4,7 +4,7 @@ use kelp_core::git_cli::run;
 use kelp_core::history::History;
 use kelp_core::ops::Op;
 use kelp_core::refs::RefKind;
-use kelp_core::workspace;
+use kelp_core::{search, workspace};
 
 struct Scratch(PathBuf);
 
@@ -191,4 +191,17 @@ fn ahead_behind_against_upstream() {
     origin.commit("e.txt", "e", "remote only");
     Op::Fetch.run(clone.path()).unwrap();
     assert_eq!(workspace::ahead_behind(clone.path(), "main"), Some((1, 1)));
+}
+
+#[test]
+fn search_matches_message_author_and_hash_prefix() {
+    let repo = Scratch::new("search");
+    repo.commit("f.txt", "f", "feat(graph): draw merge curves");
+    let (_, history) = History::open(repo.path()).unwrap();
+    let rows = |q: &str| search::matching_rows(repo.path(), history.ids(), q).unwrap();
+    assert_eq!(rows("MERGE curves"), [0]);
+    assert_eq!(rows("test@example.com").len(), 3);
+    let prefix = history.id(2).to_hex().to_string()[..8].to_string();
+    assert_eq!(rows(&prefix), [2]);
+    assert!(rows("nothing like this").is_empty());
 }

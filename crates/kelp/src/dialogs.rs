@@ -169,7 +169,7 @@ fn title(ui: &mut Ui, text: &str) {
     ui.label(
         RichText::new(text)
             .size(17.0)
-            .strong()
+            .family(theme::semibold())
             .color(theme::TEXT_STRONG),
     );
 }
@@ -226,10 +226,14 @@ fn buttons(ui: &mut Ui, confirm_label: &str, enabled: bool, danger: bool) -> Out
             } else {
                 Color32::from_rgb(0x10, 0x13, 0x1a)
             };
-            let confirm = egui::Button::new(RichText::new(confirm_label).strong().color(ink))
-                .fill(fill)
-                .corner_radius(6)
-                .min_size(egui::vec2(0.0, 34.0));
+            let confirm = egui::Button::new(
+                RichText::new(confirm_label)
+                    .family(theme::semibold())
+                    .color(ink),
+            )
+            .fill(fill)
+            .corner_radius(6)
+            .min_size(egui::vec2(0.0, 34.0));
             if ui.add_enabled(enabled, confirm).clicked() || (enabled && enter) {
                 outcome = Outcome::Confirm(Vec::new());
             }

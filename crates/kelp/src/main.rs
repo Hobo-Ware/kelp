@@ -12,6 +12,7 @@ mod icons;
 mod jobs;
 mod menus;
 mod repo_view;
+mod settings;
 mod sidebar;
 mod theme;
 mod worktrees_view;

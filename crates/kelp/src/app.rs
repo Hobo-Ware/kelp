@@ -7,6 +7,7 @@ use kelp_core::history::History;
 
 use crate::dev_screenshot::DevScreenshot;
 use crate::repo_view::Repo;
+use crate::settings::Settings;
 use crate::theme;
 
 type Loaded = anyhow::Result<(gix::Repository, History, Duration)>;
@@ -15,6 +16,8 @@ pub struct KelpApp {
     tabs: Vec<Tab>,
     active: usize,
     screenshot: Option<DevScreenshot>,
+    settings: Settings,
+    show_settings: bool,
 }
 
 struct Tab {
@@ -74,6 +77,8 @@ impl KelpApp {
             tabs,
             active: 0,
             screenshot: DevScreenshot::from_env(),
+            settings: Settings::load(),
+            show_settings: std::env::var_os("KELP_OPEN_SETTINGS").is_some(),
         }
     }
 
@@ -177,6 +182,17 @@ impl KelpApp {
                     {
                         pick_folder = true;
                     }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let settings = egui::Button::new(
+                            RichText::new("Settings")
+                                .size(12.0)
+                                .color(theme::TEXT_MUTED),
+                        )
+                        .frame(false);
+                        if ui.add(settings).clicked() {
+                            self.show_settings = true;
+                        }
+                    });
                 });
             });
         if let Some(i) = close {
@@ -225,7 +241,7 @@ fn kelp_mark(ui: &mut egui::Ui) {
     ui.label(
         RichText::new("Kelp")
             .size(14.0)
-            .strong()
+            .family(theme::semibold())
             .color(theme::TEXT_STRONG),
     );
 }
@@ -258,6 +274,7 @@ impl eframe::App for KelpApp {
         let mut open = Vec::new();
         for (i, tab) in self.tabs.iter_mut().enumerate() {
             if let State::Ready(repo) = &mut tab.state {
+                repo.avatars.enabled = self.settings.load_avatars;
                 repo.poll(&ctx);
                 if i != self.active {
                     open.append(&mut repo.outbox);
@@ -281,12 +298,15 @@ impl eframe::App for KelpApp {
                 theme::DELETED,
             ),
             Some((_, State::Ready(repo))) => {
-                repo.ui(ui);
+                repo.ui(ui, &self.settings);
                 open.append(&mut repo.outbox);
             }
         }
         for path in open {
             self.open_tab(&ctx, path);
+        }
+        if self.show_settings {
+            self.settings.window(&ctx, &mut self.show_settings);
         }
     }
 }

@@ -141,6 +141,9 @@ impl DiffView {
     }
 
     pub fn ui(&mut self, ui: &mut Ui, review: &mut Review, author: &str) -> Event {
+        if let Some(text) = &self.diff.new_text {
+            crate::fonts::ensure_fallback(ui.ctx(), text);
+        }
         let mut event = self.header(ui, review);
         match &self.diff.body {
             Body::Binary => notice(ui, "Binary file, no text to show."),
@@ -191,7 +194,7 @@ impl DiffView {
                     ui.label(
                         RichText::new(name)
                             .monospace()
-                            .strong()
+                            .family(theme::semibold())
                             .color(theme::TEXT_STRONG),
                     );
                     if self.mode == Mode::Diff {
@@ -791,7 +794,7 @@ impl DiffView {
                 let can_send = !self.replies.get(&id).is_some_and(|d| d.trim().is_empty());
                 let reply = egui::Button::new(
                     RichText::new("Reply")
-                        .strong()
+                        .family(theme::semibold())
                         .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
                 )
                 .fill(theme::ACCENT)
@@ -877,7 +880,7 @@ impl DiffView {
                 let enabled = !self.draft.trim().is_empty();
                 let save = egui::Button::new(
                     RichText::new("Comment")
-                        .strong()
+                        .family(theme::semibold())
                         .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
                 )
                 .fill(theme::ACCENT)

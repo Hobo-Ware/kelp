@@ -39,6 +39,10 @@ pub const AVATARS: [Color32; 8] = [
 ];
 pub const AVATAR_INK: Color32 = Color32::from_rgb(0x16, 0x19, 0x1f);
 
+pub fn semibold() -> egui::FontFamily {
+    egui::FontFamily::Name(crate::fonts::SEMIBOLD.into())
+}
+
 pub fn lane(color: u8) -> Color32 {
     LANES[color as usize % LANES.len()]
 }
