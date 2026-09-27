@@ -50,9 +50,9 @@ face. When work is done, check both against what shipped:
   corrected there, in the same branch.
 - Removed or renamed behavior comes off; never leave a claim the app no longer backs.
 - The nav version pill and the JSON-LD `softwareVersion` track `Cargo.toml` on every release.
-- Screenshots come from the screenshot switch on public repos (the kelp repo, git/git), never a
-  private or work repo. Rebuild them with `scripts/make-site-assets.sh`, which compresses them
-  (pngquant + oxipng) and checks PSNR.
+- Screenshots come from the screenshot switch on the kelp repo or the fictional demo repo that
+  `scripts/make-demo-repo.py` generates, never a private or work repo. Rebuild them with
+  `scripts/make-site-assets.sh`, which compresses them (pngquant + oxipng) and checks PSNR.
 - Internal refactors and fixes the page never mentioned need no change - say so in the wrap-up.
 
 ## Releases

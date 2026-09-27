@@ -12,10 +12,8 @@ mkdir -p "$work" "$raw" "$site"
 cargo build --release -p kelp --manifest-path "$root/Cargo.toml"
 
 echo "== showcase repos"
-if [ ! -d "$work/git" ]; then
-  git clone -q --bare --filter=blob:none https://github.com/git/git.git "$work/git"
-fi
-git -C "$work/git" commit-graph write --reachable >/dev/null 2>&1 || true
+python3 "$root/scripts/make-demo-repo.py" "$work/tidepool"
+demo_sha="$(git -C "$work/tidepool" log -1 --format=%H --grep='^Lazy load icons')"
 
 for dir in kelp kelp-review kelp-fix; do rm -rf "${work:?}/${dir:?}"; done
 git clone -q "$root" "$work/kelp"
@@ -57,7 +55,7 @@ shoot() {
   local name="$1" repo="$2"; shift 2
   env KELP_SCREENSHOT="$raw/$name.png" "$@" timeout 120 "$kelp" "$repo"
 }
-shoot graph "$work/git" KELP_SCREENSHOT_WAIT=12
+shoot graph "$work/tidepool" KELP_OFFLINE=1 KELP_SCREENSHOT_WAIT=4 KELP_SELECT_COMMIT="$demo_sha"
 shoot review "$work/kelp" KELP_OFFLINE=1 KELP_SCREENSHOT_WAIT=1.5 \
   KELP_SELECT_COMMIT="$review_sha" KELP_OPEN_DIFF=path:crates/kelp-core/src/diff.rs
 shoot staging "$work/kelp" KELP_SCREENSHOT_WAIT=4 KELP_SELECT_WIP=1 KELP_OPEN_DIFF=unstaged:README.md
@@ -90,8 +88,8 @@ cp "$root/crates/kelp/assets/mascot.svg" "$site/mascot.svg"
 
 echo "== og image"
 magick -size 1200x630 radial-gradient:'#1e2a22'-'#15181e' \
-  \( "$raw/graph.png" -crop 1100x1000+720+180 -resize 460x -alpha set \
-     -channel A -fx 'a*0.6*min(1,i/(w*0.45))*min(1,(h-j)/(h*0.3))' +channel \) -geometry +760+40 -composite \
+  \( "$raw/graph.png" -crop 1250x1000+560+240 -resize 500x -alpha set \
+     -channel A -fx 'a*0.7*min(1,i/(w*0.3))*min(1,(h-j)/(h*0.3))' +channel \) -geometry +730+40 -composite \
   \( "$raw/mascot.png" -resize 330x330 \) -geometry +40+150 -composite \
   -font "$fonts/IBMPlexSans-SemiBold.ttf" -fill '#f3f1ec' -pointsize 104 -annotate +380+285 'Kelp' \
   -font "$fonts/IBMPlexSans-Regular.ttf" -fill '#b4b9c2' -pointsize 31 -annotate +384+342 'The git graph, grown in Rust.' \
