@@ -1,12 +1,13 @@
 use std::path::Path;
 
-use eframe::egui::{RichText, Ui};
+use eframe::egui::{Align2, Color32, FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
 use kelp_core::ops::Op;
 use kelp_core::refs::{RefKind, RefLabel};
 use kelp_core::workspace::{Stash, Worktree};
 
 use crate::commands::Command;
 use crate::dialogs::{Dialog, NewWorktree};
+use crate::icons::{self, Icon};
 use crate::theme;
 
 pub struct MenuContext {
@@ -16,45 +17,128 @@ pub struct MenuContext {
     pub upstream: Option<String>,
 }
 
-fn item(ui: &mut Ui, label: &str, out: &mut Vec<Command>, command: impl FnOnce() -> Command) {
-    if ui.button(label).clicked() {
-        out.push(command());
+const ROW_H: f32 = 30.0;
+
+pub fn row(ui: &mut Ui, icon: Option<Icon>, label: &str, hint: Option<&str>, danger: bool) -> bool {
+    let width = ui.available_width().max(ui.min_rect().width());
+    let (rect, response) = ui.allocate_exact_size(vec2(width, ROW_H), Sense::click());
+    let painter = ui.painter_at(rect.expand(1.0));
+    let hovered = response.hovered();
+    if hovered {
+        let fill = if danger {
+            theme::with_alpha(theme::DELETED, 0x22)
+        } else {
+            theme::MENU_HOVER
+        };
+        painter.rect_filled(rect, 6.0, fill);
+    }
+    let text = match (danger, hovered) {
+        (true, _) => theme::DELETED,
+        (false, true) => theme::TEXT_STRONG,
+        (false, false) => Color32::from_rgb(0xd5, 0xd7, 0xdc),
+    };
+    let icon_color = if danger {
+        theme::DELETED
+    } else if hovered {
+        theme::TEXT_STRONG
+    } else {
+        theme::TEXT_MUTED
+    };
+    if let Some(icon) = icon {
+        let icon_rect =
+            Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), vec2(15.0, 15.0));
+        icons::paint(&painter, icon_rect, icon, icon_color);
+    }
+    painter.text(
+        pos2(rect.left() + 36.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(13.0),
+        text,
+    );
+    if let Some(hint) = hint {
+        painter.text(
+            pos2(rect.right() - 10.0, rect.center().y),
+            Align2::RIGHT_CENTER,
+            hint,
+            FontId::proportional(11.5),
+            theme::TEXT_FAINT,
+        );
+    }
+    if response.clicked() {
         ui.close();
+        return true;
+    }
+    false
+}
+
+fn item(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    out: &mut Vec<Command>,
+    command: impl FnOnce() -> Command,
+) {
+    if row(ui, Some(icon), label, None, false) {
+        out.push(command());
     }
 }
 
-fn danger(ui: &mut Ui, label: &str, out: &mut Vec<Command>, command: impl FnOnce() -> Command) {
-    if ui
-        .button(RichText::new(label).color(theme::DELETED))
-        .clicked()
-    {
+fn danger(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    out: &mut Vec<Command>,
+    command: impl FnOnce() -> Command,
+) {
+    if row(ui, Some(icon), label, None, true) {
         out.push(command());
-        ui.close();
     }
 }
 
-fn heading(ui: &mut Ui, text: &str) {
-    ui.label(
-        RichText::new(text)
-            .monospace()
-            .size(11.0)
-            .color(theme::TEXT_FAINT),
+pub fn heading(ui: &mut Ui, text: &str) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
+    let g = crate::graph_view::truncated(
+        ui.painter(),
+        text.to_string(),
+        FontId::monospace(11.0),
+        theme::TEXT_FAINT,
+        rect.width() - 20.0,
+    );
+    ui.painter().galley(
+        pos2(rect.left() + 10.0, rect.center().y - g.size().y / 2.0),
+        g,
+        theme::TEXT_FAINT,
     );
 }
 
+pub fn separator(ui: &mut Ui) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
+    ui.painter().hline(
+        rect.left() + 8.0..=rect.right() - 8.0,
+        rect.center().y,
+        Stroke::new(1.0, Color32::from_rgb(0x2c, 0x32, 0x3d)),
+    );
+}
+
+fn menu_width(ui: &mut Ui, width: f32) {
+    ui.set_min_width(width);
+    ui.spacing_mut().item_spacing.y = 0.0;
+}
+
 pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Command>) {
-    ui.set_min_width(230.0);
+    menu_width(ui, 230.0);
     heading(ui, &label.name);
     let name = label.name.clone();
     let current = ctx.current_branch.as_deref();
     match label.kind {
         RefKind::Local => {
             if current != Some(name.as_str()) {
-                item(ui, "Check out", out, || {
+                item(ui, Icon::Check, "Check out", out, || {
                     Command::Run(Op::Switch(name.clone()))
                 });
             }
-            item(ui, "Open in new worktree…", out, || {
+            item(ui, Icon::Worktree, "Open in new worktree…", out, || {
                 Command::Open(Dialog::NewWorktree(NewWorktree::new(
                     ctx.repo_dir_name.to_string(),
                     name.clone(),
@@ -62,53 +146,67 @@ pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Co
                     ctx.local_branches.clone(),
                 )))
             });
-            item(ui, "New branch from here…", out, || {
+            item(ui, Icon::Branch, "New branch from here…", out, || {
                 new_branch(&name, &name)
             });
-            item(ui, "Rename…", out, || {
+            item(ui, Icon::Pencil, "Rename…", out, || {
                 Command::Open(Dialog::RenameBranch {
                     from: name.clone(),
                     to: name.clone(),
                 })
             });
-            ui.separator();
+            separator(ui);
             if let Some(current) = current.filter(|c| *c != name) {
-                item(ui, &format!("Merge into {current}"), out, || {
-                    confirm(
-                        format!("Merge {name} into {current}?"),
-                        "",
-                        Op::Merge(name.clone()),
-                        false,
-                    )
-                });
-                item(ui, &format!("Rebase {current} onto this"), out, || {
-                    confirm(
-                        format!("Rebase {current} onto {name}?"),
-                        "Rewrites the commits on your current branch.",
-                        Op::Rebase(name.clone()),
-                        false,
-                    )
-                });
+                item(
+                    ui,
+                    Icon::Merge,
+                    &format!("Merge into {current}"),
+                    out,
+                    || {
+                        confirm(
+                            format!("Merge {name} into {current}?"),
+                            "",
+                            Op::Merge(name.clone()),
+                            false,
+                        )
+                    },
+                );
+                item(
+                    ui,
+                    Icon::Rebase,
+                    &format!("Rebase {current} onto this"),
+                    out,
+                    || {
+                        confirm(
+                            format!("Rebase {current} onto {name}?"),
+                            "Rewrites the commits on your current branch.",
+                            Op::Rebase(name.clone()),
+                            false,
+                        )
+                    },
+                );
             }
             if current == Some(name.as_str()) {
-                item(ui, "Pull", out, || Command::Run(Op::Pull));
+                item(ui, Icon::Pull, "Pull", out, || Command::Run(Op::Pull));
             }
             let upstream = if current == Some(name.as_str()) {
                 ctx.upstream.clone()
             } else {
                 None
             };
-            item(ui, "Push", out, || {
+            item(ui, Icon::Push, "Push", out, || {
                 Command::Run(Op::Push {
                     branch: name.clone(),
                     remote: upstream,
                 })
             });
-            item(ui, "Copy branch name", out, || Command::Copy(name.clone()));
+            item(ui, Icon::Copy, "Copy branch name", out, || {
+                Command::Copy(name.clone())
+            });
             if current != Some(name.as_str()) {
-                ui.separator();
+                separator(ui);
                 let remote = label.has_remote.then(|| "origin".to_string());
-                danger(ui, "Delete branch…", out, || {
+                danger(ui, Icon::Trash, "Delete branch…", out, || {
                     Command::Open(Dialog::DeleteBranch {
                         name: name.clone(),
                         force: false,
@@ -119,10 +217,10 @@ pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Co
             }
         }
         RefKind::Remote => {
-            item(ui, "Check out", out, || {
+            item(ui, Icon::Check, "Check out", out, || {
                 Command::Run(Op::SwitchTrack(name.clone()))
             });
-            item(ui, "New branch from here…", out, || {
+            item(ui, Icon::Branch, "New branch from here…", out, || {
                 let local = name
                     .split_once('/')
                     .map_or(name.as_str(), |(_, b)| b)
@@ -130,20 +228,28 @@ pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Co
                 new_branch(&local, &name)
             });
             if let Some(current) = current {
-                item(ui, &format!("Merge into {current}"), out, || {
-                    confirm(
-                        format!("Merge {name} into {current}?"),
-                        "",
-                        Op::Merge(name.clone()),
-                        false,
-                    )
-                });
+                item(
+                    ui,
+                    Icon::Merge,
+                    &format!("Merge into {current}"),
+                    out,
+                    || {
+                        confirm(
+                            format!("Merge {name} into {current}?"),
+                            "",
+                            Op::Merge(name.clone()),
+                            false,
+                        )
+                    },
+                );
             }
-            item(ui, "Copy branch name", out, || Command::Copy(name.clone()));
-            ui.separator();
+            item(ui, Icon::Copy, "Copy branch name", out, || {
+                Command::Copy(name.clone())
+            });
+            separator(ui);
             if let Some((remote, branch)) = name.split_once('/') {
                 let (remote, branch) = (remote.to_string(), branch.to_string());
-                danger(ui, "Delete remote branch…", out, || {
+                danger(ui, Icon::Trash, "Delete remote branch…", out, || {
                     confirm(
                         format!("Delete {name} on {remote}?"),
                         "This removes the branch for everyone using this remote.",
@@ -157,24 +263,30 @@ pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Co
             }
         }
         RefKind::Tag => {
-            item(ui, "Check out", out, || {
+            item(ui, Icon::Check, "Check out", out, || {
                 Command::Run(Op::SwitchDetached(name.clone()))
             });
-            item(ui, "New branch from here…", out, || new_branch("", &name));
-            item(ui, "Copy tag name", out, || Command::Copy(name.clone()));
+            item(ui, Icon::Branch, "New branch from here…", out, || {
+                new_branch("", &name)
+            });
+            item(ui, Icon::Copy, "Copy tag name", out, || {
+                Command::Copy(name.clone())
+            });
         }
     }
 }
 
 pub fn commit(ui: &mut Ui, id: &str, title: &str, ctx: &MenuContext, out: &mut Vec<Command>) {
-    ui.set_min_width(230.0);
+    menu_width(ui, 230.0);
     let short = &id[..7.min(id.len())];
     heading(ui, short);
-    item(ui, "Check out (detached)", out, || {
+    item(ui, Icon::Check, "Check out (detached)", out, || {
         Command::Run(Op::SwitchDetached(id.to_string()))
     });
-    item(ui, "New branch here…", out, || new_branch("", id));
-    item(ui, "New worktree here…", out, || {
+    item(ui, Icon::Branch, "New branch here…", out, || {
+        new_branch("", id)
+    });
+    item(ui, Icon::Worktree, "New worktree here…", out, || {
         Command::Open(Dialog::NewWorktree(NewWorktree::new(
             ctx.repo_dir_name.to_string(),
             id.to_string(),
@@ -182,27 +294,31 @@ pub fn commit(ui: &mut Ui, id: &str, title: &str, ctx: &MenuContext, out: &mut V
             ctx.local_branches.clone(),
         )))
     });
-    ui.separator();
-    item(ui, "Copy commit hash", out, || {
+    separator(ui);
+    item(ui, Icon::Copy, "Copy commit hash", out, || {
         Command::Copy(id.to_string())
     });
-    item(ui, "Copy message", out, || Command::Copy(title.to_string()));
+    item(ui, Icon::Copy, "Copy message", out, || {
+        Command::Copy(title.to_string())
+    });
 }
 
 pub fn wip(ui: &mut Ui, out: &mut Vec<Command>) {
-    ui.set_min_width(200.0);
-    item(ui, "Stash all changes", out, || Command::Run(Op::StashPush));
+    menu_width(ui, 200.0);
+    item(ui, Icon::Stash, "Stash all changes", out, || {
+        Command::Run(Op::StashPush)
+    });
 }
 
 pub fn stash(ui: &mut Ui, stash: &Stash, out: &mut Vec<Command>) {
-    ui.set_min_width(200.0);
+    menu_width(ui, 200.0);
     heading(ui, &stash.name);
-    item(ui, "Apply", out, || {
+    item(ui, Icon::Pop, "Apply", out, || {
         Command::Run(Op::StashApply(stash.name.clone()))
     });
-    item(ui, "Pop", out, || Command::Run(Op::StashPop));
-    ui.separator();
-    danger(ui, "Drop…", out, || {
+    item(ui, Icon::Pop, "Pop", out, || Command::Run(Op::StashPop));
+    separator(ui);
+    danger(ui, Icon::Trash, "Drop…", out, || {
         confirm(
             format!("Drop {}?", stash.name),
             &stash.message,
@@ -213,20 +329,22 @@ pub fn stash(ui: &mut Ui, stash: &Stash, out: &mut Vec<Command>) {
 }
 
 pub fn worktree(ui: &mut Ui, tree: &Worktree, out: &mut Vec<Command>) {
-    ui.set_min_width(220.0);
+    menu_width(ui, 220.0);
     heading(ui, &tree.name());
-    item(ui, "Open in new tab", out, || {
+    item(ui, Icon::Folder, "Open in new tab", out, || {
         Command::OpenRepo(tree.path.clone())
     });
-    item(ui, "Open in terminal", out, || {
+    item(ui, Icon::Terminal, "Open in terminal", out, || {
         Command::OpenTerminal(tree.path.clone())
     });
-    item(ui, "Copy path", out, || {
+    item(ui, Icon::Copy, "Copy path", out, || {
         Command::Copy(tree.path.display().to_string())
     });
     if !tree.is_main {
-        ui.separator();
-        danger(ui, "Remove…", out, || remove_worktree(&tree.path));
+        separator(ui);
+        danger(ui, Icon::Trash, "Remove…", out, || {
+            remove_worktree(&tree.path)
+        });
     }
 }
 

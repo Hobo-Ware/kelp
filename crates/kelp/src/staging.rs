@@ -5,11 +5,12 @@ use kelp_core::commit::{ChangeKind, FileChange};
 use kelp_core::ops::Op;
 
 use crate::dialogs::Dialog;
+use crate::icons::Icon;
+use crate::menus;
 use crate::repo_view::{Center, Repo};
 use crate::theme;
 
 const ROW_H: f32 = 28.0;
-const COMMIT_BOX_H: f32 = 236.0;
 const SUMMARY_LIMIT: usize = 72;
 
 enum Action {
@@ -21,7 +22,10 @@ enum Action {
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo) {
     let mut actions = Vec::new();
-    let list_h = (ui.available_height() - COMMIT_BOX_H).max(120.0);
+    egui::Panel::bottom("commit-box")
+        .frame(egui::Frame::NONE)
+        .show(ui, |ui| commit_box(ui, repo));
+    let list_h = ui.available_height().max(120.0);
     ui.allocate_ui(vec2(ui.available_width(), list_h), |ui| {
         egui::ScrollArea::vertical()
             .auto_shrink(false)
@@ -75,27 +79,22 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                         actions.push(Action::Open(change.path.clone(), false));
                     }
                     row.context_menu(|ui| {
-                        ui.set_min_width(200.0);
-                        if ui.button("Stage").clicked() {
+                        ui.set_min_width(210.0);
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        if menus::row(ui, Some(Icon::Plus), "Stage", None, false) {
                             actions.push(Action::Run(Op::Stage(vec![change.path.clone()])));
-                            ui.close();
                         }
-                        if ui.button("Copy path").clicked() {
+                        if menus::row(ui, Some(Icon::Copy), "Copy path", None, false) {
                             actions.push(Action::Copy(change.path.clone()));
-                            ui.close();
                         }
-                        ui.separator();
+                        menus::separator(ui);
                         let label = if untracked {
                             "Delete file…"
                         } else {
                             "Discard changes…"
                         };
-                        if ui
-                            .button(RichText::new(label).color(theme::DELETED))
-                            .clicked()
-                        {
+                        if menus::row(ui, Some(Icon::Trash), label, None, true) {
                             actions.push(Action::Confirm(discard_dialog(&change.path, untracked)));
-                            ui.close();
                         }
                     });
                 }
@@ -125,17 +124,16 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                         actions.push(Action::Open(change.path.clone(), true));
                     }
                     row.context_menu(|ui| {
-                        ui.set_min_width(200.0);
-                        if ui.button("Unstage").clicked() {
+                        ui.set_min_width(210.0);
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        if menus::row(ui, Some(Icon::Minus), "Unstage", None, false) {
                             actions.push(Action::Run(Op::Unstage {
                                 paths: vec![change.path.clone()],
                                 has_head,
                             }));
-                            ui.close();
                         }
-                        if ui.button("Copy path").clicked() {
+                        if menus::row(ui, Some(Icon::Copy), "Copy path", None, false) {
                             actions.push(Action::Copy(change.path.clone()));
-                            ui.close();
                         }
                     });
                 }
@@ -144,7 +142,6 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                 }
             });
     });
-    commit_box(ui, repo);
 
     for action in actions {
         match action {

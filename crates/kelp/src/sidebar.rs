@@ -70,7 +70,17 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 )));
                             }
                         }
-                        response.context_menu(|ui| menus::branch(ui, label, &menu_ctx, commands));
+                        let forced = kind == RefKind::Local
+                            && label.is_head
+                            && std::env::var("KELP_OPEN_MENU").as_deref() == Ok("branch");
+                        if forced {
+                            egui::Popup::from_response(&response)
+                                .open(true)
+                                .show(|ui| menus::branch(ui, label, &menu_ctx, commands));
+                        } else {
+                            response
+                                .context_menu(|ui| menus::branch(ui, label, &menu_ctx, commands));
+                        }
                     }
                 });
             }

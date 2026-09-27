@@ -61,13 +61,96 @@ pub fn with_alpha(c: Color32, alpha: u8) -> Color32 {
     Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), alpha)
 }
 
+pub const POPUP: Color32 = Color32::from_rgb(0x1e, 0x23, 0x2c);
+pub const POPUP_BORDER: Color32 = Color32::from_rgb(0x34, 0x3b, 0x48);
+pub const CONTROL: Color32 = Color32::from_rgb(0x25, 0x2a, 0x33);
+pub const CONTROL_HOVER: Color32 = Color32::from_rgb(0x2e, 0x35, 0x42);
+pub const CONTROL_ACTIVE: Color32 = Color32::from_rgb(0x36, 0x3e, 0x4d);
+pub const FIELD: Color32 = Color32::from_rgb(0x12, 0x15, 0x1a);
+pub const MENU_HOVER: Color32 = Color32::from_rgb(0x2b, 0x34, 0x45);
+
 pub fn apply(ctx: &egui::Context) {
+    use egui::{CornerRadius, Margin, Shadow, Stroke, vec2};
+
+    let radius = CornerRadius::same(4);
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = PANEL;
-    visuals.window_fill = PANEL;
-    visuals.extreme_bg_color = BG;
+    visuals.window_fill = POPUP;
+    visuals.window_stroke = Stroke::new(1.0, POPUP_BORDER);
+    visuals.window_corner_radius = CornerRadius::same(10);
+    visuals.menu_corner_radius = CornerRadius::same(10);
+    visuals.window_shadow = Shadow {
+        offset: [0, 14],
+        blur: 36,
+        spread: 0,
+        color: Color32::from_black_alpha(120),
+    };
+    visuals.popup_shadow = Shadow {
+        offset: [0, 10],
+        blur: 28,
+        spread: 0,
+        color: Color32::from_black_alpha(110),
+    };
+    visuals.extreme_bg_color = FIELD;
+    visuals.faint_bg_color = CONTROL;
     visuals.override_text_color = Some(TEXT);
-    visuals.widgets.noninteractive.bg_stroke.color = BORDER;
-    visuals.selection.bg_fill = SELECTED_ROW;
+    visuals.selection.bg_fill = with_alpha(ACCENT, 0x55);
+    visuals.selection.stroke = Stroke::new(1.0, ACCENT);
+    visuals.hyperlink_color = ACCENT;
+    visuals.text_cursor.stroke = Stroke::new(2.0, ACCENT);
+
+    let w = &mut visuals.widgets;
+    w.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
+    w.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
+    w.noninteractive.corner_radius = radius;
+    for (state, fill, stroke, text) in [
+        (
+            &mut w.inactive,
+            CONTROL,
+            Color32::from_rgb(0x3a, 0x41, 0x4d),
+            Color32::from_rgb(0xd5, 0xd7, 0xdc),
+        ),
+        (
+            &mut w.hovered,
+            CONTROL_HOVER,
+            Color32::from_rgb(0x44, 0x4c, 0x5a),
+            TEXT_STRONG,
+        ),
+        (
+            &mut w.active,
+            CONTROL_ACTIVE,
+            with_alpha(ACCENT, 0x99),
+            TEXT_STRONG,
+        ),
+        (
+            &mut w.open,
+            CONTROL_HOVER,
+            Color32::from_rgb(0x44, 0x4c, 0x5a),
+            TEXT_STRONG,
+        ),
+    ] {
+        state.bg_fill = fill;
+        state.weak_bg_fill = fill;
+        state.bg_stroke = Stroke::new(1.0, stroke);
+        state.fg_stroke = Stroke::new(1.5, text);
+        state.corner_radius = radius;
+        state.expansion = 0.0;
+    }
     ctx.set_visuals(visuals);
+
+    ctx.global_style_mut(|style| {
+        let s = &mut style.spacing;
+        s.item_spacing = vec2(8.0, 6.0);
+        s.button_padding = vec2(12.0, 6.0);
+        s.interact_size = vec2(40.0, 28.0);
+        s.menu_margin = Margin::same(6);
+        s.menu_spacing = 2.0;
+        s.window_margin = Margin::same(16);
+        s.icon_width = 16.0;
+        s.icon_spacing = 8.0;
+        s.combo_width = 200.0;
+        s.scroll = egui::style::ScrollStyle::floating();
+        s.scroll.bar_width = 8.0;
+        s.scroll.floating_allocated_width = 0.0;
+    });
 }
