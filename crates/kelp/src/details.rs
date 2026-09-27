@@ -159,36 +159,11 @@ fn file_controls(ui: &mut Ui, repo: &mut Repo, changes: &[FileChange]) {
         })
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                egui::Frame::new()
-                    .fill(Color32::from_rgb(0x12, 0x15, 0x1a))
-                    .stroke(Stroke::new(1.0, Color32::from_rgb(0x2c, 0x31, 0x3b)))
-                    .corner_radius(6)
-                    .inner_margin(Margin::same(2))
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.x = 0.0;
-                        for (mode, label) in
-                            [(FileListMode::Path, "Path"), (FileListMode::Tree, "Tree")]
-                        {
-                            let active = repo.file_list_mode == mode;
-                            let color = if active {
-                                theme::TEXT_STRONG
-                            } else {
-                                theme::TEXT_MUTED
-                            };
-                            let fill = if active {
-                                Color32::from_rgb(0x2b, 0x32, 0x40)
-                            } else {
-                                Color32::TRANSPARENT
-                            };
-                            let button =
-                                egui::Button::new(RichText::new(label).size(12.0).color(color))
-                                    .fill(fill)
-                                    .corner_radius(4);
-                            if ui.add(button).clicked() {
-                                repo.file_list_mode = mode;
-                            }
-                        }
-                    });
+                crate::widgets::segmented(
+                    ui,
+                    &mut repo.file_list_mode,
+                    &[(FileListMode::Path, "Path"), (FileListMode::Tree, "Tree")],
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.checkbox(
                         &mut repo.show_all_files,
