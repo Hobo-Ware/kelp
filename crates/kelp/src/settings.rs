@@ -12,6 +12,8 @@ pub struct Settings {
     pub load_avatars: bool,
     pub show_descriptions: bool,
     pub open_tabs: Vec<PathBuf>,
+    pub check_updates: bool,
+    pub auto_update: bool,
     #[serde(skip)]
     offline: bool,
 }
@@ -23,6 +25,8 @@ impl Default for Settings {
             load_avatars: true,
             show_descriptions: true,
             open_tabs: Vec::new(),
+            check_updates: true,
+            auto_update: true,
             offline: false,
         }
     }
@@ -66,7 +70,16 @@ impl Settings {
         }
     }
 
-    pub fn window(&mut self, ctx: &egui::Context, open: &mut bool) {
+    pub fn updates_enabled(&self) -> bool {
+        self.check_updates && !self.offline
+    }
+
+    pub fn window(
+        &mut self,
+        ctx: &egui::Context,
+        open: &mut bool,
+        updater: &mut crate::updater::Updater,
+    ) {
         let before = self.clone();
         let modal = egui::Modal::new(egui::Id::new("kelp-settings"))
             .frame(
@@ -103,6 +116,8 @@ impl Settings {
                     "Load avatars from GitHub and Gravatar",
                     "Off means generated initials only, and no network requests.",
                 );
+                ui.separator();
+                updater.settings_section(ui, &mut self.auto_update, &mut self.check_updates);
                 ui.add_space(4.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui

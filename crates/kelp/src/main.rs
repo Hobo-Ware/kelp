@@ -17,6 +17,7 @@ mod settings;
 mod sidebar;
 mod staging;
 mod theme;
+mod updater;
 mod worktrees_view;
 
 use std::path::PathBuf;
