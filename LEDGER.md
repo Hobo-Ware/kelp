@@ -15,6 +15,25 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-09-27
 
+- **Window, menus and controls pass (user feedback).**
+  - Title bar folded into the tab strip: fullsize content view, hidden
+    title, and an empty compact unified toolbar so AppKit centers the
+    window buttons in a 40pt strip (measured: close button centered at
+    20pt). Tab strip is 40pt, leaves 78pt for the buttons (none in
+    fullscreen), tabs sit on its bottom edge, empty space drags the
+    window and double-click zooms.
+  - Dock icon: eframe replaces it with the egui logo unless the app
+    passes one; Kelp now passes its own 512px icon.
+  - Commit menu was as wide as the graph (it inherited the row area's
+    width); menus now cap their width. The white menu the user saw came
+    from an old bundle built before the dark-theme fix.
+  - New painted segmented control (24px, inset active pill, hover state)
+    for File/Diff, Split/Unified and Path/Tree, replacing tall framed
+    buttons.
+  - Diff header: an X on the right closes the preview (Esc still works);
+    the "Graph" back button on the left is gone.
+  - `KELP_OPEN_MENU=commit` dev switch for screenshots of the commit menu.
+
 - **v0.1.0 published.** Public repo `Hobo-Ware/kelp`, tap deploy key and
   secret set, Pages on (workflow, `kelp.hoboware.dev`). Release run built
   the universal app and pushed `Casks/kelp.rb` to the tap. Installed on
