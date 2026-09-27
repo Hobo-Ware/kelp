@@ -9,7 +9,7 @@ use kelp_core::diff::{self, Body, FileDiff, Line, LineKind};
 use kelp_core::ops::Op;
 use kelp_core::review::{Anchor, Comment, Review, Side, Thread};
 
-use crate::theme;
+use crate::{theme, widgets};
 
 const LINE_H: f32 = 22.0;
 const HUNK_H: f32 = 28.0;
@@ -210,16 +210,6 @@ impl DiffView {
                 ui.set_height(HEADER_H);
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.0;
-                    if ui
-                        .add(
-                            egui::Button::new(RichText::new("‹  Graph").size(12.0))
-                                .corner_radius(5),
-                        )
-                        .on_hover_text("Back to the graph (Esc)")
-                        .clicked()
-                    {
-                        event = Event::Close;
-                    }
                     let path = self.path().to_string();
                     let (dir, name) = path
                         .rsplit_once('/')
@@ -270,15 +260,19 @@ impl DiffView {
                         );
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if widgets::close_button(ui, "Close (Esc)") {
+                            event = Event::Close;
+                        }
+                        ui.add_space(4.0);
                         if self.mode == Mode::Diff {
-                            segmented(
+                            widgets::segmented(
                                 ui,
                                 &mut self.layout,
                                 &[(Layout::Split, "Split"), (Layout::Unified, "Unified")],
                             );
                         }
                         if !matches!(self.source, DiffSource::File(_)) {
-                            segmented(
+                            widgets::segmented(
                                 ui,
                                 &mut self.mode,
                                 &[(Mode::File, "File"), (Mode::Diff, "Diff")],
@@ -1007,34 +1001,6 @@ fn style(kind: LineKind) -> (Color32, &'static str, Color32) {
         LineKind::Removed => (REMOVED_BG, "-", theme::DELETED),
         LineKind::Context => (Color32::TRANSPARENT, "", theme::TEXT_FAINT),
     }
-}
-
-fn segmented<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, options: &[(T, &str)]) {
-    egui::Frame::new()
-        .fill(Color32::from_rgb(0x12, 0x15, 0x1a))
-        .stroke(Stroke::new(1.0, Color32::from_rgb(0x2c, 0x31, 0x3b)))
-        .corner_radius(6)
-        .inner_margin(Margin::same(2))
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            for (option, label) in options {
-                let active = *value == *option;
-                let button = egui::Button::new(RichText::new(*label).size(12.0).color(if active {
-                    theme::TEXT_STRONG
-                } else {
-                    theme::TEXT_MUTED
-                }))
-                .fill(if active {
-                    Color32::from_rgb(0x2b, 0x32, 0x40)
-                } else {
-                    Color32::TRANSPARENT
-                })
-                .corner_radius(4);
-                if ui.add(button).clicked() {
-                    *value = *option;
-                }
-            }
-        });
 }
 
 fn notice(ui: &mut Ui, text: &str) {
