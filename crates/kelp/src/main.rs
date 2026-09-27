@@ -22,11 +22,7 @@ use std::path::PathBuf;
 use eframe::egui;
 
 fn main() -> eframe::Result {
-    let path = std::env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let path = std::fs::canonicalize(&path).unwrap_or(path);
+    let paths = startup_paths();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Kelp")
@@ -40,10 +36,28 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             theme::apply(&cc.egui_ctx);
             fonts::install(&cc.egui_ctx);
-            Ok(Box::new(app::KelpApp::open(
-                cc.egui_ctx.clone(),
-                vec![path],
-            )))
+            Ok(Box::new(app::KelpApp::open(cc.egui_ctx.clone(), paths)))
         }),
     )
+}
+
+fn startup_paths() -> Vec<PathBuf> {
+    let canonical = |p: PathBuf| std::fs::canonicalize(&p).unwrap_or(p);
+    let args: Vec<PathBuf> = std::env::args()
+        .skip(1)
+        .map(PathBuf::from)
+        .map(canonical)
+        .collect();
+    if !args.is_empty() {
+        return args;
+    }
+    let saved = settings::Settings::load().open_tabs;
+    if !saved.is_empty() {
+        return saved.into_iter().filter(|p| p.exists()).collect();
+    }
+    std::env::current_dir()
+        .ok()
+        .filter(|dir| dir.parent().is_some() && gix::discover(dir).is_ok())
+        .into_iter()
+        .collect()
 }
