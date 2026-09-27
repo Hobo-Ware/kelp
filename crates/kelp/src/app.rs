@@ -82,6 +82,21 @@ impl KelpApp {
         }
     }
 
+    fn remember_tabs(&mut self) {
+        let tabs: Vec<PathBuf> = self
+            .tabs
+            .iter()
+            .map(|t| match &t.state {
+                State::Ready(repo) => repo.dir.clone(),
+                _ => t.path.clone(),
+            })
+            .collect();
+        if tabs != self.settings.open_tabs && self.screenshot.is_none() {
+            self.settings.open_tabs = tabs;
+            self.settings.save();
+        }
+    }
+
     fn open_tab(&mut self, ctx: &egui::Context, path: PathBuf) {
         if let Some(i) = self.tabs.iter().position(|t| t.same_repo(&path)) {
             self.active = i;
@@ -305,6 +320,7 @@ impl eframe::App for KelpApp {
         for path in open {
             self.open_tab(&ctx, path);
         }
+        self.remember_tabs();
         if self.show_settings {
             self.settings.window(&ctx, &mut self.show_settings);
         }
