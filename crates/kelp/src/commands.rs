@@ -21,4 +21,7 @@ pub enum Command {
     Undo,
     OpenRebase(String),
     StartRebase(rebase_view::Start),
+    ToggleRef(String),
+    SoloRef(String),
+    ShowAllRefs,
 }

@@ -1,6 +1,6 @@
 use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
     Fetch,
     Pull,
@@ -23,6 +23,8 @@ pub enum Icon {
     Revert,
     Reset,
     Undo,
+    Eye,
+    EyeOff,
 }
 
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -214,6 +216,25 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 .collect();
             line(&path);
             line(&[(8.5, 5.0), (5.0, 8.5), (8.5, 12.0)]);
+        }
+        Icon::Eye | Icon::EyeOff => {
+            let lid = |sign: f32| -> Vec<(f32, f32)> {
+                (0..=12)
+                    .map(|i| {
+                        let t = i as f32 / 12.0;
+                        (
+                            3.0 + 18.0 * t,
+                            12.0 + sign * 6.5 * (std::f32::consts::PI * t).sin(),
+                        )
+                    })
+                    .collect()
+            };
+            line(&lid(-1.0));
+            line(&lid(1.0));
+            circle(12.0, 12.0, 2.8);
+            if icon == Icon::EyeOff {
+                line(&[(4.0, 20.0), (20.0, 4.0)]);
+            }
         }
     }
 }

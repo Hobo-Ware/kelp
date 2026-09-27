@@ -570,3 +570,29 @@ pub fn tab(ui: &mut Ui, name: &str, has_others: bool) -> Option<TabAction> {
     }
     action
 }
+
+pub fn view_items(ui: &mut Ui, label: &RefLabel, filtering: bool, out: &mut Vec<Command>) {
+    separator(ui);
+    let full = label.full_name();
+    if !label.is_head {
+        let hide = if label.hidden {
+            "Show in graph"
+        } else {
+            "Hide from graph"
+        };
+        let icon = if label.hidden {
+            Icon::Eye
+        } else {
+            Icon::EyeOff
+        };
+        item(ui, icon, hide, out, || Command::ToggleRef(full.clone()));
+    }
+    item(ui, Icon::Eye, "Show only this branch", out, || {
+        Command::SoloRef(full.clone())
+    });
+    if filtering {
+        item(ui, Icon::Eye, "Show all branches", out, || {
+            Command::ShowAllRefs
+        });
+    }
+}
