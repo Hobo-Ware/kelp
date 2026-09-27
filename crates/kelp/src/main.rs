@@ -21,6 +21,7 @@ mod staging;
 mod theme;
 mod updater;
 mod widgets;
+mod window;
 mod worktrees_view;
 
 use std::path::PathBuf;
@@ -28,16 +29,22 @@ use std::path::PathBuf;
 use eframe::egui;
 
 fn main() -> eframe::Result {
-    let paths = startup_paths();
+    let saved = settings::Settings::load();
+    let paths = startup_paths(&saved);
+    let placement = window::restore(saved.window.filter(|_| !settings::is_dev_run()));
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Kelp")
+        .with_icon(app_icon())
+        .with_fullsize_content_view(true)
+        .with_titlebar_shown(false)
+        .with_title_shown(false)
+        .with_inner_size(placement.size)
+        .with_min_inner_size(window::MIN_SIZE);
+    if let Some(position) = placement.position {
+        viewport = viewport.with_position(position);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Kelp")
-            .with_icon(app_icon())
-            .with_fullsize_content_view(true)
-            .with_titlebar_shown(false)
-            .with_title_shown(false)
-            .with_inner_size([1440.0, 900.0])
-            .with_min_inner_size([900.0, 560.0]),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
@@ -63,7 +70,7 @@ fn app_icon() -> egui::IconData {
     }
 }
 
-fn startup_paths() -> Vec<PathBuf> {
+fn startup_paths(saved: &settings::Settings) -> Vec<PathBuf> {
     let canonical = |p: PathBuf| std::fs::canonicalize(&p).unwrap_or(p);
     let args: Vec<PathBuf> = std::env::args()
         .skip(1)
@@ -73,9 +80,13 @@ fn startup_paths() -> Vec<PathBuf> {
     if !args.is_empty() {
         return args;
     }
-    let saved = settings::Settings::load().open_tabs;
-    if !saved.is_empty() {
-        return saved.into_iter().filter(|p| p.exists()).collect();
+    if !saved.open_tabs.is_empty() {
+        return saved
+            .open_tabs
+            .iter()
+            .filter(|p| p.exists())
+            .cloned()
+            .collect();
     }
     std::env::current_dir()
         .ok()

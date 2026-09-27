@@ -6,9 +6,10 @@ use eframe::egui::{self, Color32, FontId, Margin, RichText, Sense, Stroke, vec2}
 use kelp_core::history::History;
 
 use crate::dev_screenshot::DevScreenshot;
-use crate::repo_view::Repo;
-use crate::settings::Settings;
-use crate::theme;
+use crate::menus::{self, TabAction};
+use crate::repo_view::{self, Repo};
+use crate::settings::{self, Settings};
+use crate::{theme, window};
 
 type Loaded = anyhow::Result<(gix::Repository, History, Duration)>;
 
@@ -19,6 +20,7 @@ pub struct KelpApp {
     settings: Settings,
     show_settings: bool,
     titlebar_unified: bool,
+    window: window::Tracker,
     started: Instant,
     ctx: egui::Context,
     updater: crate::updater::Updater,
@@ -64,6 +66,13 @@ impl Tab {
         }
     }
 
+    fn dir(&self) -> PathBuf {
+        match &self.state {
+            State::Ready(repo) => repo.dir.clone(),
+            _ => self.path.clone(),
+        }
+    }
+
     fn same_repo(&self, path: &Path) -> bool {
         let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
         let target = canonical(path);
@@ -84,6 +93,7 @@ impl KelpApp {
             settings: Settings::load(),
             show_settings: std::env::var_os("KELP_OPEN_SETTINGS").is_some(),
             titlebar_unified: false,
+            window: window::Tracker::default(),
             started: Instant::now(),
             updater: crate::updater::Updater::new(ctx.clone()),
             ctx: ctx.clone(),
@@ -91,18 +101,129 @@ impl KelpApp {
     }
 
     fn remember_tabs(&mut self) {
-        let tabs: Vec<PathBuf> = self
-            .tabs
-            .iter()
-            .map(|t| match &t.state {
-                State::Ready(repo) => repo.dir.clone(),
-                _ => t.path.clone(),
-            })
-            .collect();
-        let dev_run = self.screenshot.is_some() || std::env::var_os("KELP_BENCH_SCROLL").is_some();
-        if tabs != self.settings.open_tabs && !dev_run {
+        let tabs: Vec<PathBuf> = self.tabs.iter().map(Tab::dir).collect();
+        if tabs != self.settings.open_tabs && !settings::is_dev_run() {
             self.settings.open_tabs = tabs;
             self.settings.save();
+        }
+    }
+
+    fn remember_window(&mut self, ctx: &egui::Context) {
+        if settings::is_dev_run() {
+            return;
+        }
+        if let Some(geometry) = self.window.settled_change(ctx, self.settings.window) {
+            self.settings.window = Some(geometry);
+            self.settings.save();
+        }
+    }
+
+    fn close_tab(&mut self, i: usize) {
+        if i >= self.tabs.len() {
+            return;
+        }
+        self.tabs.remove(i);
+        if self.active >= self.tabs.len() {
+            self.active = self.tabs.len().saturating_sub(1);
+        } else if i < self.active {
+            self.active -= 1;
+        }
+    }
+
+    fn close_other_tabs(&mut self, keep: usize) {
+        if keep < self.tabs.len() {
+            let tab = self.tabs.swap_remove(keep);
+            self.tabs = vec![tab];
+            self.active = 0;
+        }
+    }
+
+    fn run_tab_action(&mut self, i: usize, action: TabAction) {
+        let Some(dir) = self.tabs.get(i).map(Tab::dir) else {
+            return;
+        };
+        match action {
+            TabAction::Reveal => {
+                let _ = repo_view::reveal_in_finder(&dir);
+            }
+            TabAction::CopyPath => self.ctx.copy_text(dir.display().to_string()),
+            TabAction::Close => self.close_tab(i),
+            TabAction::CloseOthers => self.close_other_tabs(i),
+        }
+    }
+
+    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        use egui::{Key, KeyboardShortcut, Modifiers};
+        const DIGITS: [Key; 9] = [
+            Key::Num1,
+            Key::Num2,
+            Key::Num3,
+            Key::Num4,
+            Key::Num5,
+            Key::Num6,
+            Key::Num7,
+            Key::Num8,
+            Key::Num9,
+        ];
+        let cmd = |key| KeyboardShortcut::new(Modifiers::COMMAND, key);
+        let back = KeyboardShortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Tab);
+        let forward = KeyboardShortcut::new(Modifiers::CTRL, Key::Tab);
+        let (open, close, refresh, step, number) = ctx.input_mut(|i| {
+            let open = i.consume_shortcut(&cmd(Key::T)) | i.consume_shortcut(&cmd(Key::O));
+            let close = i.consume_shortcut(&cmd(Key::W));
+            let refresh = i.consume_shortcut(&cmd(Key::R));
+            let step = if i.consume_shortcut(&back) {
+                -1
+            } else if i.consume_shortcut(&forward) {
+                1
+            } else {
+                0
+            };
+            let number = DIGITS
+                .iter()
+                .position(|&key| i.consume_shortcut(&cmd(key)))
+                .map(|n| n + 1);
+            (open, close, refresh, step, number)
+        });
+        if let Some(i) = number.and_then(|n| tab_for_number(n, self.tabs.len())) {
+            self.active = i;
+        }
+        if step != 0 {
+            self.active = cycled(self.active, self.tabs.len(), step);
+        }
+        if close {
+            self.close_tab(self.active);
+        }
+        if refresh
+            && let Some(Tab {
+                state: State::Ready(repo),
+                ..
+            }) = self.tabs.get_mut(self.active)
+        {
+            repo.refresh_status();
+            repo.reload();
+            repo.refresh_workspace();
+        }
+        if open {
+            self.pick_folder();
+        }
+    }
+
+    fn handle_drops(&mut self, ctx: &egui::Context) {
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
+        for path in dropped {
+            if let Some(target) = drop_target(&path) {
+                self.open_tab(ctx, target);
+            }
+        }
+        if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+            paint_drop_hint(ctx);
         }
     }
 
@@ -117,6 +238,7 @@ impl KelpApp {
 
     fn tab_strip(&mut self, ui: &mut egui::Ui) {
         let mut close = None;
+        let mut tab_action = None;
         let mut pick_folder = false;
         egui::Panel::top("tabs")
             .exact_size(TAB_STRIP_H)
@@ -140,11 +262,12 @@ impl KelpApp {
                     ui.add_space(12.0);
                     let mut centers = Vec::with_capacity(self.tabs.len());
                     let mut dragged = None;
+                    let has_others = self.tabs.len() > 1;
                     for (i, tab) in self.tabs.iter().enumerate() {
                         let active = i == self.active;
                         let title = tab.title();
                         let galley = ui.painter().layout_no_wrap(
-                            title,
+                            title.clone(),
                             FontId::proportional(13.0),
                             theme::TEXT,
                         );
@@ -198,10 +321,25 @@ impl KelpApp {
                             );
                         }
                         paint_cross(&painter, x_rect.center(), 3.5, theme::TEXT_FAINT);
-                        if x_response.clicked() {
+                        if x_response.clicked() || response.middle_clicked() {
                             close = Some(i);
                         } else if response.clicked() {
                             self.active = i;
+                        }
+                        let forced_menu = active
+                            && self.screenshot.is_some()
+                            && std::env::var("KELP_OPEN_MENU").as_deref() == Ok("tab");
+                        let mut show_menu = |ui: &mut egui::Ui| {
+                            if let Some(action) = menus::tab(ui, &title, has_others) {
+                                tab_action = Some((i, action));
+                            }
+                        };
+                        if forced_menu {
+                            egui::Popup::from_response(&response)
+                                .open(true)
+                                .show(&mut show_menu);
+                        } else {
+                            response.context_menu(&mut show_menu);
                         }
                         response.on_hover_text(tab.path.display().to_string());
                     }
@@ -242,12 +380,10 @@ impl KelpApp {
                 });
             });
         if let Some(i) = close {
-            self.tabs.remove(i);
-            if self.active >= self.tabs.len() {
-                self.active = self.tabs.len().saturating_sub(1);
-            } else if i < self.active {
-                self.active -= 1;
-            }
+            self.close_tab(i);
+        }
+        if let Some((i, action)) = tab_action {
+            self.run_tab_action(i, action);
         }
         if pick_folder {
             self.pick_folder();
@@ -263,6 +399,74 @@ impl KelpApp {
             self.open_tab(&ctx, folder);
         }
     }
+}
+
+fn tab_for_number(number: usize, count: usize) -> Option<usize> {
+    match number {
+        _ if count == 0 => None,
+        9 => Some(count - 1),
+        n if (1..=count).contains(&n) => Some(n - 1),
+        _ => None,
+    }
+}
+
+fn cycled(active: usize, count: usize, step: isize) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    (active as isize + step).rem_euclid(count as isize) as usize
+}
+
+fn drop_target(path: &Path) -> Option<PathBuf> {
+    let repo_root = |dir: &Path| {
+        let repo = gix::discover(dir).ok()?;
+        Some(
+            repo.workdir()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| repo.path().to_path_buf()),
+        )
+    };
+    if path.is_dir() {
+        return Some(repo_root(path).unwrap_or_else(|| path.to_path_buf()));
+    }
+    repo_root(path.parent()?)
+}
+
+fn paint_drop_hint(ctx: &egui::Context) {
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("drop-hint"),
+    ));
+    let screen = ctx.content_rect();
+    painter.rect_filled(screen, 0.0, theme::with_alpha(theme::BG, 0xeb));
+    painter.rect_stroke(
+        screen.shrink(18.0),
+        12.0,
+        Stroke::new(1.5, theme::with_alpha(theme::ACCENT, 0x99)),
+        egui::StrokeKind::Inside,
+    );
+    let center = screen.center();
+    painter.rect(
+        egui::Rect::from_center_size(center + vec2(0.0, 2.0), vec2(380.0, 96.0)),
+        12.0,
+        theme::POPUP,
+        Stroke::new(1.0, theme::POPUP_BORDER),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        center - vec2(0.0, 12.0),
+        egui::Align2::CENTER_CENTER,
+        "Drop a folder to open it",
+        FontId::new(18.0, theme::semibold()),
+        theme::TEXT_STRONG,
+    );
+    painter.text(
+        center + vec2(0.0, 16.0),
+        egui::Align2::CENTER_CENTER,
+        "A file opens the repository it belongs to.",
+        FontId::proportional(13.0),
+        theme::TEXT_MUTED,
+    );
 }
 
 fn drop_index(centers: &[f32], from: usize, pointer_x: f32) -> usize {
@@ -370,6 +574,14 @@ fn new_tab_button(ui: &mut egui::Ui) -> egui::Response {
 }
 
 impl eframe::App for KelpApp {
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        let geometry = window::current(&self.ctx);
+        if !settings::is_dev_run() && geometry.is_some() && geometry != self.settings.window {
+            self.settings.window = geometry;
+            self.settings.save();
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         if !self.titlebar_unified {
@@ -399,6 +611,8 @@ impl eframe::App for KelpApp {
 
         self.updater
             .tick(self.settings.updates_enabled(), self.settings.auto_update);
+        self.handle_shortcuts(&ctx);
+        self.handle_drops(&ctx);
         self.tab_strip(ui);
 
         let mut open = Vec::new();
@@ -458,6 +672,7 @@ impl eframe::App for KelpApp {
             self.open_tab(&ctx, path);
         }
         self.remember_tabs();
+        self.remember_window(&ctx);
         if self.show_settings {
             self.settings
                 .window(&ctx, &mut self.show_settings, &mut self.updater);
@@ -558,7 +773,7 @@ impl MascotScreen<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{drop_index, moved_index};
+    use super::{cycled, drop_index, drop_target, moved_index, tab_for_number};
 
     #[test]
     fn dragging_past_a_neighbor_center_swaps() {
@@ -585,5 +800,51 @@ mod tests {
                 assert_eq!(after[moved_index(index, from, to)], name, "{from}->{to}");
             }
         }
+    }
+
+    #[test]
+    fn number_shortcuts_pick_a_tab_and_nine_is_last() {
+        assert_eq!(tab_for_number(1, 3), Some(0));
+        assert_eq!(tab_for_number(3, 3), Some(2));
+        assert_eq!(tab_for_number(4, 3), None);
+        assert_eq!(tab_for_number(9, 3), Some(2));
+        assert_eq!(tab_for_number(9, 12), Some(11));
+        assert_eq!(tab_for_number(1, 0), None);
+    }
+
+    #[test]
+    fn ctrl_tab_wraps_around() {
+        assert_eq!(cycled(0, 3, 1), 1);
+        assert_eq!(cycled(2, 3, 1), 0);
+        assert_eq!(cycled(0, 3, -1), 2);
+        assert_eq!(cycled(0, 0, 1), 0);
+    }
+
+    #[test]
+    fn dropped_paths_open_their_repository() {
+        let root = std::env::temp_dir().join(format!("kelp-drop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let repo = root.join("repo");
+        let plain = root.join("plain");
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::write(repo.join("src/main.rs"), "fn main() {}").unwrap();
+        std::fs::write(plain.join("notes.txt"), "hi").unwrap();
+        let status = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&repo)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let real = |p: std::path::PathBuf| std::fs::canonicalize(p).unwrap();
+        let repo = real(repo);
+        assert_eq!(
+            drop_target(&repo.join("src/main.rs")).map(real),
+            Some(repo.clone())
+        );
+        assert_eq!(drop_target(&repo.join("src")).map(real), Some(repo.clone()));
+        assert_eq!(drop_target(&plain).map(real), Some(real(plain.clone())));
+        assert_eq!(drop_target(&plain.join("notes.txt")), None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

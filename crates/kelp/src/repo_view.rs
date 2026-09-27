@@ -1335,6 +1335,19 @@ fn divider(ui: &mut egui::Ui) {
     );
 }
 
+pub fn reveal_in_finder(path: &Path) -> std::io::Result<()> {
+    let mut command = if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg("-R").arg(path);
+        c
+    } else {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(path.parent().unwrap_or(path));
+        c
+    };
+    command.spawn().map(|_| ())
+}
+
 pub fn open_terminal(path: &Path) -> std::io::Result<()> {
     let mut command = if cfg!(target_os = "macos") {
         let mut c = std::process::Command::new("open");

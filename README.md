@@ -64,14 +64,22 @@ folder if it is a repo.
 | Cmd+F | Search; Enter / Shift+Enter for next / previous |
 | Esc | Back to the graph, close search or dialogs |
 | Cmd+Enter | Save a review comment or reply |
-| Right-click | Actions for commits, branches, tags, stashes, worktrees |
+| Cmd+T / Cmd+O | Open a repository in a new tab |
+| Cmd+W | Close the tab |
+| Cmd+1 ... Cmd+9 | Go to a tab (Cmd+9 is the last one) |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
+| Cmd+R | Refresh the graph, changes and worktrees |
+| Right-click | Actions for commits, branches, tags, stashes, worktrees and tabs |
+| Middle-click a tab | Close it |
+| Drag a tab | Reorder tabs |
+| Drop a folder on the window | Open it (a file opens the repository it is in) |
 | Double-click a branch | Check it out |
 
 ## Where Kelp keeps things
 
 | What | Where |
 |---|---|
-| Settings and open tabs | `~/Library/Application Support/kelp/settings.json` |
+| Settings, open tabs, window size and position | `~/Library/Application Support/kelp/settings.json` |
 | Avatar cache | `~/Library/Caches/kelp/avatars` |
 | Review comments | `<repo>/.git/kelp/comments.json` |
 
@@ -107,7 +115,7 @@ Developer switches (environment variables):
 | `KELP_BENCH_SCROLL=1` | Print graph frame times for random jumps and smooth scrolling |
 | `KELP_OFFLINE=1` | No avatar downloads |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
-| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree`, `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`) | Open a screen on start |
+| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree`, `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
 
