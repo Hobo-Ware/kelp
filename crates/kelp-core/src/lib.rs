@@ -15,5 +15,6 @@ pub mod search;
 pub mod status;
 pub mod undo;
 pub mod update;
+pub mod view;
 pub mod watch;
 pub mod workspace;
