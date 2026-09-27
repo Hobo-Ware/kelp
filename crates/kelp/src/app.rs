@@ -138,6 +138,8 @@ impl KelpApp {
                     }
                     kelp_mark(ui);
                     ui.add_space(12.0);
+                    let mut centers = Vec::with_capacity(self.tabs.len());
+                    let mut dragged = None;
                     for (i, tab) in self.tabs.iter().enumerate() {
                         let active = i == self.active;
                         let title = tab.title();
@@ -147,8 +149,22 @@ impl KelpApp {
                             theme::TEXT,
                         );
                         let w = galley.size().x + 50.0;
-                        let (rect, response) =
-                            ui.allocate_exact_size(vec2(w, TAB_H), Sense::click());
+                        let (rect, _) = ui.allocate_exact_size(vec2(w, TAB_H), Sense::hover());
+                        let response = ui.interact(
+                            rect,
+                            egui::Id::new(("tab", &tab.path)),
+                            Sense::click_and_drag(),
+                        );
+                        centers.push(rect.center().x);
+                        if response.drag_started() {
+                            self.active = i;
+                        }
+                        if response.dragged()
+                            && let Some(pointer) = response.interact_pointer_pos()
+                        {
+                            dragged = Some((i, pointer.x));
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                        }
                         let painter = ui.painter_at(rect);
                         if active {
                             painter.rect_filled(rect, 6.0, theme::PANEL);
@@ -169,8 +185,11 @@ impl KelpApp {
                             egui::pos2(rect.right() - 16.0, rect.center().y),
                             vec2(18.0, 18.0),
                         );
-                        let x_response =
-                            ui.interact(x_rect, ui.id().with(("close-tab", i)), Sense::click());
+                        let x_response = ui.interact(
+                            x_rect,
+                            egui::Id::new(("close-tab", &tab.path)),
+                            Sense::click(),
+                        );
                         if x_response.hovered() {
                             painter.rect_filled(
                                 x_rect,
@@ -185,6 +204,14 @@ impl KelpApp {
                             self.active = i;
                         }
                         response.on_hover_text(tab.path.display().to_string());
+                    }
+                    if let Some((from, x)) = dragged {
+                        let to = drop_index(&centers, from, x);
+                        if to != from {
+                            let tab = self.tabs.remove(from);
+                            self.tabs.insert(to, tab);
+                            self.active = moved_index(self.active, from, to);
+                        }
                     }
                     ui.add_space(4.0);
                     if new_tab_button(ui)
@@ -235,6 +262,26 @@ impl KelpApp {
             let ctx = self.ctx.clone();
             self.open_tab(&ctx, folder);
         }
+    }
+}
+
+fn drop_index(centers: &[f32], from: usize, pointer_x: f32) -> usize {
+    centers
+        .iter()
+        .enumerate()
+        .filter(|&(i, &center)| i != from && center < pointer_x)
+        .count()
+}
+
+fn moved_index(index: usize, from: usize, to: usize) -> usize {
+    if index == from {
+        to
+    } else if from < index && index <= to {
+        index - 1
+    } else if to <= index && index < from {
+        index + 1
+    } else {
+        index
     }
 }
 
@@ -506,5 +553,37 @@ impl MascotScreen<'_> {
                 .request_repaint_after(std::time::Duration::from_millis(16));
         }
         clicked
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{drop_index, moved_index};
+
+    #[test]
+    fn dragging_past_a_neighbor_center_swaps() {
+        let centers = [50.0, 150.0, 250.0];
+        assert_eq!(drop_index(&centers, 0, 90.0), 0);
+        assert_eq!(drop_index(&centers, 0, 160.0), 1);
+        assert_eq!(drop_index(&centers, 0, 400.0), 2);
+        assert_eq!(drop_index(&centers, 2, 10.0), 0);
+        assert_eq!(drop_index(&centers, 2, 200.0), 2);
+        assert_eq!(drop_index(&centers, 2, 120.0), 1);
+    }
+
+    #[test]
+    fn other_tabs_shift_around_the_moved_one() {
+        let order = |from, to| {
+            let mut tabs = vec!['a', 'b', 'c', 'd'];
+            let t = tabs.remove(from);
+            tabs.insert(to, t);
+            tabs
+        };
+        for (from, to) in [(0, 2), (3, 1), (1, 1), (2, 0)] {
+            let after = order(from, to);
+            for (index, name) in ['a', 'b', 'c', 'd'].into_iter().enumerate() {
+                assert_eq!(after[moved_index(index, from, to)], name, "{from}->{to}");
+            }
+        }
     }
 }
