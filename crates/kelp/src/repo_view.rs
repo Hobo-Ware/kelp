@@ -1617,22 +1617,22 @@ fn tool_with_badge(
     let icon_rect = icons::center_square(rect.translate(vec2(0.0, -7.0)), 18.0);
     icons::paint(&painter, icon_rect, icon, color);
     if let Some(text) = badge {
-        let galley = painter.layout_no_wrap(
-            text,
-            FontId::new(10.0, theme::semibold()),
-            Color32::from_rgb(0x10, 0x13, 0x1a),
-        );
+        let badge_painter = ui.painter();
+        let galley =
+            badge_painter.layout_no_wrap(text, FontId::new(10.0, theme::semibold()), theme::ACCENT);
         let size = vec2((galley.size().x + 8.0).max(15.0), 15.0);
         let pill = egui::Rect::from_min_size(
             egui::pos2(icon_rect.right() - 4.0, icon_rect.top() - 6.0),
             size,
         );
-        painter.rect_filled(pill, 7.5, theme::ACCENT);
-        painter.galley(
-            pill.center() - galley.size() / 2.0,
-            galley,
-            Color32::from_rgb(0x10, 0x13, 0x1a),
+        badge_painter.rect(
+            pill,
+            7.5,
+            theme::with_alpha(theme::ACCENT, 0x30),
+            Stroke::new(1.0, theme::with_alpha(theme::ACCENT, 0x80)),
+            egui::StrokeKind::Inside,
         );
+        badge_painter.galley(pill.center() - galley.size() / 2.0, galley, theme::ACCENT);
     }
     painter.text(
         rect.center_bottom() - vec2(0.0, 9.0),
