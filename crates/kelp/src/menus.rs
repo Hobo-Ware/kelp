@@ -387,3 +387,31 @@ fn confirm(title: String, body: &str, op: Op, danger: bool) -> Command {
         danger,
     })
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TabAction {
+    Reveal,
+    CopyPath,
+    Close,
+    CloseOthers,
+}
+
+pub fn tab(ui: &mut Ui, name: &str, has_others: bool) -> Option<TabAction> {
+    menu_width(ui, 220.0);
+    heading(ui, name);
+    let mut action = None;
+    if row(ui, Some(Icon::Folder), "Reveal in Finder", None, false) {
+        action = Some(TabAction::Reveal);
+    }
+    if row(ui, Some(Icon::Copy), "Copy path", None, false) {
+        action = Some(TabAction::CopyPath);
+    }
+    separator(ui);
+    if row(ui, None, "Close", Some("⌘W"), false) {
+        action = Some(TabAction::Close);
+    }
+    if has_others && row(ui, None, "Close other tabs", None, false) {
+        action = Some(TabAction::CloseOthers);
+    }
+    action
+}

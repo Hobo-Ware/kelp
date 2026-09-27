@@ -17,6 +17,7 @@ pub struct Settings {
     pub auto_update: bool,
     pub auto_fetch: bool,
     pub fetch_minutes: u32,
+    pub window: Option<[f32; 4]>,
     #[serde(skip)]
     offline: bool,
 }
@@ -32,9 +33,14 @@ impl Default for Settings {
             auto_update: true,
             auto_fetch: true,
             fetch_minutes: 5,
+            window: None,
             offline: false,
         }
     }
+}
+
+pub fn is_dev_run() -> bool {
+    std::env::var_os("KELP_SCREENSHOT").is_some() || std::env::var_os("KELP_BENCH_SCROLL").is_some()
 }
 
 impl Settings {
