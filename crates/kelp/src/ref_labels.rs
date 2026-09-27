@@ -414,6 +414,7 @@ mod tests {
             row: Some(0),
             is_head,
             has_remote: false,
+            hidden: false,
         }
     }
 

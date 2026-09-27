@@ -4,6 +4,7 @@ use std::time::Duration;
 use eframe::egui::{self, Color32, Margin, RichText, Stroke};
 use serde::{Deserialize, Serialize};
 
+use crate::columns::GraphColumns;
 use crate::theme;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -19,6 +20,7 @@ pub struct Settings {
     pub fetch_minutes: u32,
     pub editor: String,
     pub window: Option<[f32; 4]>,
+    pub graph_columns: GraphColumns,
     #[serde(skip)]
     offline: bool,
 }
@@ -36,6 +38,7 @@ impl Default for Settings {
             fetch_minutes: 5,
             editor: String::new(),
             window: None,
+            graph_columns: GraphColumns::default(),
             offline: false,
         }
     }
@@ -66,6 +69,9 @@ impl Settings {
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default();
         settings.offline = std::env::var_os("KELP_OFFLINE").is_some();
+        if let Ok(names) = std::env::var("KELP_COLUMNS") {
+            settings.graph_columns = GraphColumns::from_names(&names);
+        }
         settings
     }
 

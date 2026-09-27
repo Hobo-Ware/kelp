@@ -15,6 +15,7 @@ use kelp_core::refs::RefLabel;
 use kelp_core::workspace::Worktree;
 
 use crate::avatars::AvatarStore;
+use crate::columns::GraphColumns;
 use crate::commands::Command;
 use crate::graph_hover::{HoverPath, VisiblePath};
 use crate::graph_rows::{Row, RowMap};
@@ -47,6 +48,7 @@ pub struct GraphView {
     hover: Option<(usize, HoverPath)>,
     drag: Option<ref_labels::Drag>,
     drop: Option<DropPlan>,
+    pub columns_changed: Option<GraphColumns>,
 }
 
 pub struct GraphInput<'a> {
@@ -58,6 +60,7 @@ pub struct GraphInput<'a> {
     pub lit: Option<&'a [bool]>,
     pub descriptions: bool,
     pub other_wips: &'a [OtherWip<'a>],
+    pub columns: GraphColumns,
 }
 
 #[derive(Clone, Copy)]
@@ -102,6 +105,7 @@ impl GraphView {
             drag: None,
             drop: None,
             hover: None,
+            columns_changed: None,
         }
     }
 
@@ -125,6 +129,7 @@ impl GraphView {
             lit,
             descriptions,
             other_wips,
+            mut columns,
         } = input;
         let content_w = history.layout.lane_count() as f32 * LANE_W + GRAPH_PAD * 2.0;
         let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
@@ -132,7 +137,9 @@ impl GraphView {
         let graph_w = self.graph_w.unwrap_or(auto_w).clamp(MIN_GRAPH_W, max_w);
         self.lane_offset = self.lane_offset.clamp(0.0, (content_w - graph_w).max(0.0));
         let msg_x = LABELS_W + graph_w;
-        self.header(ui, msg_x, auto_w, content_w > graph_w);
+        if self.header(ui, msg_x, auto_w, content_w > graph_w, &mut columns) {
+            self.columns_changed = Some(columns);
+        }
 
         let other_heads: Vec<usize> = other_wips.iter().map(|w| w.head_row).collect();
         let map = RowMap::new(
@@ -220,6 +227,7 @@ impl GraphView {
                     top: rect.top() + i as f32 * ROW_H,
                     msg_x,
                     lane_offset: *lane_offset,
+                    columns,
                 };
                 let row_kind = map.resolve(display);
                 let is_selected =
@@ -242,6 +250,7 @@ impl GraphView {
                         let label = WipLabel {
                             owner: "this worktree".into(),
                             counts: counts_label(wip.changes),
+                            has_button: false,
                         };
                         paint_wip_row(&painter, &geo, history, wip.head_row, &label, is_selected);
                     }
@@ -250,6 +259,7 @@ impl GraphView {
                         let label = WipLabel {
                             owner: other.tree.name(),
                             counts: format!("{} changed", other.changes),
+                            has_button: true,
                         };
                         paint_wip_row(&painter, &geo, history, other.head_row, &label, false);
                         let button = open_button_rect(&geo);
@@ -482,7 +492,14 @@ impl GraphView {
         action
     }
 
-    fn header(&mut self, ui: &mut Ui, msg_x: f32, auto_w: f32, scrollable: bool) {
+    fn header(
+        &mut self,
+        ui: &mut Ui,
+        msg_x: f32,
+        auto_w: f32,
+        scrollable: bool,
+        columns: &mut GraphColumns,
+    ) -> bool {
         let (rect, _) =
             ui.allocate_exact_size(vec2(ui.available_width(), HEADER_H), Sense::hover());
         let painter = ui.painter_at(rect);
@@ -537,6 +554,7 @@ impl GraphView {
         response.on_hover_text(
             "Drag to resize the graph. Double-click to reset. Scroll sideways to see more lanes.",
         );
+        crate::columns::header(ui, rect, columns)
     }
 }
 
@@ -556,6 +574,7 @@ struct RowGeo {
     top: f32,
     msg_x: f32,
     lane_offset: f32,
+    columns: GraphColumns,
 }
 
 impl RowGeo {
@@ -573,6 +592,9 @@ impl RowGeo {
     }
     fn msg_left(&self) -> f32 {
         self.left + self.msg_x
+    }
+    fn message_right(&self) -> f32 {
+        crate::columns::message_right(self.right, &self.columns)
     }
     fn graph_clip(&self, painter: &egui::Painter) -> egui::Painter {
         let clip = Rect::from_x_y_ranges(
@@ -708,13 +730,22 @@ fn paint_row(
         placed = paint_labels(&soft, geo, &labels, node, color);
     }
     paint_avatar(&graph_soft, node, summary, avatar, color, selected);
-    paint_message(&soft, geo, summary, selected, descriptions, now);
+    paint_message(
+        &soft,
+        geo,
+        history.id(row),
+        summary,
+        selected,
+        descriptions,
+        now,
+    );
     placed
 }
 
 struct WipLabel {
     owner: String,
     counts: String,
+    has_button: bool,
 }
 
 fn counts_label(changes: &[FileChange]) -> String {
@@ -800,6 +831,13 @@ fn paint_wip_row(
         10.0,
         TextFormat::simple(FontId::proportional(13.0), theme::TEXT_FAINT),
     );
+    let reserved = if label.has_button {
+        OPEN_BUTTON_W + 28.0
+    } else {
+        14.0
+    };
+    job.wrap =
+        TextWrapping::truncate_at_width((geo.right - reserved - geo.msg_left() - 15.0).max(0.0));
     let galley = painter.layout_job(job);
     painter.galley(
         pos2(geo.msg_left() + 15.0, geo.mid() - galley.size().y / 2.0),
@@ -1024,29 +1062,46 @@ pub fn truncated(
     painter.layout_job(job)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_message(
     painter: &egui::Painter,
     geo: &RowGeo,
+    id: gix::ObjectId,
     summary: &Summary,
     selected: bool,
     descriptions: bool,
     now: i64,
 ) {
-    let when = commit::relative_time(summary.time, now);
-    let time_font = FontId::proportional(11.0);
-    let time_galley = painter.layout_no_wrap(when, time_font, theme::TEXT_FAINT);
-    let time_w = time_galley.size().x;
-    painter.galley(
-        pos2(
-            geo.right - 14.0 - time_w,
-            geo.mid() - time_galley.size().y / 2.0,
-        ),
-        time_galley,
-        theme::TEXT_FAINT,
+    let right = geo.message_right();
+    crate::columns::paint_cells(
+        painter,
+        &geo.columns,
+        geo.right,
+        geo.mid(),
+        id,
+        summary,
+        now,
     );
+    let time_w = if geo.columns.date {
+        0.0
+    } else {
+        let when = commit::relative_time(summary.time, now);
+        let time_galley =
+            painter.layout_no_wrap(when, FontId::proportional(11.0), theme::TEXT_FAINT);
+        let time_w = time_galley.size().x;
+        painter.galley(
+            pos2(
+                right - 14.0 - time_w,
+                geo.mid() - time_galley.size().y / 2.0,
+            ),
+            time_galley,
+            theme::TEXT_FAINT,
+        );
+        time_w
+    };
 
     let x = geo.msg_left() + 15.0;
-    let max_width = (geo.right - 14.0 - time_w - 12.0 - x).max(0.0);
+    let max_width = (right - 14.0 - time_w - 12.0 - x).max(0.0);
     let mut job = LayoutJob::default();
     let title_color = if selected {
         theme::TEXT_STRONG
@@ -1152,6 +1207,7 @@ mod tests {
                     lit: None,
                     descriptions: false,
                     other_wips: &[],
+                    columns: Default::default(),
                 };
                 view.ui(ui, graph, avatars, |_, _| {});
             });
