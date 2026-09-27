@@ -150,15 +150,18 @@ impl IgnoreCache {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
+        let candidate_keys: Vec<(PathBuf, String)> = candidates
+            .into_iter()
+            .map(|rel| {
+                let key = self.query_key(&rel);
+                (rel, key)
+            })
+            .collect();
         let mut query: Vec<String> = new_dirs
             .iter()
             .map(|dir| format!("{}/", dir.to_string_lossy()))
             .collect();
-        query.extend(
-            candidates
-                .iter()
-                .map(|rel| rel.to_string_lossy().into_owned()),
-        );
+        query.extend(candidate_keys.iter().map(|(_, key)| key.clone()));
         let Some(ignored) = self.check_ignore(&query) else {
             return true;
         };
@@ -169,9 +172,23 @@ impl IgnoreCache {
             }
             self.known_dirs.insert(dir);
         }
-        candidates.iter().any(|rel| {
-            !self.under_ignored_dir(rel) && !ignored.contains(rel.to_string_lossy().as_ref())
-        })
+        for (rel, key) in &candidate_keys {
+            if key.ends_with('/') && ignored.contains(key) {
+                self.ignored_dirs.insert(rel.clone());
+            }
+        }
+        candidate_keys
+            .iter()
+            .any(|(rel, key)| !self.under_ignored_dir(rel) && !ignored.contains(key))
+    }
+
+    fn query_key(&self, rel: &Path) -> String {
+        let path = rel.to_string_lossy();
+        if self.workdir.join(rel).is_dir() {
+            format!("{path}/")
+        } else {
+            path.into_owned()
+        }
     }
 
     fn check_ignore(&self, paths: &[String]) -> Option<HashSet<String>> {

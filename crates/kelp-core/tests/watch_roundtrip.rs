@@ -13,8 +13,7 @@ fn watch(repo: &Scratch) -> (Watcher, mpsc::Receiver<Change>) {
         let _ = tx.send(c);
     })
     .unwrap();
-    std::thread::sleep(Duration::from_millis(300));
-    while rx.try_recv().is_ok() {}
+    while rx.recv_timeout(Duration::from_millis(1500)).is_ok() {}
     (watcher, rx)
 }
 
