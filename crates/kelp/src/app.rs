@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, Align2, Color32, FontId, Margin, RichText, Sense, Stroke, vec2};
+use eframe::egui::{self, Color32, FontId, Margin, RichText, Sense, Stroke, vec2};
 use kelp_core::history::History;
 
 use crate::dev_screenshot::DevScreenshot;
@@ -134,7 +134,7 @@ impl KelpApp {
                         ui.add_space(crate::macos::TRAFFIC_LIGHTS_W - 10.0);
                     }
                     kelp_mark(ui);
-                    ui.add_space(10.0);
+                    ui.add_space(12.0);
                     for (i, tab) in self.tabs.iter().enumerate() {
                         let active = i == self.active;
                         let title = tab.title();
@@ -144,25 +144,11 @@ impl KelpApp {
                             theme::TEXT,
                         );
                         let w = galley.size().x + 50.0;
-                        let (slot, _) =
-                            ui.allocate_exact_size(vec2(w, TAB_STRIP_H), Sense::hover());
-                        let rect = egui::Rect::from_min_max(
-                            egui::pos2(slot.left(), slot.bottom() - TAB_H),
-                            slot.max,
-                        );
-                        let response = ui.interact(rect, ui.id().with(("tab", i)), Sense::click());
+                        let (rect, response) =
+                            ui.allocate_exact_size(vec2(w, TAB_H), Sense::click());
                         let painter = ui.painter_at(rect);
                         if active {
-                            painter.rect_filled(
-                                rect,
-                                egui::CornerRadius {
-                                    nw: 6,
-                                    ne: 6,
-                                    sw: 0,
-                                    se: 0,
-                                },
-                                theme::PANEL,
-                            );
+                            painter.rect_filled(rect, 6.0, theme::PANEL);
                         } else if response.hovered() {
                             painter.rect_filled(rect, 6.0, theme::with_alpha(Color32::WHITE, 0x08));
                         }
@@ -189,13 +175,7 @@ impl KelpApp {
                                 theme::with_alpha(Color32::WHITE, 0x14),
                             );
                         }
-                        painter.text(
-                            x_rect.center(),
-                            Align2::CENTER_CENTER,
-                            "×",
-                            FontId::proportional(14.0),
-                            theme::TEXT_FAINT,
-                        );
+                        paint_cross(&painter, x_rect.center(), 3.5, theme::TEXT_FAINT);
                         if x_response.clicked() {
                             close = Some(i);
                         } else if response.clicked() {
@@ -203,14 +183,8 @@ impl KelpApp {
                         }
                         response.on_hover_text(tab.path.display().to_string());
                     }
-                    ui.add_space(6.0);
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                RichText::new("+").size(16.0).color(theme::TEXT_MUTED),
-                            )
-                            .frame(false),
-                        )
+                    ui.add_space(4.0);
+                    if new_tab_button(ui)
                         .on_hover_text("Open a repository")
                         .clicked()
                     {
@@ -278,36 +252,52 @@ fn window_drag_area(ui: &egui::Ui) {
 }
 
 fn kelp_mark(ui: &mut egui::Ui) {
-    let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-    let p = |x: f32, y: f32| rect.min + vec2(x, y) * (18.0 / 56.0);
-    let stroke = Stroke::new(2.0, theme::ACCENT);
-    ui.painter()
-        .line_segment([p(18.0, 8.0), p(18.0, 48.0)], stroke);
-    ui.painter()
-        .line_segment([p(38.0, 16.0), p(38.0, 26.0)], stroke);
-    let curve: Vec<egui::Pos2> = (0..=10)
-        .map(|i| {
-            let t = i as f32 / 10.0;
-            let mt = 1.0 - t;
-            let x = mt.powi(3) * 38.0
-                + 3.0 * mt * mt * t * 38.0
-                + 3.0 * mt * t * t * 18.0
-                + t.powi(3) * 18.0;
-            let y = mt.powi(3) * 26.0
-                + 3.0 * mt * mt * t * 34.0
-                + 3.0 * mt * t * t * 32.0
-                + t.powi(3) * 40.0;
-            p(x, y)
-        })
+    let (rect, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+    let c = rect.center();
+    let edge = |i: usize, side: f32| {
+        let t = i as f32 / 24.0;
+        let half = 5.0 * (std::f32::consts::PI * t).sin();
+        c + vec2(side * half, -8.0 + 13.0 * t)
+    };
+    let outline: Vec<egui::Pos2> = (0..=24)
+        .map(|i| edge(i, 1.0))
+        .chain((0..=24).rev().map(|i| edge(i, -1.0)))
         .collect();
-    ui.painter().add(egui::Shape::line(curve, stroke));
-    ui.add_space(4.0);
-    ui.label(
-        RichText::new("Kelp")
-            .size(14.0)
-            .family(theme::semibold())
-            .color(theme::TEXT_STRONG),
-    );
+    let stroke = Stroke::new(1.4, theme::ACCENT);
+    let painter = ui.painter();
+    painter.add(egui::Shape::convex_polygon(
+        outline,
+        theme::with_alpha(theme::ACCENT, 0x2e),
+        stroke,
+    ));
+    painter.line_segment([c + vec2(0.0, -5.0), c + vec2(0.0, 8.0)], stroke);
+}
+
+fn paint_cross(painter: &egui::Painter, center: egui::Pos2, d: f32, color: Color32) {
+    let stroke = Stroke::new(1.3, color);
+    painter.line_segment([center + vec2(-d, -d), center + vec2(d, d)], stroke);
+    painter.line_segment([center + vec2(-d, d), center + vec2(d, -d)], stroke);
+}
+
+fn new_tab_button(ui: &mut egui::Ui) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(TAB_H, TAB_H), Sense::click());
+    let hovered = response.hovered();
+    if hovered {
+        ui.painter()
+            .rect_filled(rect, 6.0, theme::with_alpha(Color32::WHITE, 0x08));
+    }
+    let color = if hovered {
+        theme::TEXT_STRONG
+    } else {
+        theme::TEXT_MUTED
+    };
+    let c = rect.center();
+    let stroke = Stroke::new(1.4, color);
+    ui.painter()
+        .line_segment([c + vec2(-5.0, 0.0), c + vec2(5.0, 0.0)], stroke);
+    ui.painter()
+        .line_segment([c + vec2(0.0, -5.0), c + vec2(0.0, 5.0)], stroke);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 impl eframe::App for KelpApp {
@@ -408,7 +398,7 @@ impl eframe::App for KelpApp {
 
 const HELLO_SECONDS: f32 = 4.0;
 const TAB_STRIP_H: f32 = 40.0;
-const TAB_H: f32 = 32.0;
+const TAB_H: f32 = 28.0;
 const MASCOT_SIZE: f32 = 220.0;
 
 struct MascotScreen<'a> {
