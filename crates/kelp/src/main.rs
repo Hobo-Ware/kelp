@@ -1,5 +1,6 @@
 mod app;
 mod avatars;
+mod columns;
 mod commands;
 mod conflict_view;
 mod details;

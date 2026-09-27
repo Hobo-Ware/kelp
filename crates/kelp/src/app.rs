@@ -20,6 +20,7 @@ pub struct KelpApp {
     settings: Settings,
     show_settings: bool,
     titlebar_unified: bool,
+    columns_unsaved: bool,
     window: window::Tracker,
     started: Instant,
     ctx: egui::Context,
@@ -93,6 +94,7 @@ impl KelpApp {
             settings: Settings::load(),
             show_settings: std::env::var_os("KELP_OPEN_SETTINGS").is_some(),
             titlebar_unified: false,
+            columns_unsaved: false,
             window: window::Tracker::default(),
             started: Instant::now(),
             updater: crate::updater::Updater::new(ctx.clone()),
@@ -114,6 +116,16 @@ impl KelpApp {
         }
         if let Some(geometry) = self.window.settled_change(ctx, self.settings.window) {
             self.settings.window = Some(geometry);
+            self.settings.save();
+        }
+    }
+
+    fn remember_columns(&mut self, ctx: &egui::Context) {
+        if !self.columns_unsaved || ctx.input(|i| i.pointer.any_down()) {
+            return;
+        }
+        self.columns_unsaved = false;
+        if !settings::is_dev_run() {
             self.settings.save();
         }
     }
@@ -667,6 +679,10 @@ impl eframe::App for KelpApp {
             Some((_, State::Ready(repo))) => {
                 repo.ui(ui, &self.settings);
                 open.append(&mut repo.outbox);
+                if let Some(columns) = repo.columns_changed.take() {
+                    self.settings.graph_columns = columns;
+                    self.columns_unsaved = true;
+                }
             }
         }
         for path in open {
@@ -674,6 +690,7 @@ impl eframe::App for KelpApp {
         }
         self.remember_tabs();
         self.remember_window(&ctx);
+        self.remember_columns(&ctx);
         if self.show_settings {
             self.settings
                 .window(&ctx, &mut self.show_settings, &mut self.updater);

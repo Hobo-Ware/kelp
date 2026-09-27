@@ -39,6 +39,12 @@ folder if it is a repo.
   commit, right-click for its menu, double-click to check it out. The
   `+N` chip lists every ref on that commit, each with its own menu.
   Drag a label onto another commit or label to merge, rebase or reset.
+- **Less noise:** hover a branch in the sidebar and click the eye to hide
+  it from the graph, or right-click for Show only this branch. Hidden
+  branches drop their own commits and lanes; the status bar chip shows
+  them all again. Saved per repo in `.git/kelp/view.json`.
+- **Columns:** right-click the column header to add Author, Date and
+  Hash columns; drag their edges to resize.
 - **Commits:** message, author, parents, changed files as a list or a
   tree, or every file in the commit.
 - **Diffs:** unified or split, or the full file, with the changed words
@@ -144,6 +150,7 @@ Developer switches (environment variables):
 | `KELP_SCREENSHOT=out.png` | Save the window to a PNG and quit (`KELP_SCREENSHOT_WAIT=2` waits first) |
 | `KELP_BENCH_SCROLL=1` | Print graph frame times for random jumps and smooth scrolling |
 | `KELP_OFFLINE=1` | No avatar downloads |
+| `KELP_HIDE_REFS=a,b`, `KELP_COLUMNS=author,date,hash` | Hide branches or show columns for this run |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
 | `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`), `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`), `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |

@@ -162,6 +162,7 @@ pub struct Repo {
     diff_layout: diff_view::Layout,
     center_mid_x: Option<f32>,
     pub view: ViewFilter,
+    pub columns_changed: Option<crate::columns::GraphColumns>,
     pub editor: String,
     _watcher: Option<Watcher>,
     watch_events: mpsc::Receiver<watch::Change>,
@@ -235,6 +236,7 @@ impl Repo {
             diff_layout: diff_view::Layout::default(),
             center_mid_x: None,
             view,
+            columns_changed: None,
             editor: String::new(),
             _watcher: watcher,
             watch_events,
@@ -1212,6 +1214,7 @@ impl Repo {
         self.ensure_lit(settings);
         let head_row = self.head_row();
         let menu_ctx = self.menu_context();
+        let filtering = self.view.is_filtering();
         let Repo {
             repo: git,
             history,
@@ -1223,6 +1226,7 @@ impl Repo {
             lit_cache,
             head_reach,
             workspace,
+            columns_changed,
             ..
         } = self;
         let wip = (!changes.is_empty()).then(|| graph_view::Wip {
@@ -1256,6 +1260,7 @@ impl Repo {
             lit: lit_cache.as_ref().map(|(_, lit)| lit.as_slice()),
             descriptions: settings.show_descriptions,
             other_wips: &other_wips,
+            columns: settings.graph_columns,
         };
         let action = graph.ui(ui, input, avatars, |ui, target| match target {
             MenuFor::Worktree(tree) => menus::worktree(ui, tree, commands),
@@ -1266,11 +1271,17 @@ impl Repo {
                 let can_rebase = head_reach.can_rebase_from(history, head_row, row);
                 menus::commit(ui, &id, parents, title, &menu_ctx, can_rebase, commands)
             }
-            MenuFor::Ref(label) => menus::branch(ui, label, &menu_ctx, commands),
+            MenuFor::Ref(label) => {
+                menus::branch(ui, label, &menu_ctx, commands);
+                menus::view_items(ui, label, filtering, commands);
+            }
             MenuFor::Drop(plan) => menus::drop(ui, plan, &menu_ctx, commands),
         });
         if let Some(bench) = bench {
             bench.record(ui.ctx(), started.elapsed());
+        }
+        if let Some(columns) = graph.columns_changed.take() {
+            *columns_changed = Some(columns);
         }
         match action {
             Some(graph_view::Action::Select(selection)) => self.select(selection),
