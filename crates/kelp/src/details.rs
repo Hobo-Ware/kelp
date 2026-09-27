@@ -88,7 +88,7 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
             ui.label(
                 RichText::new(&details.title)
                     .size(17.0)
-                    .strong()
+                    .family(theme::semibold())
                     .color(theme::TEXT_STRONG),
             );
             if !details.body.is_empty() {
@@ -157,7 +157,7 @@ fn wip_header(ui: &mut Ui, repo: &Repo) {
             ui.label(
                 RichText::new("Uncommitted changes")
                     .size(17.0)
-                    .strong()
+                    .family(theme::semibold())
                     .color(theme::TEXT_STRONG),
             );
             let branch = repo.current_branch().unwrap_or("detached HEAD");
@@ -377,7 +377,7 @@ fn all_files(
             ui.label(
                 RichText::new("ALL FILES")
                     .size(11.0)
-                    .strong()
+                    .family(theme::semibold())
                     .color(theme::TEXT_MUTED),
             );
         });
@@ -584,7 +584,7 @@ fn review_card(ui: &mut Ui, repo: &mut Repo) {
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new("Your review")
-                        .strong()
+                        .family(theme::semibold())
                         .color(theme::TEXT_STRONG),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

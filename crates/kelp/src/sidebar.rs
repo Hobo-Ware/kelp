@@ -153,7 +153,7 @@ fn section(
             ui.label(
                 RichText::new(title)
                     .size(11.0)
-                    .strong()
+                    .family(theme::semibold())
                     .color(theme::TEXT_MUTED),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

@@ -20,6 +20,7 @@ use crate::graph_view::{self, GraphView};
 use crate::icons::{self, Icon};
 use crate::jobs::Jobs;
 use crate::menus::{self, MenuContext};
+use crate::settings::Settings;
 use crate::{details, sidebar, theme, worktrees_view};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +38,28 @@ pub enum JobOutput {
         label: String,
         result: anyhow::Result<String>,
     },
+    Search {
+        query: String,
+        rows: anyhow::Result<Vec<usize>>,
+    },
+}
+
+#[derive(Default)]
+pub struct Search {
+    pub open: bool,
+    pub query: String,
+    pub searched: String,
+    pub rows: Vec<usize>,
+    pub current: usize,
+    generation: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct LitKey {
+    selected: Option<Selection>,
+    search: Option<u64>,
+    dim: bool,
+    rows: usize,
 }
 
 #[derive(Default)]
@@ -91,6 +114,8 @@ pub struct Repo {
     pub file_list_mode: FileListMode,
     pub show_all_files: bool,
     pub tree_cache: HashMap<String, Vec<commit::TreeEntry>>,
+    pub search: Search,
+    lit_cache: Option<(LitKey, Vec<bool>)>,
     open_after_ops: Vec<PathBuf>,
     was_focused: Option<bool>,
     bench: Option<ScrollBench>,
@@ -115,6 +140,8 @@ impl Repo {
             file_list_mode: FileListMode::Path,
             show_all_files: false,
             tree_cache: HashMap::new(),
+            search: Search::default(),
+            lit_cache: None,
             dir,
             workdir,
             repo,
@@ -153,6 +180,11 @@ impl Repo {
             {
                 view.show_split();
             }
+        }
+        if let Ok(query) = std::env::var("KELP_SEARCH") {
+            ready.search.open = true;
+            ready.search.query = query;
+            ready.run_search();
         }
         if std::env::var_os("KELP_OPEN_WORKTREES").is_some() {
             ready.center = Center::Worktrees;
@@ -308,6 +340,68 @@ impl Repo {
         });
     }
 
+    pub fn run_search(&mut self) {
+        let query = self.search.query.trim().to_string();
+        if query.is_empty() {
+            self.search.rows.clear();
+            self.search.searched.clear();
+            self.search.generation += 1;
+            return;
+        }
+        let dir = self.dir.clone();
+        let ids = self.history.ids().to_vec();
+        self.jobs.spawn("Searching", move || {
+            let rows = kelp_core::search::matching_rows(&dir, &ids, &query);
+            JobOutput::Search { query, rows }
+        });
+    }
+
+    fn step_search(&mut self, forward: bool) {
+        let n = self.search.rows.len();
+        if n == 0 {
+            return;
+        }
+        self.search.current = if forward {
+            (self.search.current + 1) % n
+        } else {
+            (self.search.current + n - 1) % n
+        };
+        let row = self.search.rows[self.search.current];
+        self.reveal(Selection::Commit(row));
+    }
+
+    fn ensure_lit(&mut self, settings: &Settings) {
+        let searching = self.search.open && !self.search.searched.is_empty();
+        let key = LitKey {
+            selected: self.selected,
+            search: searching.then_some(self.search.generation),
+            dim: settings.dim_outside_history,
+            rows: self.history.len(),
+        };
+        let fading_history =
+            settings.dim_outside_history && matches!(self.selected, Some(Selection::Commit(_)));
+        if !searching && !fading_history {
+            self.lit_cache = None;
+            return;
+        }
+        if self.lit_cache.as_ref().is_none_or(|(k, _)| *k != key) {
+            let mut lit = vec![false; self.history.len()];
+            if searching {
+                for &row in &self.search.rows {
+                    lit[row] = true;
+                }
+            } else if let Some(Selection::Commit(start)) = self.selected {
+                let mut stack = vec![start];
+                while let Some(row) = stack.pop() {
+                    if !std::mem::replace(&mut lit[row], true) {
+                        stack.extend(self.history.parents(row).iter().map(|&p| p as usize));
+                    }
+                }
+            }
+            self.lit_cache = Some((key, lit));
+        }
+    }
+
     pub fn refresh_status(&mut self) {
         let Some(workdir) = self.workdir.clone() else {
             return;
@@ -390,6 +484,17 @@ impl Repo {
                     self.notify(format!("Could not write commit-graph: {e:#}"), true)
                 }
                 JobOutput::Workspace(info) => self.workspace = *info,
+                JobOutput::Search { query, rows } => {
+                    if query == self.search.query.trim() {
+                        self.search.rows = rows.unwrap_or_default();
+                        self.search.searched = query;
+                        self.search.current = 0;
+                        self.search.generation += 1;
+                        if let Some(&row) = self.search.rows.first() {
+                            self.reveal(Selection::Commit(row));
+                        }
+                    }
+                }
                 JobOutput::Op { label, result } => {
                     match result {
                         Ok(_) => {
@@ -437,7 +542,7 @@ impl Repo {
         self.was_focused = Some(focused);
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, settings: &Settings) {
         let ctx = ui.ctx().clone();
         let mut commands = Vec::new();
         self.handle_keys(ui);
@@ -498,7 +603,7 @@ impl Repo {
                     diff_view::Event::None => {}
                 },
                 Center::Worktrees => worktrees_view::ui(ui, self, &mut commands),
-                Center::Graph => self.graph_center(ui, &mut commands),
+                Center::Graph => self.graph_center(ui, &mut commands, settings),
             });
 
         if let Some(dialog) = &mut self.dialog {
@@ -518,7 +623,16 @@ impl Repo {
         }
     }
 
-    fn graph_center(&mut self, ui: &mut egui::Ui, commands: &mut Vec<Command>) {
+    fn graph_center(
+        &mut self,
+        ui: &mut egui::Ui,
+        commands: &mut Vec<Command>,
+        settings: &Settings,
+    ) {
+        if self.search.open {
+            self.search_bar(ui);
+        }
+        self.ensure_lit(settings);
         let head_row = self.head_row();
         let menu_ctx = self.menu_context();
         let Repo {
@@ -529,6 +643,7 @@ impl Repo {
             bench,
             avatars,
             wip: changes,
+            lit_cache,
             ..
         } = self;
         let wip = (!changes.is_empty()).then(|| graph_view::Wip {
@@ -544,6 +659,8 @@ impl Repo {
             history,
             selected: *selected,
             wip,
+            lit: lit_cache.as_ref().map(|(_, lit)| lit.as_slice()),
+            descriptions: settings.show_descriptions,
         };
         let action = graph.ui(ui, input, avatars, |ui, selection, title| match selection {
             Selection::Wip => menus::wip(ui, commands),
@@ -559,7 +676,105 @@ impl Repo {
         }
     }
 
+    fn search_bar(&mut self, ui: &mut egui::Ui) {
+        let rect = ui.max_rect();
+        let pos = egui::pos2(rect.right() - 420.0, rect.top() + 36.0);
+        let mut close = false;
+        let mut changed = false;
+        let mut step = None;
+        egui::Area::new(egui::Id::new("search-bar"))
+            .fixed_pos(pos)
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(0x23, 0x28, 0x33))
+                    .stroke(Stroke::new(1.0, Color32::from_rgb(0x3a, 0x42, 0x50)))
+                    .corner_radius(8)
+                    .inner_margin(Margin::symmetric(10, 8))
+                    .show(ui, |ui| {
+                        ui.set_width(390.0);
+                        ui.horizontal(|ui| {
+                            let edit = ui.add(
+                                egui::TextEdit::singleline(&mut self.search.query)
+                                    .hint_text("Search messages, authors, hashes")
+                                    .desired_width(220.0),
+                            );
+                            if self.search.searched.is_empty() && self.search.query.is_empty() {
+                                edit.request_focus();
+                            }
+                            changed = edit.changed();
+                            let (enter, shift, esc) = ui.input(|i| {
+                                (
+                                    i.key_pressed(Key::Enter),
+                                    i.modifiers.shift,
+                                    i.key_pressed(Key::Escape),
+                                )
+                            });
+                            if edit.lost_focus() && enter {
+                                step = Some(!shift);
+                                edit.request_focus();
+                            }
+                            if esc {
+                                close = true;
+                            }
+                            let status = if self.jobs.is_running("Searching") {
+                                "…".to_string()
+                            } else if self.search.searched.is_empty() {
+                                String::new()
+                            } else if self.search.rows.is_empty() {
+                                "no matches".to_string()
+                            } else {
+                                format!("{} of {}", self.search.current + 1, self.search.rows.len())
+                            };
+                            ui.label(RichText::new(status).size(12.0).color(theme::TEXT_MUTED));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .add(egui::Button::new("×").frame(false))
+                                        .on_hover_text("Close (Esc)")
+                                        .clicked()
+                                    {
+                                        close = true;
+                                    }
+                                    if ui
+                                        .add(egui::Button::new("↓").frame(false))
+                                        .on_hover_text("Next (Enter)")
+                                        .clicked()
+                                    {
+                                        step = Some(true);
+                                    }
+                                    if ui
+                                        .add(egui::Button::new("↑").frame(false))
+                                        .on_hover_text("Previous (Shift+Enter)")
+                                        .clicked()
+                                    {
+                                        step = Some(false);
+                                    }
+                                },
+                            );
+                        });
+                    });
+            });
+        if changed {
+            self.run_search();
+        }
+        if let Some(forward) = step {
+            self.step_search(forward);
+        }
+        if close {
+            self.search = Search {
+                generation: self.search.generation + 1,
+                ..Search::default()
+            };
+        }
+    }
+
     fn handle_keys(&mut self, ui: &egui::Ui) {
+        if ui.input(|i| i.modifiers.command && i.key_pressed(Key::F)) {
+            self.search.open = true;
+            self.center = Center::Graph;
+        }
         if ui.ctx().egui_wants_keyboard_input() || self.dialog.is_some() || self.history.is_empty()
         {
             return;
@@ -836,7 +1051,7 @@ fn picker(ui: &mut egui::Ui, caption: &str, value: &str) {
         ui.label(
             RichText::new(value)
                 .size(15.0)
-                .strong()
+                .family(theme::semibold())
                 .color(theme::TEXT_STRONG),
         );
     });

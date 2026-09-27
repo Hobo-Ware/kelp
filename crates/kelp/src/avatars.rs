@@ -19,6 +19,7 @@ pub struct AvatarStore {
     results: Receiver<(String, Option<Image>)>,
     slots: HashMap<String, Slot>,
     ctx: egui::Context,
+    pub enabled: bool,
 }
 
 impl AvatarStore {
@@ -30,6 +31,7 @@ impl AvatarStore {
                 results,
                 slots: HashMap::new(),
                 ctx,
+                enabled: false,
             };
         }
         let (requests, request_rx) = mpsc::channel::<(String, String)>();
@@ -60,11 +62,12 @@ impl AvatarStore {
             results,
             slots: HashMap::new(),
             ctx,
+            enabled: true,
         }
     }
 
     pub fn texture(&mut self, email: &str, commit: ObjectId) -> Option<TextureId> {
-        if email.is_empty() {
+        if email.is_empty() || !self.enabled {
             return None;
         }
         let key = email.trim().to_lowercase();

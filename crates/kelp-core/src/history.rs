@@ -91,6 +91,10 @@ impl History {
         self.ids.is_empty()
     }
 
+    pub fn ids(&self) -> &[ObjectId] {
+        &self.ids
+    }
+
     pub fn id(&self, row: usize) -> ObjectId {
         self.ids[row]
     }

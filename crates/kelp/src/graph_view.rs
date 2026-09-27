@@ -43,6 +43,16 @@ pub struct GraphInput<'a> {
     pub history: &'a History,
     pub selected: Option<Selection>,
     pub wip: Option<Wip<'a>>,
+    pub lit: Option<&'a [bool]>,
+    pub descriptions: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RowStyle {
+    selected: bool,
+    dashed_top: bool,
+    faded: bool,
+    descriptions: bool,
 }
 
 pub struct Wip<'a> {
@@ -110,6 +120,8 @@ impl GraphView {
             history,
             selected,
             wip,
+            lit,
+            descriptions,
         } = input;
         let content_w = history.layout.lane_count() as f32 * LANE_W + GRAPH_PAD * 2.0;
         let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
@@ -140,9 +152,12 @@ impl GraphView {
         scroll.show_rows(ui, ROW_H, map.total(), |ui, rows| {
             for display in rows.clone() {
                 if let Selection::Commit(row) = map.resolve(display) {
-                    summaries
-                        .entry(row)
-                        .or_insert_with(|| load_summary(repo, history, row));
+                    summaries.entry(row).or_insert_with(|| {
+                        let summary = load_summary(repo, history, row);
+                        crate::fonts::ensure_fallback(ui.ctx(), &summary.title);
+                        crate::fonts::ensure_fallback(ui.ctx(), &summary.author);
+                        summary
+                    });
                 }
             }
             let size = vec2(ui.available_width(), ROW_H * rows.len() as f32);
@@ -173,6 +188,12 @@ impl GraphView {
                     (Selection::Commit(row), _) => {
                         let dashed_top = map.wip_at == Some(row);
                         let avatar = avatars.texture(&summaries[&row].email, history.id(row));
+                        let style = RowStyle {
+                            selected: is_selected,
+                            dashed_top,
+                            faded: lit.is_some_and(|l| !l.get(row).copied().unwrap_or(true)),
+                            descriptions,
+                        };
                         paint_row(
                             &painter,
                             &geo,
@@ -180,8 +201,7 @@ impl GraphView {
                             row,
                             &summaries[&row],
                             avatar,
-                            is_selected,
-                            dashed_top,
+                            style,
                             now,
                         );
                     }
@@ -325,22 +345,35 @@ fn paint_row(
     row: usize,
     summary: &Summary,
     avatar: Option<egui::TextureId>,
-    selected: bool,
-    dashed_top: bool,
+    style: RowStyle,
     now: i64,
 ) {
+    let RowStyle {
+        selected,
+        dashed_top,
+        faded,
+        descriptions,
+    } = style;
+    let mut soft = painter.clone();
+    if faded {
+        soft.multiply_opacity(0.35);
+    }
     let layout = &history.layout;
     let node_lane = layout.node_lane(row);
     let color = theme::lane(layout.node_color(row));
     let node = pos2(geo.lane_x(node_lane), geo.mid());
     let graph = geo.graph_clip(painter);
+    let mut graph_soft = graph.clone();
+    if faded {
+        graph_soft.multiply_opacity(0.35);
+    }
 
     let band_left = node.x.max(geo.graph_left());
     let band = Rect::from_x_y_ranges(
         band_left..=geo.msg_left(),
         geo.top + 4.0..=geo.bottom() - 4.0,
     );
-    graph.rect_filled(
+    graph_soft.rect_filled(
         band,
         0.0,
         theme::with_alpha(color, if selected { 0x4d } else { 0x17 }),
@@ -349,7 +382,7 @@ fn paint_row(
         geo.msg_left()..=geo.msg_left() + 3.0,
         geo.top..=geo.bottom(),
     );
-    painter.rect_filled(strip, 0.0, color);
+    soft.rect_filled(strip, 0.0, color);
     if selected {
         let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
         painter.rect_filled(bg, 0.0, theme::SELECTED_ROW);
@@ -399,10 +432,10 @@ fn paint_row(
     }
 
     if node.x >= geo.graph_left() {
-        paint_labels(painter, geo, history.refs.at_row(row), node, color);
+        paint_labels(&soft, geo, history.refs.at_row(row), node, color);
     }
-    paint_avatar(&graph, node, summary, avatar, color, selected);
-    paint_message(painter, geo, summary, selected, now);
+    paint_avatar(&graph_soft, node, summary, avatar, color, selected);
+    paint_message(&soft, geo, summary, selected, descriptions, now);
 }
 
 fn paint_wip_row(
@@ -679,6 +712,7 @@ fn paint_message(
     geo: &RowGeo,
     summary: &Summary,
     selected: bool,
+    descriptions: bool,
     now: i64,
 ) {
     let when = commit::relative_time(summary.time, now);
@@ -702,12 +736,17 @@ fn paint_message(
     } else {
         theme::TEXT
     };
+    let title_font = if selected {
+        FontId::new(13.0, theme::semibold())
+    } else {
+        FontId::proportional(13.0)
+    };
     job.append(
         &summary.title,
         0.0,
-        TextFormat::simple(FontId::proportional(13.0), title_color),
+        TextFormat::simple(title_font, title_color),
     );
-    if !summary.body_preview.is_empty() {
+    if descriptions && !summary.body_preview.is_empty() {
         job.append(
             &summary.body_preview,
             10.0,

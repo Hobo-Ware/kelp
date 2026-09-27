@@ -326,7 +326,7 @@ fn header(ui: &mut Ui, title: &str, subtitle: &str, actions: impl FnOnce(&mut Ui
         ui.label(
             RichText::new(title)
                 .size(18.0)
-                .strong()
+                .family(theme::semibold())
                 .color(theme::TEXT_STRONG),
         );
         ui.add_space(8.0);
@@ -401,7 +401,7 @@ fn accent_button(text: &str) -> egui::Button<'_> {
     egui::Button::new(
         RichText::new(text)
             .size(12.0)
-            .strong()
+            .family(theme::semibold())
             .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
     )
     .fill(theme::ACCENT)

@@ -2467,6 +2467,8 @@ dependencies = [
  "image",
  "kelp-core",
  "rfd",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
