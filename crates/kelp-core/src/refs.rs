@@ -2,6 +2,8 @@ use gix::ObjectId;
 use gix::hashtable::HashMap;
 use gix::reference::Category;
 
+use crate::view::ViewFilter;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefKind {
     Local,
@@ -17,6 +19,18 @@ pub struct RefLabel {
     pub row: Option<u32>,
     pub is_head: bool,
     pub has_remote: bool,
+    pub hidden: bool,
+}
+
+impl RefLabel {
+    pub fn full_name(&self) -> String {
+        let prefix = match self.kind {
+            RefKind::Local => "refs/heads/",
+            RefKind::Remote => "refs/remotes/",
+            RefKind::Tag => "refs/tags/",
+        };
+        format!("{prefix}{}", self.name)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -56,6 +70,7 @@ impl Refs {
                 target: commit.id,
                 row: None,
                 has_remote: false,
+                hidden: false,
             });
         }
         mark_tracked_remotes(&mut labels);
@@ -68,10 +83,21 @@ impl Refs {
         })
     }
 
+    pub fn apply(&mut self, view: &ViewFilter) {
+        for label in &mut self.labels {
+            label.hidden = !label.is_head && !view.shows(&label.full_name());
+        }
+    }
+
+    pub fn hidden_count(&self) -> usize {
+        self.labels.iter().filter(|l| l.hidden).count()
+    }
+
     pub fn tips(&self) -> Vec<ObjectId> {
         let mut tips: Vec<ObjectId> = self
             .labels
             .iter()
+            .filter(|l| !l.hidden)
             .map(|l| l.target)
             .chain(self.head)
             .collect();
@@ -85,6 +111,7 @@ impl Refs {
         for (i, label) in self.labels.iter_mut().enumerate() {
             label.row = rows_by_id.get(&label.target).copied();
             if let Some(row) = label.row
+                && !label.hidden
                 && !(label.kind == RefKind::Remote && label.has_remote)
             {
                 self.by_row.entry(row).or_default().push(i);

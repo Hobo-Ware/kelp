@@ -10,6 +10,7 @@ use gix::traverse::commit::simple::CommitTimeOrder;
 
 use crate::graph::{self, Layout};
 use crate::refs::Refs;
+use crate::view::ViewFilter;
 
 pub const LANE_COLORS: u8 = 8;
 
@@ -32,7 +33,12 @@ pub struct Timings {
 
 impl History {
     pub fn load(repo: &gix::Repository) -> anyhow::Result<Self> {
-        let refs = Refs::load(repo)?;
+        Self::load_filtered(repo, &ViewFilter::load(repo.common_dir()))
+    }
+
+    pub fn load_filtered(repo: &gix::Repository, view: &ViewFilter) -> anyhow::Result<Self> {
+        let mut refs = Refs::load(repo)?;
+        refs.apply(view);
         let started = Instant::now();
         let (ids, times, raw_parents) = walk(repo, refs.tips())?;
         let walked = Instant::now();
@@ -60,7 +66,6 @@ impl History {
             LANE_COLORS,
         );
         let laid_out = Instant::now();
-        let mut refs = refs;
         refs.attach_rows(&rows_by_id);
         Ok(Self {
             ids: sorted_ids,
