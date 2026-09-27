@@ -11,6 +11,7 @@ use kelp_core::ops::{self, Op};
 use kelp_core::refs::RefKind;
 use kelp_core::review::{self, Review};
 use kelp_core::undo;
+use kelp_core::view::ViewFilter;
 use kelp_core::watch::{self, Watcher};
 use kelp_core::workspace::{self, Stash, Worktree};
 use kelp_core::{git_cli, status};
@@ -160,6 +161,7 @@ pub struct Repo {
     banner: conflict_view::Banner,
     diff_layout: diff_view::Layout,
     center_mid_x: Option<f32>,
+    pub view: ViewFilter,
     pub editor: String,
     _watcher: Option<Watcher>,
     watch_events: mpsc::Receiver<watch::Change>,
@@ -184,6 +186,7 @@ impl Repo {
         let avatars =
             AvatarStore::new(ctx.clone(), kelp_core::avatar::GitHubRepo::from_repo(&repo));
         let review = Review::load(repo.common_dir());
+        let view = ViewFilter::load(repo.common_dir());
         let stale_undo_dir = dir.clone();
         std::thread::spawn(move || undo::clear_saved(&stale_undo_dir));
         let author = review::author_name(&repo);
@@ -231,6 +234,7 @@ impl Repo {
             banner: conflict_view::Banner::new(),
             diff_layout: diff_view::Layout::default(),
             center_mid_x: None,
+            view,
             editor: String::new(),
             _watcher: watcher,
             watch_events,
@@ -248,6 +252,15 @@ impl Repo {
         ready.refresh_status();
         ready.refresh_workspace();
 
+        if let Ok(names) = std::env::var("KELP_HIDE_REFS") {
+            let wanted: Vec<&str> = names.split(',').map(str::trim).collect();
+            for label in &ready.history.refs.labels {
+                if wanted.contains(&label.name.as_str()) {
+                    ready.view.toggle(&label.full_name());
+                }
+            }
+            ready.reload();
+        }
         if let Some(row) = std::env::var("KELP_SELECT_COMMIT")
             .ok()
             .and_then(|rev| ready.repo.rev_parse_single(rev.as_str()).ok())
@@ -517,6 +530,23 @@ impl Repo {
         });
     }
 
+    fn view_summary(&self) -> Option<String> {
+        if let Some(solo) = &self.view.solo {
+            let name = self
+                .history
+                .refs
+                .labels
+                .iter()
+                .find(|l| &l.full_name() == solo)
+                .map_or(solo.as_str(), |l| l.name.as_str());
+            return Some(format!("Only {name}"));
+        }
+        match self.history.refs.hidden_count() {
+            0 => None,
+            n => Some(format!("{n} hidden")),
+        }
+    }
+
     pub fn menu_context(&self) -> MenuContext {
         MenuContext {
             current_branch: self.current_branch().map(str::to_string),
@@ -574,6 +604,18 @@ impl Repo {
                 }
                 Command::Reveal(selection) => self.reveal(selection),
                 Command::ShowWorktrees => self.center = Center::Worktrees,
+                Command::ToggleRef(full) => {
+                    self.view.toggle(&full);
+                    self.apply_view();
+                }
+                Command::SoloRef(full) => {
+                    self.view.solo(&full);
+                    self.apply_view();
+                }
+                Command::ShowAllRefs => {
+                    self.view.show_all();
+                    self.apply_view();
+                }
                 Command::OpenRebase(base) => {
                     let view = RebaseView::open(ctx, self.dir.clone(), base);
                     self.center = Center::Rebase(Box::new(view));
@@ -834,9 +876,24 @@ impl Repo {
             return;
         }
         let dir = self.dir.clone();
+        let view = self.view.clone();
         self.jobs.spawn("Reloading", move || {
-            JobOutput::Reloaded(History::open(&dir).map(|(_, history)| Box::new(history)))
+            JobOutput::Reloaded(
+                gix::discover(&dir)
+                    .map_err(anyhow::Error::from)
+                    .and_then(|repo| History::load_filtered(&repo, &view))
+                    .map(Box::new),
+            )
         });
+    }
+
+    fn apply_view(&mut self) {
+        if !crate::settings::is_dev_run()
+            && let Err(e) = self.view.save(self.repo.common_dir())
+        {
+            self.notify(format!("Could not save the graph view: {e}"), true);
+        }
+        self.reload();
     }
 
     pub fn poll(&mut self, ctx: &egui::Context, fetch_every: Option<Duration>) {
@@ -1050,7 +1107,7 @@ impl Repo {
                     .fill(Color32::from_rgb(0x0f, 0x11, 0x15))
                     .inner_margin(Margin::symmetric(14, 0)),
             )
-            .show(ui, |ui| self.status_bar(ui));
+            .show(ui, |ui| self.status_bar(ui, &mut commands));
 
         egui::Panel::left("sidebar")
             .default_size(250.0)
@@ -1517,7 +1574,7 @@ impl Repo {
         }
     }
 
-    fn status_bar(&self, ui: &mut egui::Ui) {
+    fn status_bar(&self, ui: &mut egui::Ui, commands: &mut Vec<Command>) {
         ui.horizontal_centered(|ui| {
             ui.spacing_mut().item_spacing.x = 18.0;
             let branch = self.current_branch().unwrap_or("detached");
@@ -1551,6 +1608,11 @@ impl Repo {
                 .size(11.0)
                 .color(theme::TEXT_MUTED),
             );
+            if let Some(text) = self.view_summary()
+                && view_chip(ui, &text)
+            {
+                commands.push(Command::ShowAllRefs);
+            }
             let time = ui.input(|i| i.time) as f32;
             let mut any_job = false;
             for job in self.jobs.running() {
@@ -1717,4 +1779,22 @@ pub fn open_terminal(path: &Path) -> std::io::Result<()> {
         c
     };
     command.spawn().map(|_| ())
+}
+
+fn view_chip(ui: &mut egui::Ui, text: &str) -> bool {
+    let label = format!("{text}  ·  Show all");
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label, FontId::proportional(11.0), theme::ACCENT);
+    let size = galley.size() + vec2(16.0, 6.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let fill = if response.hovered() { 0x40 } else { 0x26 };
+    ui.painter()
+        .rect_filled(rect, 9.0, theme::with_alpha(theme::ACCENT, fill));
+    ui.painter()
+        .galley(rect.center() - galley.size() / 2.0, galley, theme::ACCENT);
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("Show every branch in the graph again")
+        .clicked()
 }

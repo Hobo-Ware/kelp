@@ -2,12 +2,14 @@ use eframe::egui::{self, Color32, RichText, Sense, Ui, vec2};
 use kelp_core::refs::{RefKind, RefLabel};
 
 use crate::commands::Command;
+use crate::icons::Icon;
 use crate::menus;
 use crate::repo_view::{Repo, Selection};
 use crate::{graph_view, theme};
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
     let menu_ctx = repo.menu_context();
+    let filtering = repo.view.is_filtering();
     egui::ScrollArea::vertical()
         .auto_shrink(false)
         .show(ui, |ui| {
@@ -25,6 +27,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                             label.row.map(|r| Selection::Commit(r as usize)) == repo.selected;
                         let dot = label
                             .row
+                            .filter(|_| !label.hidden)
                             .map(|r| theme::lane(repo.history.layout.node_color(r as usize)))
                             .unwrap_or(theme::TEXT_FAINT);
                         let badge = match repo.workspace.ahead_behind.get(&label.name) {
@@ -53,7 +56,14 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                             label.is_head,
                             selected,
                             tag.as_deref(),
+                            label.hidden,
                         );
+                        if !label.is_head
+                            && (label.hidden || ui.rect_contains_pointer(response.rect))
+                            && eye_toggle(ui, &response, label.hidden)
+                        {
+                            commands.push(Command::ToggleRef(label.full_name()));
+                        }
                         if response.clicked()
                             && let Some(r) = label.row
                         {
@@ -74,12 +84,15 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                             && label.is_head
                             && std::env::var("KELP_OPEN_MENU").as_deref() == Ok("branch");
                         if forced {
-                            egui::Popup::from_response(&response)
-                                .open(true)
-                                .show(|ui| menus::branch(ui, label, &menu_ctx, commands));
+                            egui::Popup::from_response(&response).open(true).show(|ui| {
+                                menus::branch(ui, label, &menu_ctx, commands);
+                                menus::view_items(ui, label, filtering, commands);
+                            });
                         } else {
-                            response
-                                .context_menu(|ui| menus::branch(ui, label, &menu_ctx, commands));
+                            response.context_menu(|ui| {
+                                menus::branch(ui, label, &menu_ctx, commands);
+                                menus::view_items(ui, label, filtering, commands);
+                            });
                         }
                     }
                 });
@@ -111,8 +124,16 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                             .and_then(|l| l.row)
                             .map(|r| theme::lane(repo.history.layout.node_color(r as usize)))
                             .unwrap_or(theme::TEXT_FAINT);
-                        let response =
-                            row(ui, &wt.tree.name(), Some(&sub), dot, current, false, None);
+                        let response = row(
+                            ui,
+                            &wt.tree.name(),
+                            Some(&sub),
+                            dot,
+                            current,
+                            false,
+                            None,
+                            false,
+                        );
                         if response.double_clicked() && !current {
                             commands.push(Command::OpenRepo(wt.tree.path.clone()));
                         } else if response.clicked() {
@@ -137,6 +158,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                         false,
                         false,
                         None,
+                        false,
                     );
                     response.context_menu(|ui| menus::stash(ui, stash, commands));
                 }
@@ -191,6 +213,42 @@ fn section(
     ui.add_space(6.0);
 }
 
+fn eye_toggle(ui: &mut Ui, row: &egui::Response, hidden: bool) -> bool {
+    let rect = egui::Rect::from_center_size(
+        egui::pos2(row.rect.right() - 20.0, row.rect.center().y),
+        vec2(22.0, 22.0),
+    );
+    let response = ui
+        .interact(rect, row.id.with("eye"), Sense::click())
+        .on_hover_text(if hidden {
+            "Show in the graph"
+        } else {
+            "Hide from the graph"
+        })
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    let painter = ui.painter();
+    let backdrop = if response.hovered() {
+        theme::CONTROL_HOVER
+    } else {
+        theme::PANEL
+    };
+    painter.rect_filled(rect.expand2(vec2(10.0, 0.0)), 4.0, backdrop);
+    let color = if response.hovered() {
+        theme::TEXT_STRONG
+    } else {
+        theme::TEXT_MUTED
+    };
+    let icon = if hidden { Icon::EyeOff } else { Icon::Eye };
+    crate::icons::paint(
+        painter,
+        crate::icons::center_square(rect, 15.0),
+        icon,
+        color,
+    );
+    response.clicked()
+}
+
+#[allow(clippy::too_many_arguments)]
 fn row(
     ui: &mut Ui,
     name: &str,
@@ -199,6 +257,7 @@ fn row(
     strong: bool,
     selected: bool,
     tag: Option<&str>,
+    dim: bool,
 ) -> egui::Response {
     let height = if subtitle.is_some() { 40.0 } else { 28.0 };
     let (rect, response) =
@@ -217,6 +276,8 @@ fn row(
     painter.circle_filled(egui::pos2(rect.left() + 12.0, name_y), 4.0, dot);
     let color = if selected || strong {
         theme::TEXT_STRONG
+    } else if dim {
+        theme::TEXT_FAINT
     } else {
         Color32::from_rgb(0xd5, 0xd7, 0xdc)
     };
