@@ -1,7 +1,9 @@
 mod common;
 
+use std::collections::BTreeSet;
+
 use common::Scratch;
-use kelp_core::diff::{self, Body};
+use kelp_core::diff::{self, Body, LineKind};
 use kelp_core::ops::Op;
 use kelp_core::status::working_status;
 
@@ -185,6 +187,99 @@ fn unstage_works_before_the_first_commit() {
     .unwrap();
     assert!(working_status(&dir).unwrap().staged.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn line_index(diff: &diff::FileDiff, kind: LineKind, text: &str) -> usize {
+    let Body::Text(hunks) = &diff.body else {
+        panic!("expected a text diff")
+    };
+    hunks
+        .iter()
+        .flat_map(|h| &h.lines)
+        .position(|l| l.kind == kind && l.text == text)
+        .unwrap_or_else(|| panic!("no {kind:?} line {text:?}"))
+}
+
+fn apply_lines(repo: &Scratch, path: &str, picks: &[(LineKind, &str)], staged: bool) {
+    let git = kelp_repo(repo);
+    let diff = if staged {
+        diff::staged_file(&git, path).unwrap()
+    } else {
+        diff::unstaged_file(&git, repo.path(), path).unwrap()
+    };
+    let selected: BTreeSet<usize> = picks
+        .iter()
+        .map(|(kind, text)| line_index(&diff, *kind, text))
+        .collect();
+    let patch = diff::lines_patch(&diff, &selected, staged).unwrap();
+    Op::ApplyToIndex {
+        patch,
+        reverse: staged,
+    }
+    .run(repo.path())
+    .unwrap();
+}
+
+fn index_content(repo: &Scratch, path: &str) -> String {
+    repo.git(&["show", &format!(":{path}")])
+}
+
+#[test]
+fn stage_one_of_three_added_lines_then_unstage_it() {
+    let repo = Scratch::new("lines-add");
+    repo.commit("f.txt", "a\nb\n", "two lines");
+    std::fs::write(repo.path().join("f.txt"), "a\nx\ny\nz\nb\n").unwrap();
+
+    apply_lines(&repo, "f.txt", &[(LineKind::Added, "y")], false);
+    assert_eq!(index_content(&repo, "f.txt"), "a\ny\nb\n");
+    let unstaged = repo.git(&["diff"]);
+    assert!(
+        unstaged.contains("+x\n") && unstaged.contains("+z\n"),
+        "{unstaged}"
+    );
+
+    apply_lines(&repo, "f.txt", &[(LineKind::Added, "y")], true);
+    assert_eq!(index_content(&repo, "f.txt"), "a\nb\n");
+}
+
+#[test]
+fn stage_a_single_removal() {
+    let repo = Scratch::new("lines-remove");
+    repo.commit("f.txt", "a\nb\nc\nd\n", "four lines");
+    std::fs::write(repo.path().join("f.txt"), "a\nd\n").unwrap();
+
+    apply_lines(&repo, "f.txt", &[(LineKind::Removed, "c")], false);
+    assert_eq!(index_content(&repo, "f.txt"), "a\nb\nd\n");
+
+    apply_lines(&repo, "f.txt", &[(LineKind::Removed, "c")], true);
+    assert_eq!(index_content(&repo, "f.txt"), "a\nb\nc\nd\n");
+}
+
+#[test]
+fn line_staging_keeps_crlf() {
+    let repo = Scratch::new("lines-crlf");
+    repo.commit("w.txt", "one\r\ntwo\r\nthree\r\n", "crlf");
+    std::fs::write(repo.path().join("w.txt"), "one\r\n2\r\nthree\r\nfour\r\n").unwrap();
+
+    apply_lines(&repo, "w.txt", &[(LineKind::Added, "four")], false);
+    assert_eq!(
+        index_content(&repo, "w.txt"),
+        "one\r\ntwo\r\nthree\r\nfour\r\n"
+    );
+}
+
+#[test]
+fn line_staging_handles_a_missing_final_newline() {
+    let repo = Scratch::new("lines-eof");
+    repo.commit("n.txt", "a\nb", "no trailing newline");
+    std::fs::write(repo.path().join("n.txt"), "a\nc").unwrap();
+
+    apply_lines(&repo, "n.txt", &[(LineKind::Added, "c")], false);
+    assert_eq!(index_content(&repo, "n.txt"), "a\nb\nc");
+
+    apply_lines(&repo, "n.txt", &[(LineKind::Removed, "b")], false);
+    assert_eq!(index_content(&repo, "n.txt"), "a\nc");
+    assert!(repo.git(&["diff", "--", "n.txt"]).is_empty());
 }
 
 fn kelp_repo(repo: &Scratch) -> gix::Repository {
