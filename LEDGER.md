@@ -5,14 +5,27 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** polish pass (context menus and all controls).
-- **Done:** M0 to M7, MIT license.
-- **Queued (user asks, in order):** Kelp mascot and load animations; GitHub Pages
+- **Current milestone:** GitHub Pages site.
+- **Done:** M0 to M7, MIT license, polish pass, mascot.
+- **Queued (user asks, in order):** GitHub Pages
   site like stdusk (SEO, OG images, upkeep instructions); Homebrew
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
 ## 2026-09-27
+
+- **Polish pass.** One global egui style (spacing, 4px controls with
+  clear states, accent focus, soft popup and dialog shadows, floating
+  scrollbars). All right-click menus rebuilt as painted 30px rows with
+  icons, hover fills, red-tinted danger items, inset separators and a
+  mono header. Staging commit box made a self-sizing bottom panel
+  (the button was clipped). Checkboxes squared off.
+- **Mascot.** A kelp frond with a face whose air bladders are commit
+  dots (`crates/kelp/assets/mascot.svg`), now also the app icon. Drawn
+  natively in egui with sway, bobbing bladders, blinks and bubbles:
+  loading screen, a welcome screen that waves for 4 s then holds still
+  (and sways on hover), bubbles next to running jobs. Idle CPU still
+  0.0% on the welcome screen and with trakt-web open.
 
 - **M7 done: staging and committing.**
   - Unstaged / Staged / Conflicts sections with hover Stage/Unstage,
