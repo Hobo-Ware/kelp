@@ -7,6 +7,28 @@ use kelp_core::ops::{Op, ResetMode, push_rejected};
 use kelp_core::{search, workspace};
 
 #[test]
+fn checkout_and_merge_lands_on_the_target_branch() {
+    let repo = Scratch::new("checkout-merge");
+    repo.git(&["branch", "release"]);
+    Op::CreateBranch {
+        name: "feat/x".into(),
+        start: "main".into(),
+        switch: true,
+    }
+    .run(repo.path())
+    .unwrap();
+    repo.commit("x.txt", "x", "feature work");
+    let op = Op::CheckoutAndMerge {
+        branch: "release".into(),
+        source: "feat/x".into(),
+    };
+    assert_eq!(op.command_line(), "git switch release && git merge feat/x");
+    op.run(repo.path()).unwrap();
+    assert_eq!(repo.git(&["branch", "--show-current"]).trim(), "release");
+    assert!(repo.path().join("x.txt").exists());
+}
+
+#[test]
 fn branch_lifecycle() {
     let repo = Scratch::new("branches");
     Op::CreateBranch {
