@@ -33,6 +33,10 @@ pub enum Op {
         branch: String,
     },
     Merge(String),
+    CheckoutAndMerge {
+        branch: String,
+        source: String,
+    },
     Rebase(String),
     StashPush,
     StashPop,
@@ -139,6 +143,7 @@ impl Op {
             }
             Op::DeleteRemoteBranch { remote, branch } => v(&["push", remote, "--delete", branch]),
             Op::Merge(what) => v(&["merge", what]),
+            Op::CheckoutAndMerge { branch, .. } => v(&["switch", branch]),
             Op::Rebase(onto) => v(&["rebase", onto]),
             Op::StashPush => v(&["stash", "push", "--include-untracked"]),
             Op::StashPop => v(&["stash", "pop"]),
@@ -208,6 +213,7 @@ impl Op {
             Op::DeleteBranch { name, .. } => format!("Deleting {name}"),
             Op::DeleteRemoteBranch { remote, branch } => format!("Deleting {remote}/{branch}"),
             Op::Merge(what) => format!("Merging {what}"),
+            Op::CheckoutAndMerge { branch, source } => format!("Merging {source} into {branch}"),
             Op::Rebase(onto) => format!("Rebasing onto {onto}"),
             Op::StashPush => "Stashing".into(),
             Op::StashPop | Op::StashApply(_) => "Applying stash".into(),
@@ -233,6 +239,13 @@ impl Op {
     }
 
     pub fn command_line(&self) -> String {
+        if let Op::CheckoutAndMerge { branch, source } = self {
+            return format!(
+                "{} && {}",
+                Op::Switch(branch.clone()).command_line(),
+                Op::Merge(source.clone()).command_line()
+            );
+        }
         let args = self.args();
         git_cli::command_line(&args.iter().map(String::as_str).collect::<Vec<_>>())
     }
@@ -242,6 +255,10 @@ impl Op {
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let out = match self {
             Op::ApplyToIndex { patch, .. } => git_cli::run_with_stdin(dir, &args, patch)?,
+            Op::CheckoutAndMerge { source, .. } => {
+                git_cli::run(dir, &args)?;
+                git_cli::run(dir, &["merge", source])?
+            }
             _ => git_cli::run(dir, &args)?,
         };
         Ok(out.trim().to_string())
