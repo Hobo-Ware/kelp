@@ -57,6 +57,8 @@ pub enum RepoAction {
     CopyBranchName,
     OpenTerminal,
     RevealRepo,
+    OpenPullRequest,
+    CreatePullRequest,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -150,6 +152,8 @@ pub static ACTIONS: &[Action] = &[
     repo("interactive-rebase", "Interactive rebase from the selected commit…", "squash reword reorder fixup drop", None, Some(Icon::Rebase), RepoAction::InteractiveRebase),
     repo("copy-hash", "Copy the selected commit hash", "sha id clipboard", None, Some(Icon::Copy), RepoAction::CopyCommitHash),
     repo("copy-branch", "Copy the current branch name", "clipboard", None, Some(Icon::Copy), RepoAction::CopyBranchName),
+    repo("open-pull-request", "Open the pull request for this branch", "pr github review", None, Some(Icon::Merge), RepoAction::OpenPullRequest),
+    repo("create-pull-request", "Create a pull request", "pr github new", None, Some(Icon::Merge), RepoAction::CreatePullRequest),
     repo("open-terminal", "Open in Terminal", "shell console", None, Some(Icon::Terminal), RepoAction::OpenTerminal),
     repo("reveal-repo", "Reveal the repository in Finder", "folder show", None, Some(Icon::Folder), RepoAction::RevealRepo),
     app("new-tab", "New tab", "recent repositories welcome home", Some("Cmd+T"), None, AppAction::NewTab),
@@ -188,6 +192,8 @@ pub struct State {
     pub commit_selected: bool,
     pub filtering: bool,
     pub tabs: usize,
+    pub pull: bool,
+    pub github: bool,
 }
 
 impl State {
@@ -212,6 +218,8 @@ impl State {
             Undo => self.can_undo,
             Redo => self.can_redo,
             ShowAllBranches => self.filtering,
+            OpenPullRequest => self.pull,
+            CreatePullRequest => self.github && self.branch && !self.pull,
             CheckoutCommit | CherryPick | Revert | InteractiveRebase | CopyCommitHash => {
                 self.commit_selected
             }
@@ -302,6 +310,8 @@ mod tests {
             "interactive-rebase",
             "copy-hash",
             "copy-branch",
+            "open-pull-request",
+            "create-pull-request",
             "open-terminal",
             "reveal-repo",
             "new-tab",

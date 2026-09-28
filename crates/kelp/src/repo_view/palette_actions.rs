@@ -25,6 +25,8 @@ impl Repo {
             can_undo: self.can_undo(),
             can_redo: self.undo.next_redo().is_some(),
             commit_selected: self.selected_commit().is_some(),
+            pull: self.current_pull().is_some(),
+            github: self.github.is_some(),
             filtering: self.view.is_filtering(),
             tabs: 0,
         }
@@ -167,6 +169,12 @@ impl Repo {
                 self.current_branch().map(|b| Command::Copy(b.to_string()))
             }
             RepoAction::OpenTerminal => self.workdir.clone().map(Command::OpenTerminal),
+            RepoAction::OpenPullRequest => {
+                self.current_pull().map(|p| Command::OpenUrl(p.url.clone()))
+            }
+            RepoAction::CreatePullRequest => self
+                .current_branch()
+                .map(|b| Command::CreatePullRequest(b.to_string())),
             RepoAction::RevealRepo => {
                 if let Err(e) = reveal_in_finder(&self.dir) {
                     self.notify(format!("Could not reveal the repository: {e}"), true);

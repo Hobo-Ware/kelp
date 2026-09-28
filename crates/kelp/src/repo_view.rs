@@ -48,6 +48,7 @@ pub enum JobOutput {
     Workspace(Box<WorkspaceInfo>),
     AutoFetch(anyhow::Result<String>),
     Opened(Result<(), String>),
+    Pulls(Vec<kelp_core::pulls::Pull>),
     Op {
         label: String,
         quiet: bool,
@@ -148,6 +149,8 @@ pub struct Repo {
     pub jobs: Jobs<JobOutput>,
     pub toast: Option<Toast>,
     pub avatars: AvatarStore,
+    github: Option<kelp_core::avatar::GitHubRepo>,
+    pub pulls: kelp_core::pulls::Pulls,
     pub dialog: Option<Dialog>,
     pub outbox: Vec<PathBuf>,
     pub review: Review,
@@ -189,8 +192,8 @@ impl Repo {
     ) -> Self {
         let workdir = repo.workdir().map(Path::to_path_buf);
         let dir = workdir.clone().unwrap_or_else(|| repo.path().to_path_buf());
-        let avatars =
-            AvatarStore::new(ctx.clone(), kelp_core::avatar::GitHubRepo::from_repo(&repo));
+        let github = kelp_core::avatar::GitHubRepo::from_repo(&repo);
+        let avatars = AvatarStore::new(ctx.clone(), github.clone());
         let review = Review::load(repo.common_dir());
         let view = ViewFilter::load(repo.common_dir());
         let sidebar = sidebar::State::new(repo.common_dir());
@@ -233,6 +236,8 @@ impl Repo {
             jobs: Jobs::new(ctx.clone()),
             toast: None,
             avatars,
+            github,
+            pulls: kelp_core::pulls::Pulls::default(),
             dialog: None,
             outbox: Vec::new(),
             open_after_ops: Vec::new(),
@@ -262,6 +267,7 @@ impl Repo {
         }
         ready.refresh_status();
         ready.refresh_workspace();
+        ready.refresh_pulls(false);
 
         if let Ok(names) = std::env::var("KELP_HIDE_REFS") {
             let wanted: Vec<&str> = names.split(',').map(str::trim).collect();
@@ -574,6 +580,7 @@ impl Repo {
                 .map(|l| l.name.clone())
                 .collect(),
             head: self.history.refs.head.map(|h| h.to_string()),
+            on_github: self.github.is_some(),
         }
     }
 
@@ -669,6 +676,12 @@ impl Repo {
                         self.notify(format!("Could not open a terminal: {e}"), true);
                     }
                 }
+                Command::OpenUrl(url) => {
+                    if let Err(e) = crate::pulls_ui::open_url(&url) {
+                        self.notify(format!("Could not open {url}: {e}"), true);
+                    }
+                }
+                Command::CreatePullRequest(branch) => self.create_pull_request(branch),
                 Command::OpenInEditor(rel) => match self.working_file(&rel) {
                     Some(path) => {
                         let setting = self.editor.clone();
@@ -844,6 +857,61 @@ impl Repo {
         });
     }
 
+    pub fn refresh_pulls(&mut self, force: bool) {
+        let Some(github) = self.github.clone() else {
+            return;
+        };
+        if self.jobs.is_running("Checking pull requests") {
+            return;
+        }
+        self.jobs.spawn("Checking pull requests", move || {
+            JobOutput::Pulls(crate::pulls_ui::load(&github, force))
+        });
+    }
+
+    fn create_pull_request(&mut self, branch: String) {
+        let Some(github) = self.github.clone() else {
+            self.notify("This repository is not on GitHub", true);
+            return;
+        };
+        let dir = self.dir.clone();
+        let base = self.default_base();
+        self.jobs.spawn("Opening pull request form", move || {
+            let via_gh = kelp_core::pulls::gh_available()
+                && std::process::Command::new("gh")
+                    .args(["pr", "create", "--web", "--head", &branch])
+                    .current_dir(&dir)
+                    .env("GH_PROMPT_DISABLED", "1")
+                    .status()
+                    .is_ok_and(|s| s.success());
+            let result = if via_gh {
+                Ok(())
+            } else {
+                let url = kelp_core::pulls::compare_url(&github, &base, &branch);
+                crate::pulls_ui::open_url(&url)
+                    .map_err(|e| format!("Could not open the pull request form: {e}"))
+            };
+            JobOutput::Opened(result)
+        });
+    }
+
+    fn default_base(&self) -> String {
+        ["main", "master"]
+            .into_iter()
+            .find(|name| {
+                self.history
+                    .refs
+                    .of_kind(RefKind::Local)
+                    .any(|l| l.name == *name)
+            })
+            .unwrap_or("main")
+            .to_string()
+    }
+
+    pub fn current_pull(&self) -> Option<&kelp_core::pulls::Pull> {
+        self.pulls.for_branch(self.current_branch()?)
+    }
+
     pub fn refresh_workspace(&mut self) {
         if self.jobs.is_running("Reading worktrees") {
             return;
@@ -960,7 +1028,17 @@ impl Repo {
                 }
                 JobOutput::Opened(Ok(())) => {}
                 JobOutput::Opened(Err(e)) => self.notify(e, true),
-                JobOutput::AutoFetch(Ok(_)) => self.auto_fetch_failed = false,
+                JobOutput::Pulls(list) => {
+                    if let Some(github) = &self.github {
+                        self.pulls = kelp_core::pulls::Pulls::new(github, list);
+                        self.history.refs.attach_pulls(&self.pulls);
+                        self.graph.clear_cache();
+                    }
+                }
+                JobOutput::AutoFetch(Ok(_)) => {
+                    self.auto_fetch_failed = false;
+                    self.refresh_pulls(true);
+                }
                 JobOutput::AutoFetch(Err(e)) => {
                     if !self.auto_fetch_failed {
                         self.notify(format!("Auto-fetch failed: {e:#}"), true);
@@ -1001,6 +1079,12 @@ impl Repo {
                         self.commit_in_flight = false;
                     }
                     self.keep_undo(undo);
+                    let remote_changed = ["Fetching", "Pulling", "Pushing"]
+                        .iter()
+                        .any(|verb| label.starts_with(verb));
+                    if remote_changed && result.is_ok() {
+                        self.refresh_pulls(true);
+                    }
                     match result {
                         Ok(_) => {
                             if commit {
@@ -1079,6 +1163,7 @@ impl Repo {
             _ => None,
         };
         self.history = history;
+        self.history.refs.attach_pulls(&self.pulls);
         self.graph.clear_cache();
         let keep_wip = self.selected == Some(Selection::Wip);
         self.selected = None;
@@ -1621,6 +1706,12 @@ impl Repo {
                 .circle_filled(dot.center(), 3.5, theme::LANES[0]);
             ui.add_space(-12.0);
             ui.label(RichText::new(branch).size(11.0).color(theme::LANES[0]));
+            if let Some(pull) = self.current_pull() {
+                ui.add_space(-10.0);
+                if crate::pulls_ui::clicked_pill(ui, pull) {
+                    commands.push(Command::OpenUrl(pull.url.clone()));
+                }
+            }
             if let Some((ahead, behind)) = self
                 .current_branch()
                 .and_then(|b| self.workspace.ahead_behind.get(b))
