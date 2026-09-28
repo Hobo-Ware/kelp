@@ -15,6 +15,24 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-09-28
 
+- **Scale: the Linux kernel (1,484,088 commits, 702 lanes).** Lanes are
+  stored as spans with a bucket index instead of one pass edge per lane
+  per row (equivalence test against the old algorithm on random
+  histories); the walk uses flat parent lists and reuses its id index.
+
+| Linux kernel | Before | After |
+|---|---|---|
+| Load (walk + sort + layout) | 2.2 s | 1.4 s |
+| Peak memory while loading (core only) | 2.37 GB | 435 MB |
+| History held after load (core only) | - | 272 MB |
+| App resident / physical footprint | - | ~600 MB / ~600 MB |
+| Smooth scroll avg / p95 (background window) | - | 0.41 / 0.75 ms |
+| Random jumps avg | - | 3.2 ms |
+
+  For comparison the tidepool demo has a 346 MB footprint, 201 MB of it
+  the window's graphics buffers, so the kernel history costs about
+  250 MB on top. git/git is unchanged (0.33 ms smooth, 47 MB core).
+
 - **v0.6 "Remotes and GitHub", remaining items in (two branches).**
   - CI dots on commits (green, red, amber) from `gh api graphql` for
     visible commits only, 50 per call, cached (1 h done, 1 min running,
