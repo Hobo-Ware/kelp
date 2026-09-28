@@ -177,6 +177,10 @@ folder if it is a repo.
 - **Light and dark:** a soft light theme and the dark one, built from the
   same colors. Settings > Appearance picks System (follows macOS as it
   changes), Light or Dark.
+- **What's new and help:** after an update, Kelp shows the release notes
+  once (up to three releases). Settings > Help and the palette open them
+  again, along with the [docs](https://kelp.hoboware.dev/docs/getting-started.html)
+  and a Report a bug link.
 
 ## Keys
 
@@ -267,7 +271,7 @@ Developer switches (environment variables):
 | `KELP_THEME=light` (or `dark`) | Use that theme for this run, whatever Settings says |
 | `KELP_HIDE_REFS=a,b`, `KELP_COLUMNS=author,date,hash` | Hide branches or show columns for this run |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
-| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`, `tag`, `add-remote`, `rename-remote-branch`, `clone`; `KELP_CLONE_URL=<url>` prefills it), `KELP_OPEN_WELCOME=1` (the new tab page; `KELP_RECENTS=<path>,<path>` fakes its list), `KELP_ZOOM=1.25`, `KELP_COLLAPSE=sidebar,details`, `KELP_OPEN_SETTINGS=1`, `KELP_OPEN_PALETTE=<query>`, `KELP_OPEN_SHORTCUTS=1`, `KELP_OPEN_MESSAGE=1` (full commit message), `KELP_PICK=<file>,<file>` (picks unstaged files; add `KELP_OPEN_STASH=1` for the stash prompt), `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`, `sort`), `KELP_SIDEBAR_FILTER=text`, `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu), `KELP_RENAME=<branch>` (inline rename), `KELP_SHOW_STASH=stash@{0}` (a stash's changes), `KELP_OPEN_REFLOG=1` (or a branch name), `KELP_FILE_HISTORY=<path>`, `KELP_BLAME=<path>`, `KELP_OPEN_PULLS=1` (the pull requests page), `KELP_OPEN_CONSOLE=1` (the git console; `bg` also shows background checks) | Open a screen on start |
+| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`, `tag`, `add-remote`, `rename-remote-branch`, `clone`; `KELP_CLONE_URL=<url>` prefills it), `KELP_OPEN_WELCOME=1` (the new tab page; `KELP_RECENTS=<path>,<path>` fakes its list), `KELP_ZOOM=1.25`, `KELP_COLLAPSE=sidebar,details`, `KELP_OPEN_SETTINGS=1` (`help` scrolls to the Help links), `KELP_WHATS_NEW=<version>` (What's new since that version; empty shows the latest), `KELP_OPEN_PALETTE=<query>`, `KELP_OPEN_SHORTCUTS=1`, `KELP_OPEN_MESSAGE=1` (full commit message), `KELP_PICK=<file>,<file>` (picks unstaged files; add `KELP_OPEN_STASH=1` for the stash prompt), `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`, `sort`), `KELP_SIDEBAR_FILTER=text`, `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu), `KELP_RENAME=<branch>` (inline rename), `KELP_SHOW_STASH=stash@{0}` (a stash's changes), `KELP_OPEN_REFLOG=1` (or a branch name), `KELP_FILE_HISTORY=<path>`, `KELP_BLAME=<path>`, `KELP_OPEN_PULLS=1` (the pull requests page), `KELP_OPEN_CONSOLE=1` (the git console; `bg` also shows background checks) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FOCUS=sidebar` (or `graph`, `details`) | Put keyboard focus in an area, with the focus ring showing |
 | `KELP_COMPARE=<a>..<b>` (`<b>` can be `worktree`), `KELP_FILTER=author:<name>,path:<prefix>,period:day\|week\|month,mine` | Start comparing or filtering |
@@ -277,6 +281,13 @@ Developer switches (environment variables):
 | `KELP_HOVER_ROW=<row>` | Draw the graph as if that commit row were hovered |
 | `KELP_OPEN_REBASE=<rev>` (or `<rev>:<letters>`, e.g. `HEAD~4:prsd`) | Open interactive rebase from a commit, optionally with actions preset |
 | `KELP_EDIT_MESSAGE=<rev>` | Open the message editor for a commit |
+
+[CHANGELOG.md](CHANGELOG.md) is the one source for release notes: the app
+embeds it for What's new, and `scripts/make-changelog-page.py` turns it
+into `site/changelog.html`. `site/docs/shortcuts.html` is built from the
+shortcut sheet with `KELP_WRITE_DOCS=1 cargo test -p kelp shortcuts_page`.
+CI fails when either page is out of date, and `scripts/check-site.py`
+checks the site's links, meta tags and sitemap.
 
 The plan, design rules and decisions are in [PLAN.md](PLAN.md); progress
 is logged in [LEDGER.md](LEDGER.md). Fonts: IBM Plex Sans and JetBrains

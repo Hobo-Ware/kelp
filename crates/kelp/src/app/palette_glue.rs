@@ -105,6 +105,12 @@ impl KelpApp {
             AppAction::Settings => self.show_settings = true,
             AppAction::Shortcuts => self.shortcuts_open = true,
             AppAction::CheckUpdates => self.updater.check_now(),
+            AppAction::WhatsNew => self.whats_new = crate::whats_new::WhatsNew::since(None),
+            AppAction::Help(page) => {
+                if let Err(e) = page.open() {
+                    self.notify(format!("Could not open {}: {e}", page.url()));
+                }
+            }
             AppAction::ToggleDescriptions => {
                 self.settings.show_descriptions = !self.settings.show_descriptions
             }
