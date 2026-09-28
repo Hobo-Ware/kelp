@@ -1,3 +1,5 @@
+use eframe::egui::{Key, KeyboardShortcut, Modifiers};
+
 use crate::icons::Icon;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -72,6 +74,15 @@ pub enum RepoAction {
     CompareWithHead,
     CompareWithWorkTree,
     StopCompare,
+    ResetSoft,
+    ResetMixed,
+    ResetHard,
+    NextChange,
+    PreviousChange,
+    OpenFileInEditor,
+    RevealFile,
+    CopyFilePath,
+    ShowLatestStash,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -142,12 +153,12 @@ const fn repo(
 
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
-    repo("fetch", "Fetch", "remote download update", None, Some(Icon::Fetch), RepoAction::Fetch),
-    repo("pull", "Pull", "merge remote update", None, Some(Icon::Pull), RepoAction::Pull),
-    repo("push", "Push", "upload remote publish", None, Some(Icon::Push), RepoAction::Push),
-    repo("new-branch", "New branch…", "create branch", None, Some(Icon::Branch), RepoAction::NewBranch),
+    repo("fetch", "Fetch", "remote download update", Some("Cmd+Shift+R"), Some(Icon::Fetch), RepoAction::Fetch),
+    repo("pull", "Pull", "merge remote update", Some("Cmd+Shift+L"), Some(Icon::Pull), RepoAction::Pull),
+    repo("push", "Push", "upload remote publish", Some("Cmd+Shift+U"), Some(Icon::Push), RepoAction::Push),
+    repo("new-branch", "New branch…", "create branch", Some("Cmd+Shift+B"), Some(Icon::Branch), RepoAction::NewBranch),
     repo("new-worktree", "New worktree…", "create worktree", None, Some(Icon::Worktree), RepoAction::NewWorktree),
-    repo("stash", "Stash all changes", "save shelve", None, Some(Icon::Stash), RepoAction::Stash),
+    repo("stash", "Stash all changes", "save shelve", Some("Cmd+Shift+S"), Some(Icon::Stash), RepoAction::Stash),
     repo("pop", "Pop the latest stash", "apply unstash", None, Some(Icon::Pop), RepoAction::Pop),
     repo("undo", "Undo", "revert back", Some("Cmd+Z"), Some(Icon::Undo), RepoAction::Undo),
     repo("redo", "Redo", "again", Some("Cmd+Shift+Z"), None, RepoAction::Redo),
@@ -160,7 +171,7 @@ pub static ACTIONS: &[Action] = &[
     repo("show-graph", "Go to the graph", "history back close", Some("Esc"), None, RepoAction::ShowGraph),
     repo("show-worktrees", "Manage worktrees", "worktree list", None, Some(Icon::Worktree), RepoAction::ShowWorktrees),
     repo("show-reflog", "Show reflog", "history lost recover restore undo reset", None, Some(Icon::Undo), RepoAction::ShowReflog),
-    repo("show-changes", "Show uncommitted changes", "wip staging working tree", None, None, RepoAction::ShowChanges),
+    repo("show-changes", "Show uncommitted changes", "wip staging working tree commit", Some("Cmd+Shift+C"), None, RepoAction::ShowChanges),
     repo("stage-all", "Stage all changes", "add index", None, Some(Icon::Plus), RepoAction::StageAll),
     repo("unstage-all", "Unstage all changes", "reset index", None, Some(Icon::Minus), RepoAction::UnstageAll),
     repo("show-all-branches", "Show all branches", "unhide hidden solo filter", None, Some(Icon::Eye), RepoAction::ShowAllBranches),
@@ -182,6 +193,15 @@ pub static ACTIONS: &[Action] = &[
     repo("add-remote", "Add a remote…", "remote origin upstream fork url", None, Some(Icon::Plus), RepoAction::AddRemote),
     repo("file-history", "File history of the open file", "log commits changes over time", None, Some(Icon::Clock), RepoAction::FileHistory),
     repo("blame", "Blame the open file", "annotate who wrote line author", None, Some(Icon::Commit), RepoAction::Blame),
+    repo("reset-soft", "Reset the current branch to the selected commit, keeping changes staged", "soft move back", None, Some(Icon::Reset), RepoAction::ResetSoft),
+    repo("reset-mixed", "Reset the current branch to the selected commit, keeping changes unstaged", "mixed move back", None, Some(Icon::Reset), RepoAction::ResetMixed),
+    repo("reset-hard", "Reset the current branch to the selected commit, discarding changes…", "hard move back throw away", None, Some(Icon::Reset), RepoAction::ResetHard),
+    repo("next-change", "Next change in the diff", "hunk jump down", Some("Alt+Down"), None, RepoAction::NextChange),
+    repo("previous-change", "Previous change in the diff", "hunk jump up", Some("Alt+Up"), None, RepoAction::PreviousChange),
+    repo("open-file-in-editor", "Open the open file in your editor", "edit code", None, Some(Icon::Pencil), RepoAction::OpenFileInEditor),
+    repo("reveal-file", "Reveal the open file in Finder", "folder show", None, Some(Icon::Folder), RepoAction::RevealFile),
+    repo("copy-file-path", "Copy the open file's path", "clipboard", None, Some(Icon::Copy), RepoAction::CopyFilePath),
+    repo("show-latest-stash", "Show the latest stash", "stash view changes", None, Some(Icon::Stash), RepoAction::ShowLatestStash),
     app("new-tab", "New tab", "recent repositories welcome home", Some("Cmd+T"), None, AppAction::NewTab),
     app("open-repo", "Open a folder…", "repository open folder", Some("Cmd+O"), Some(Icon::Folder), AppAction::OpenRepo),
     app("clone", "Clone a repository…", "download url remote", None, None, AppAction::Clone),
@@ -253,6 +273,11 @@ impl State {
             CheckoutCommit | CherryPick | Revert | InteractiveRebase | EditMessage
             | CopyCommitHash | CreateTag | CompareWithHead => self.commit_selected,
             CompareWithWorkTree => self.commit_selected && self.workdir,
+            ResetSoft | ResetMixed | ResetHard => self.commit_selected && self.branch,
+            NextChange | PreviousChange | OpenFileInEditor | RevealFile | CopyFilePath => {
+                self.file_open
+            }
+            ShowLatestStash => self.stashes,
             StopCompare => self.comparing,
             Fetch | NewBranch | Refresh | Search | ShowGraph | ShowWorktrees | ShowReflog
             | RevealRepo | PushTags | AddRemote | FilterCommits => true,
@@ -274,6 +299,10 @@ const fn key(keys: &'static str, what: &'static str, group: Group) -> KeyRow {
 pub static KEYS: &[KeyRow] = &[
     key("Cmd+K / Cmd+Shift+P", "Command palette: actions, branches, commits, files and tabs", Group::Navigation),
     key("Cmd+/", "Keyboard shortcuts", Group::Navigation),
+    key("F6 / Shift+F6", "Move focus to the next / previous area: sidebar, graph, details", Group::Navigation),
+    key("Tab / Shift+Tab", "Move focus to the next / previous control", Group::Navigation),
+    key("Enter / Space", "Activate the focused control; Enter on a branch checks it out", Group::Navigation),
+    key("Shift+F10", "Open the menu of the focused row or commit", Group::Navigation),
     key("Up / Down, J / K", "Move through commits", Group::Navigation),
     key("Cmd+F", "Search; Enter / Shift+Enter for next / previous", Group::Navigation),
     key("Cmd+Shift+F", "Filter commits by author, path or date; Esc closes", Group::Navigation),
@@ -293,6 +322,11 @@ pub static KEYS: &[KeyRow] = &[
     key("Alt+Up / Alt+Down", "Previous / next change in a diff", Group::Diff),
     key("Cmd+Enter", "Save a review comment or reply", Group::Diff),
     key("Cmd+R", "Refresh the graph, changes and worktrees", Group::Actions),
+    key("Cmd+Shift+R", "Fetch", Group::Actions),
+    key("Cmd+Shift+L / Cmd+Shift+U", "Pull / push", Group::Actions),
+    key("Cmd+Shift+B", "New branch", Group::Actions),
+    key("Cmd+Shift+S", "Stash all changes", Group::Actions),
+    key("Cmd+Shift+C", "Show uncommitted changes", Group::Actions),
     key("Cmd+Z / Cmd+Shift+Z", "Undo / redo the last action", Group::Actions),
     key("Cmd+,", "Settings", Group::Actions),
     key("Right-click", "Actions for commits, branches, tags, stashes, worktrees and tabs", Group::Actions),
@@ -303,6 +337,44 @@ pub static KEYS: &[KeyRow] = &[
     key("Cmd-click / Shift-click a changed file", "Pick several to stage, stash or discard", Group::Actions),
     key("P / R / E / S / F / D", "In interactive rebase: pick, reword, edit, squash, fixup or drop the hovered commit", Group::Actions),
 ];
+
+pub const GLOBAL_SHORTCUTS: [&str; 6] = [
+    "fetch",
+    "pull",
+    "push",
+    "new-branch",
+    "stash",
+    "show-changes",
+];
+
+pub fn parse_shortcut(text: &str) -> Option<KeyboardShortcut> {
+    let mut modifiers = Modifiers::NONE;
+    let mut parts: Vec<&str> = text.split('+').collect();
+    let key = match parts.pop()? {
+        "" if text.ends_with("++") => "Plus",
+        key => key,
+    };
+    for part in parts {
+        match part {
+            "Cmd" => modifiers |= Modifiers::COMMAND,
+            "Shift" => modifiers |= Modifiers::SHIFT,
+            "Alt" | "Opt" => modifiers |= Modifiers::ALT,
+            "Ctrl" => modifiers |= Modifiers::CTRL,
+            _ => return None,
+        }
+    }
+    let key = match key {
+        "Up" => Key::ArrowUp,
+        "Down" => Key::ArrowDown,
+        "Left" => Key::ArrowLeft,
+        "Right" => Key::ArrowRight,
+        "," => Key::Comma,
+        "/" => Key::Slash,
+        "Esc" => Key::Escape,
+        other => Key::from_name(other)?,
+    };
+    Some(KeyboardShortcut::new(modifiers, key))
+}
 
 pub fn key_parts(keys: &str) -> impl Iterator<Item = &str> {
     keys.split(" / ")
@@ -316,6 +388,59 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Route {
+        Palette(&'static str),
+        Keys(&'static str),
+        RowMenu(RowMenu),
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum RowMenu {
+        SidebarRow,
+        GraphCommit,
+        FileRow,
+        Tab,
+    }
+
+    const KEYBOARD_MENUS: [RowMenu; 4] = [
+        RowMenu::SidebarRow,
+        RowMenu::GraphCommit,
+        RowMenu::FileRow,
+        RowMenu::Tab,
+    ];
+
+    struct Reach {
+        surface: &'static str,
+        routes: &'static [Route],
+    }
+
+    const fn reach(surface: &'static str, routes: &'static [Route]) -> Reach {
+        Reach { surface, routes }
+    }
+
+    use Route::{Keys, Palette, RowMenu as Menu};
+
+    #[rustfmt::skip]
+    static REACH: &[Reach] = &[
+        reach("Toolbar: undo, fetch, pull, push, branch, worktree, stash, pop", &[Palette("undo"), Palette("fetch"), Palette("pull"), Palette("push"), Palette("new-branch"), Palette("new-worktree"), Palette("stash"), Palette("pop"), Keys("Cmd+Shift+R"), Keys("Cmd+Shift+L")]),
+        reach("Tab strip: switch, new, close, reorder", &[Keys("Cmd+T"), Keys("Cmd+W"), Keys("Ctrl+Tab"), Keys("Cmd+1 ... Cmd+9"), Palette("next-tab")]),
+        reach("Tab menu: close, close others, reveal, copy path", &[Menu(RowMenu::Tab), Palette("close-tab"), Palette("reveal-repo")]),
+        reach("Branch menu (sidebar and graph labels): check out, new branch, rename, merge, rebase, push, pull, delete, hide, solo, pull requests", &[Menu(RowMenu::SidebarRow), Keys("F2"), Palette("rename-branch"), Palette("open-pull-request"), Palette("create-pull-request")]),
+        reach("Tag, remote branch and remote menus", &[Menu(RowMenu::SidebarRow), Palette("push-tags"), Palette("add-remote")]),
+        reach("Stash, worktree and submodule menus", &[Menu(RowMenu::SidebarRow), Palette("pop"), Palette("show-latest-stash"), Palette("show-worktrees")]),
+        reach("Sidebar sections: sort, hide merged, collapse folders, filter", &[Keys("Tab"), Keys("Cmd+Opt+F")]),
+        reach("Commit menu: check out, branch, worktree, cherry-pick, revert, rebase, edit message, reset, tag, compare, copy", &[Menu(RowMenu::GraphCommit), Palette("checkout-commit"), Palette("cherry-pick"), Palette("revert"), Palette("interactive-rebase"), Palette("edit-message"), Palette("reset-soft"), Palette("reset-mixed"), Palette("reset-hard"), Palette("create-tag"), Palette("compare-with-head"), Palette("compare-with-worktree"), Palette("copy-hash")]),
+        reach("Graph: move, search, filter, compare, columns", &[Keys("Up"), Keys("Cmd+F"), Keys("Cmd+Shift+F"), Palette("stop-compare"), Palette("toggle-author-column"), Palette("toggle-date-column"), Palette("toggle-hash-column")]),
+        reach("File menus (details, tree, staging): open in editor, reveal, copy path, history, blame, stage, discard, stash", &[Menu(RowMenu::FileRow), Palette("open-file-in-editor"), Palette("reveal-file"), Palette("copy-file-path"), Palette("file-history"), Palette("blame")]),
+        reach("Staging: stage all, unstage all, commit", &[Palette("stage-all"), Palette("unstage-all"), Keys("Cmd+Shift+C"), Keys("Tab")]),
+        reach("Diff: modes, next or previous change, stage hunk or lines", &[Keys("Alt+Up"), Palette("next-change"), Palette("previous-change"), Keys("Tab")]),
+        reach("Views: worktrees, reflog, pull requests, stash, file history, blame", &[Palette("show-worktrees"), Palette("show-reflog"), Palette("show-pulls"), Palette("show-latest-stash"), Palette("file-history"), Palette("blame"), Keys("Esc")]),
+        reach("Panels and zoom", &[Keys("Cmd+Opt+S"), Keys("Cmd+Plus"), Palette("toggle-sidebar"), Palette("zoom-in")]),
+        reach("App: settings, shortcuts, updates, open, clone, new repository", &[Keys("Cmd+,"), Keys("Cmd+/"), Palette("check-updates"), Palette("open-repo"), Palette("clone"), Palette("new-repository")]),
+        reach("Dialogs and confirms", &[Keys("Tab"), Keys("Enter"), Keys("Esc")]),
+    ];
 
     #[test]
     fn every_action_is_listed_once() {
@@ -363,6 +488,15 @@ mod tests {
             "add-remote",
             "file-history",
             "blame",
+            "reset-soft",
+            "reset-mixed",
+            "reset-hard",
+            "next-change",
+            "previous-change",
+            "open-file-in-editor",
+            "reveal-file",
+            "copy-file-path",
+            "show-latest-stash",
             "new-tab",
             "open-repo",
             "clone",
@@ -422,6 +556,111 @@ mod tests {
             .map(|k| (k.keys.to_string(), k.what.to_string()))
             .collect();
         assert_eq!(rows, sheet);
+    }
+
+    #[test]
+    fn every_route_on_the_checklist_exists() {
+        let sheet: HashSet<&str> = KEYS.iter().flat_map(|k| key_parts(k.keys)).collect();
+        for entry in REACH {
+            assert!(!entry.routes.is_empty(), "{} has no route", entry.surface);
+            for route in entry.routes {
+                match route {
+                    Route::Palette(id) => assert!(
+                        ACTIONS.iter().any(|a| a.id == *id),
+                        "{}: no palette action {id}",
+                        entry.surface
+                    ),
+                    Route::Keys(k) => {
+                        assert!(
+                            sheet.contains(k),
+                            "{}: {k} is not on the sheet",
+                            entry.surface
+                        )
+                    }
+                    Route::RowMenu(menu) => assert!(KEYBOARD_MENUS.contains(menu)),
+                }
+            }
+        }
+    }
+
+    fn normalized(shortcut: KeyboardShortcut) -> (bool, bool, bool, bool, Key) {
+        let m = shortcut.modifiers;
+        (
+            m.command || m.mac_cmd,
+            m.shift,
+            m.alt,
+            m.ctrl,
+            shortcut.logical_key,
+        )
+    }
+
+    #[test]
+    fn no_two_actions_share_a_shortcut() {
+        let mut seen = std::collections::HashMap::new();
+        for action in ACTIONS {
+            let Some(text) = action.shortcut else {
+                continue;
+            };
+            let parsed = parse_shortcut(text).unwrap_or_else(|| panic!("{text} does not parse"));
+            if let Some(other) = seen.insert(normalized(parsed), action.id) {
+                panic!("{} and {other} both use {text}", action.id);
+            }
+        }
+        let mut rows = std::collections::HashMap::new();
+        for row in KEYS {
+            for part in key_parts(row.keys).filter(|p| p.contains('+')) {
+                let Some(parsed) = parse_shortcut(part) else {
+                    continue;
+                };
+                if let Some(other) = rows.insert(normalized(parsed), row.what) {
+                    panic!("{part} is on two rows: {} and {other}", row.what);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shortcuts_avoid_macos_system_keys() {
+        let reserved = [
+            "Cmd+Q",
+            "Cmd+H",
+            "Cmd+M",
+            "Cmd+Tab",
+            "Cmd+Space",
+            "Cmd+Shift+3",
+            "Cmd+Shift+4",
+            "Cmd+Shift+5",
+            "Cmd+Shift+Q",
+            "Cmd+Opt+Esc",
+            "Cmd+Opt+H",
+            "Cmd+Shift+/",
+        ]
+        .map(|k| normalized(parse_shortcut(k).unwrap()));
+        for action in ACTIONS {
+            if let Some(parsed) = action.shortcut.and_then(parse_shortcut) {
+                assert!(
+                    !reserved.contains(&normalized(parsed)),
+                    "{} uses a system key",
+                    action.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn global_shortcuts_parse_and_belong_to_actions() {
+        for id in GLOBAL_SHORTCUTS {
+            let action = ACTIONS.iter().find(|a| a.id == id).expect(id);
+            assert!(action.shortcut.and_then(parse_shortcut).is_some(), "{id}");
+        }
+        let fetch = parse_shortcut("Cmd+Shift+R").unwrap();
+        assert_eq!(fetch.logical_key, Key::R);
+        assert!(fetch.modifiers.shift && fetch.modifiers.command);
+        assert_eq!(parse_shortcut("Cmd+,").unwrap().logical_key, Key::Comma);
+        assert_eq!(
+            parse_shortcut("Alt+Down").unwrap().logical_key,
+            Key::ArrowDown
+        );
     }
 
     #[test]

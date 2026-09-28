@@ -382,6 +382,10 @@ impl DiffView {
         self.layout
     }
 
+    pub fn jump_to_change(&mut self, next: bool) {
+        self.jump = Some(if next { Jump::Next } else { Jump::Previous });
+    }
+
     pub fn embedded(mut self) -> Self {
         self.embedded = true;
         self

@@ -173,6 +173,10 @@ folder if it is a repo.
 |---|---|
 | Cmd+K / Cmd+Shift+P | Command palette: actions, branches, commits, files and tabs |
 | Cmd+/ | Keyboard shortcuts |
+| F6 / Shift+F6 | Move focus to the next / previous area: sidebar, graph, details |
+| Tab / Shift+Tab | Move focus to the next / previous control |
+| Enter / Space | Activate the focused control; Enter on a branch checks it out |
+| Shift+F10 | Open the menu of the focused row or commit |
 | Up / Down, J / K | Move through commits |
 | Cmd+F | Search; Enter / Shift+Enter for next / previous |
 | Cmd+Shift+F | Filter commits by author, path or date; Esc closes |
@@ -192,6 +196,11 @@ folder if it is a repo.
 | Alt+Up / Alt+Down | Previous / next change in a diff |
 | Cmd+Enter | Save a review comment or reply |
 | Cmd+R | Refresh the graph, changes and worktrees |
+| Cmd+Shift+R | Fetch |
+| Cmd+Shift+L / Cmd+Shift+U | Pull / push |
+| Cmd+Shift+B | New branch |
+| Cmd+Shift+S | Stash all changes |
+| Cmd+Shift+C | Show uncommitted changes |
 | Cmd+Z / Cmd+Shift+Z | Undo / redo the last action |
 | Cmd+, | Settings |
 | Right-click | Actions for commits, branches, tags, stashes, worktrees and tabs |
