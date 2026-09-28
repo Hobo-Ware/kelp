@@ -143,6 +143,23 @@ pub fn hunk_patch(diff: &FileDiff, hunk: usize) -> Option<String> {
     Some(patch)
 }
 
+pub fn range_file(
+    repo: &gix::Repository,
+    workdir: Option<&Path>,
+    base: ObjectId,
+    target: Option<ObjectId>,
+    path: &str,
+    old_path: Option<&str>,
+) -> anyhow::Result<FileDiff> {
+    let old = blob_at(&repo.find_commit(base)?.tree()?, old_path.unwrap_or(path))?;
+    let new = match (target, workdir) {
+        (Some(id), _) => blob_at(&repo.find_commit(id)?.tree()?, path)?,
+        (None, Some(workdir)) => std::fs::read(workdir.join(path)).ok(),
+        (None, None) => anyhow::bail!("this repository has no working tree"),
+    };
+    Ok(build(path, old.as_deref(), new.as_deref()))
+}
+
 pub fn file_at(
     repo: &gix::Repository,
     commit: ObjectId,
