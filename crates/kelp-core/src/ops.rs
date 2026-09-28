@@ -95,6 +95,50 @@ pub enum Op {
         commit: String,
         mode: ResetMode,
     },
+    RenameRemoteBranch {
+        remote: String,
+        from: String,
+        to: String,
+        tracking: Option<String>,
+    },
+    StashRename {
+        stash: String,
+        message: String,
+    },
+    WorktreeMove {
+        from: String,
+        to: String,
+    },
+    CreateTag {
+        name: String,
+        commit: String,
+        message: Option<String>,
+    },
+    DeleteTag(String),
+    PushTag {
+        remote: String,
+        name: String,
+    },
+    PushTags(String),
+    DeleteRemoteTag {
+        remote: String,
+        name: String,
+    },
+    AddRemote {
+        name: String,
+        url: String,
+    },
+    RenameRemote {
+        from: String,
+        to: String,
+    },
+    RemoveRemote(String),
+    SetRemoteUrl {
+        name: String,
+        url: String,
+    },
+    FetchRemote(String),
+    PruneRemote(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -226,6 +270,37 @@ impl Op {
             Op::CherryPick { commit, merge } => mainline(&["cherry-pick"], *merge, commit),
             Op::Revert { commit, merge } => mainline(&["revert", "--no-edit"], *merge, commit),
             Op::Reset { commit, mode } => v(&["reset", mode.flag(), commit]),
+            Op::RenameRemoteBranch {
+                remote, from, to, ..
+            } => v(&[
+                "push",
+                remote,
+                &format!("refs/remotes/{remote}/{from}:refs/heads/{to}"),
+            ]),
+            Op::StashRename { stash, .. } => v(&["rev-parse", stash]),
+            Op::WorktreeMove { from, to } => v(&["worktree", "move", from, to]),
+            Op::CreateTag {
+                name,
+                commit,
+                message: None,
+            } => v(&["tag", name, commit]),
+            Op::CreateTag {
+                name,
+                commit,
+                message: Some(message),
+            } => v(&["tag", "-a", name, "-m", message, commit]),
+            Op::DeleteTag(name) => v(&["tag", "-d", name]),
+            Op::PushTag { remote, name } => v(&["push", remote, &format!("refs/tags/{name}")]),
+            Op::PushTags(remote) => v(&["push", remote, "--tags"]),
+            Op::DeleteRemoteTag { remote, name } => {
+                v(&["push", remote, "--delete", &format!("refs/tags/{name}")])
+            }
+            Op::AddRemote { name, url } => v(&["remote", "add", name, url]),
+            Op::RenameRemote { from, to } => v(&["remote", "rename", from, to]),
+            Op::RemoveRemote(name) => v(&["remote", "remove", name]),
+            Op::SetRemoteUrl { name, url } => v(&["remote", "set-url", name, url]),
+            Op::FetchRemote(name) => v(&["fetch", "--prune", name]),
+            Op::PruneRemote(name) => v(&["remote", "prune", name]),
         }
     }
 
@@ -277,29 +352,71 @@ impl Op {
             Op::CherryPick { commit, .. } => format!("Cherry-picking {}", short(commit)),
             Op::Revert { commit, .. } => format!("Reverting {}", short(commit)),
             Op::Reset { commit, .. } => format!("Resetting to {}", short(commit)),
+            Op::RenameRemoteBranch {
+                remote, from, to, ..
+            } => format!("Renaming {remote}/{from} to {to}"),
+            Op::StashRename { stash, .. } => format!("Renaming {stash}"),
+            Op::WorktreeMove { to, .. } => format!("Moving worktree to {to}"),
+            Op::CreateTag { name, .. } => format!("Tagging {name}"),
+            Op::DeleteTag(name) => format!("Deleting tag {name}"),
+            Op::PushTag { remote, name } => format!("Pushing tag {name} to {remote}"),
+            Op::PushTags(remote) => format!("Pushing tags to {remote}"),
+            Op::DeleteRemoteTag { remote, name } => format!("Deleting tag {name} on {remote}"),
+            Op::AddRemote { name, .. } => format!("Adding remote {name}"),
+            Op::RenameRemote { to, .. } => format!("Renaming remote to {to}"),
+            Op::RemoveRemote(name) => format!("Removing remote {name}"),
+            Op::SetRemoteUrl { name, .. } => format!("Changing the URL of {name}"),
+            Op::FetchRemote(name) => format!("Fetching {name}"),
+            Op::PruneRemote(name) => format!("Pruning {name}"),
         }
     }
 
     pub fn command_line(&self) -> String {
-        if let Op::CheckoutAndMerge { branch, source } = self {
-            return format!(
-                "{} && {}",
-                Op::Switch(branch.clone()).command_line(),
-                Op::Merge(source.clone()).command_line()
-            );
+        let steps = self.steps();
+        steps
+            .iter()
+            .map(|args| git_cli::command_line(&args.iter().map(String::as_str).collect::<Vec<_>>()))
+            .collect::<Vec<_>>()
+            .join(" && ")
+    }
+
+    fn steps(&self) -> Vec<Vec<String>> {
+        let v = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        match self {
+            Op::CheckoutAndMerge { branch, source } => {
+                vec![v(&["switch", branch]), v(&["merge", source])]
+            }
+            Op::RenameRemoteBranch {
+                remote,
+                from,
+                to,
+                tracking,
+            } => {
+                let mut steps = vec![self.args(), v(&["push", remote, "--delete", from])];
+                if let Some(local) = tracking {
+                    steps.push(v(&[
+                        "branch",
+                        &format!("--set-upstream-to={remote}/{to}"),
+                        local,
+                    ]));
+                }
+                steps
+            }
+            Op::StashRename { stash, message } => vec![
+                self.args(),
+                v(&["stash", "drop", "-q", stash]),
+                v(&["stash", "store", "-m", message, "<sha>"]),
+            ],
+            Op::DiscardFiles { tracked, untracked }
+                if !tracked.is_empty() && !untracked.is_empty() =>
+            {
+                vec![
+                    Op::DiscardChanges(tracked.clone()).args(),
+                    Op::DeleteUntracked(untracked.clone()).args(),
+                ]
+            }
+            _ => vec![self.args()],
         }
-        if let Op::DiscardFiles { tracked, untracked } = self
-            && !tracked.is_empty()
-            && !untracked.is_empty()
-        {
-            return format!(
-                "{} && {}",
-                Op::DiscardChanges(tracked.clone()).command_line(),
-                Op::DeleteUntracked(untracked.clone()).command_line()
-            );
-        }
-        let args = self.args();
-        git_cli::command_line(&args.iter().map(String::as_str).collect::<Vec<_>>())
     }
 
     pub fn run(&self, dir: &Path) -> anyhow::Result<String> {
@@ -309,18 +426,19 @@ impl Op {
             Op::ApplyToIndex { patch, .. } | Op::DiscardPatch(patch) => {
                 git_cli::run_with_stdin(dir, &args, patch)?
             }
-            Op::CheckoutAndMerge { source, .. } => {
-                git_cli::run(dir, &args)?;
-                git_cli::run(dir, &["merge", source])?
+            Op::StashRename { stash, message } => {
+                let sha = git_cli::run(dir, &args)?.trim().to_string();
+                git_cli::run(dir, &["stash", "drop", "-q", stash])?;
+                git_cli::run(dir, &["stash", "store", "-m", message, &sha])?
             }
-            Op::DiscardFiles { tracked, untracked }
-                if !tracked.is_empty() && !untracked.is_empty() =>
-            {
-                git_cli::run(dir, &args)?;
-                let clean = with_paths(&["clean", "-f", "--"], untracked);
-                git_cli::run(dir, &clean.iter().map(String::as_str).collect::<Vec<_>>())?
+            _ => {
+                let mut out = String::new();
+                for step in self.steps() {
+                    let step: Vec<&str> = step.iter().map(String::as_str).collect();
+                    out = git_cli::run(dir, &step)?;
+                }
+                out
             }
-            _ => git_cli::run(dir, &args)?,
         };
         Ok(out.trim().to_string())
     }

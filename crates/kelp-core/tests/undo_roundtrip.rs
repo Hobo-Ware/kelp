@@ -253,6 +253,58 @@ fn remote_actions_are_reported_as_not_undoable() {
         matches!(outcome, Outcome::Unchanged),
         "a no-op records nothing"
     );
+    for op in [
+        Op::PushTags("origin".into()),
+        Op::RemoveRemote("origin".into()),
+        Op::FetchRemote("origin".into()),
+        Op::WorktreeMove {
+            from: "a".into(),
+            to: "b".into(),
+        },
+    ] {
+        assert!(undo::not_undoable_reason(&op).is_some(), "{op:?}");
+    }
+}
+
+#[test]
+fn created_and_deleted_tags_are_undone() {
+    let repo = Scratch::new("undo-tags");
+    let create = recorded(
+        &repo,
+        Op::CreateTag {
+            name: "v1".into(),
+            commit: "HEAD".into(),
+            message: Some("first".into()),
+        },
+    );
+    let object = repo.git(&["rev-parse", "v1"]).trim().to_string();
+    undo::undo(repo.path(), &create).unwrap();
+    assert!(repo.git(&["tag"]).trim().is_empty());
+
+    repo.git(&["tag", "-a", "v2", "-m", "second"]);
+    let v2 = repo.git(&["rev-parse", "v2"]).trim().to_string();
+    let delete = recorded(&repo, Op::DeleteTag("v2".into()));
+    undo::undo(repo.path(), &delete).unwrap();
+    assert_eq!(repo.git(&["rev-parse", "v2"]).trim(), v2);
+    assert_eq!(repo.git(&["cat-file", "-t", "v2"]).trim(), "tag");
+    assert_ne!(object, v2);
+}
+
+#[test]
+fn renamed_stash_gets_its_old_message_back() {
+    let repo = Scratch::new("undo-stash-rename");
+    std::fs::write(repo.path().join("a.txt"), "draft").unwrap();
+    repo.git(&["stash", "push", "-q", "-m", "wip"]);
+    let record = recorded(
+        &repo,
+        Op::StashRename {
+            stash: "stash@{0}".into(),
+            message: "export draft".into(),
+        },
+    );
+    undo::undo(repo.path(), &record).unwrap();
+    let subjects = repo.git(&["stash", "list", "--format=%gs"]);
+    assert_eq!(subjects.trim(), "On main: wip");
 }
 
 #[test]
