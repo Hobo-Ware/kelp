@@ -248,11 +248,18 @@ fn with_open_details(mut all: Vec<Pull>, open: Vec<Pull>) -> Vec<Pull> {
 }
 
 fn gh_pr_list(repo: &GitHubRepo, state: &str, limit: &str, fields: &str) -> anyhow::Result<String> {
+    let slug = format!("{}/{}", repo.owner, repo.name);
+    run_gh(&[
+        "pr", "list", "--repo", &slug, "--state", state, "--limit", limit, "--json", fields,
+    ])
+}
+
+/// Runs `gh` with its output drained while it runs, so answers larger than
+/// the pipe buffer never stall it, and gives up after a timeout.
+pub fn run_gh(args: &[&str]) -> anyhow::Result<String> {
     use std::process::Stdio;
     let mut child = Command::new("gh")
-        .args(["pr", "list", "--repo"])
-        .arg(format!("{}/{}", repo.owner, repo.name))
-        .args(["--state", state, "--limit", limit, "--json", fields])
+        .args(args)
         .env("GH_PROMPT_DISABLED", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -276,14 +283,20 @@ fn gh_pr_list(repo: &GitHubRepo, state: &str, limit: &str, fields: &str) -> anyh
         }
         if started.elapsed() > GH_TIMEOUT {
             let _ = child.kill();
-            bail!("gh pr list took longer than {}s", GH_TIMEOUT.as_secs());
+            bail!(
+                "gh {} took longer than {}s",
+                args.first().unwrap_or(&""),
+                GH_TIMEOUT.as_secs()
+            );
         }
         std::thread::sleep(Duration::from_millis(50));
     };
     let stdout = stdout.join().unwrap_or_default();
     if !status.success() {
         let stderr = stderr.join().unwrap_or_default();
-        bail!("{}", String::from_utf8_lossy(&stderr).trim());
+        let out = String::from_utf8_lossy(&stdout);
+        let err = String::from_utf8_lossy(&stderr);
+        bail!("{} {}", err.trim(), out.trim());
     }
     Ok(String::from_utf8_lossy(&stdout).into_owned())
 }
@@ -320,6 +333,82 @@ fn fetch_with_rest(repo: &GitHubRepo, token: Option<String>) -> anyhow::Result<V
         }
     }
     Ok(list)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListTab {
+    Open,
+    Mine,
+    ReviewRequested,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullSummary {
+    pub pull: Pull,
+    pub author: String,
+    pub updated: Option<i64>,
+}
+
+const GH_LIST_FIELDS: &str = "number,title,author,headRefName,headRepositoryOwner,state,isDraft,url,reviewDecision,statusCheckRollup,updatedAt";
+const GH_LIST_LIMIT: &str = "100";
+
+pub fn list_open(repo: &GitHubRepo, tab: ListTab) -> anyhow::Result<Vec<PullSummary>> {
+    if std::env::var_os("KELP_OFFLINE").is_some() {
+        bail!("offline");
+    }
+    let slug = format!("{}/{}", repo.owner, repo.name);
+    let mut args = vec![
+        "pr",
+        "list",
+        "--repo",
+        &slug,
+        "--state",
+        "open",
+        "--limit",
+        GH_LIST_LIMIT,
+        "--json",
+        GH_LIST_FIELDS,
+    ];
+    match tab {
+        ListTab::Open => {}
+        ListTab::Mine => args.extend(["--search", "author:@me"]),
+        ListTab::ReviewRequested => args.extend(["--search", "review-requested:@me"]),
+    }
+    parse_list(&run_gh(&args)?)
+}
+
+pub fn parse_list(json: &str) -> anyhow::Result<Vec<PullSummary>> {
+    let items: Vec<Value> = serde_json::from_str(json).context("gh returned invalid JSON")?;
+    Ok(items
+        .iter()
+        .filter_map(|item| {
+            Some(PullSummary {
+                pull: gh_pull(item)?,
+                author: item["author"]["login"]
+                    .as_str()
+                    .unwrap_or("ghost")
+                    .to_string(),
+                updated: item["updatedAt"].as_str().and_then(iso_to_unix),
+            })
+        })
+        .collect())
+}
+
+pub fn iso_to_unix(text: &str) -> Option<i64> {
+    let (date, time) = text.trim_end_matches('Z').split_once('T')?;
+    let mut d = date.splitn(3, '-').map(|p| p.parse::<i64>().ok());
+    let (y, m, day) = (d.next()??, d.next()??, d.next()??);
+    let mut t = time
+        .splitn(3, ':')
+        .map(|p| p.split('.').next()?.parse::<i64>().ok());
+    let (h, min, sec) = (t.next()??, t.next()??, t.next()??);
+    let (y, m) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * m + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400 + h * 3600 + min * 60 + sec)
 }
 
 pub fn compare_url(repo: &GitHubRepo, base: &str, branch: &str) -> String {
@@ -491,5 +580,27 @@ mod tests {
         assert_eq!(merged.len(), light.len() + 1);
         assert_eq!(merged[0].review.as_deref(), Some("APPROVED"));
         assert!(merged.iter().any(|p| p.number == 999));
+    }
+
+    #[test]
+    fn iso_dates_become_unix_seconds() {
+        assert_eq!(iso_to_unix("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(iso_to_unix("2026-09-28T12:30:05Z"), Some(1_790_598_605));
+        assert_eq!(iso_to_unix("2000-02-29T00:00:00.123Z"), Some(951_782_400));
+        assert_eq!(iso_to_unix("nope"), None);
+    }
+
+    #[test]
+    fn the_open_list_keeps_author_and_update_time() {
+        let json = r#"[{"number": 7, "title": "Try it", "author": {"login": "maya"},
+            "headRefName": "feat/x", "headRepositoryOwner": {"login": "hobo-ware"},
+            "state": "OPEN", "isDraft": true, "url": "https://github.com/o/r/pull/7",
+            "reviewDecision": "REVIEW_REQUIRED", "statusCheckRollup": [],
+            "updatedAt": "2026-09-28T12:30:05Z"}]"#;
+        let list = parse_list(json).unwrap();
+        assert_eq!(list[0].author, "maya");
+        assert_eq!(list[0].pull.state, State::Draft);
+        assert_eq!(list[0].updated, Some(1_790_598_605));
+        assert_eq!(list[0].pull.review_text(), Some("Review required"));
     }
 }

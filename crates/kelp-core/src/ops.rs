@@ -142,6 +142,11 @@ pub enum Op {
         url: String,
     },
     FetchRemote(String),
+    CheckoutPull {
+        remote: String,
+        number: u64,
+        branch: String,
+    },
     PruneRemote(String),
 }
 
@@ -317,6 +322,15 @@ impl Op {
             Op::RemoveRemote(name) => v(&["remote", "remove", name]),
             Op::SetRemoteUrl { name, url } => v(&["remote", "set-url", name, url]),
             Op::FetchRemote(name) => v(&["fetch", "--prune", name]),
+            Op::CheckoutPull {
+                remote,
+                number,
+                branch,
+            } => v(&[
+                "fetch",
+                remote,
+                &format!("refs/pull/{number}/head:refs/heads/{branch}"),
+            ]),
             Op::PruneRemote(name) => v(&["remote", "prune", name]),
         }
     }
@@ -389,6 +403,7 @@ impl Op {
             Op::RemoveRemote(name) => format!("Removing remote {name}"),
             Op::SetRemoteUrl { name, .. } => format!("Changing the URL of {name}"),
             Op::FetchRemote(name) => format!("Fetching {name}"),
+            Op::CheckoutPull { number, .. } => format!("Checking out pull request #{number}"),
             Op::PruneRemote(name) => format!("Pruning {name}"),
         }
     }
@@ -408,6 +423,7 @@ impl Op {
             Op::CheckoutAndMerge { branch, source } => {
                 vec![v(&["switch", branch]), v(&["merge", source])]
             }
+            Op::CheckoutPull { branch, .. } => vec![self.args(), v(&["switch", branch])],
             Op::RenameRemoteBranch {
                 remote,
                 from,

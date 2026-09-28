@@ -452,3 +452,46 @@ fn remotes_are_added_renamed_repointed_fetched_and_removed() {
     Op::RemoveRemote("mirror".into()).run(repo.path()).unwrap();
     assert!(repo.git(&["remote"]).trim().is_empty());
 }
+
+#[test]
+fn checkout_pull_fetches_the_pull_head_into_a_branch() {
+    let origin = Scratch::new("pull-origin");
+    let clone_dir = origin.path().with_file_name(format!(
+        "{}-clone",
+        origin.path().file_name().unwrap().to_string_lossy()
+    ));
+    let _ = std::fs::remove_dir_all(&clone_dir);
+    run(
+        origin.path().parent().unwrap(),
+        &[
+            "clone",
+            "-q",
+            origin.path().to_str().unwrap(),
+            clone_dir.to_str().unwrap(),
+        ],
+    )
+    .unwrap();
+    let clone = Scratch(clone_dir);
+    origin.git(&["switch", "-q", "-c", "contributor"]);
+    origin.commit("pr.txt", "from a fork", "fix: from a pull request");
+    let pr_head = head(&origin);
+    origin.git(&["update-ref", "refs/pull/7/head", &pr_head]);
+    origin.git(&["switch", "-q", "main"]);
+    origin.git(&["branch", "-q", "-D", "contributor"]);
+
+    let op = Op::CheckoutPull {
+        remote: "origin".into(),
+        number: 7,
+        branch: "fix-from-fork".into(),
+    };
+    assert_eq!(
+        op.command_line(),
+        "git fetch origin refs/pull/7/head:refs/heads/fix-from-fork && git switch fix-from-fork"
+    );
+    op.run(clone.path()).unwrap();
+    assert_eq!(head(&clone), pr_head);
+    assert_eq!(
+        clone.git(&["branch", "--show-current"]).trim(),
+        "fix-from-fork"
+    );
+}

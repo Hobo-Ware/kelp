@@ -1,5 +1,6 @@
 pub mod avatar;
 pub mod blame;
+pub mod checks;
 pub mod commit;
 pub mod compare;
 pub mod conflict;
