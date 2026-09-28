@@ -29,6 +29,8 @@ pub enum Icon {
     Tag,
     Clock,
     Commit,
+    Filter,
+    Compare,
 }
 
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -259,6 +261,23 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 (4.0, 4.0),
             ]);
             circle(8.5, 8.5, 1.5);
+        }
+        Icon::Filter => {
+            line(&[
+                (3.5, 5.0),
+                (20.5, 5.0),
+                (14.0, 12.5),
+                (14.0, 19.0),
+                (10.0, 21.0),
+                (10.0, 12.5),
+                (3.5, 5.0),
+            ]);
+        }
+        Icon::Compare => {
+            circle(6.0, 6.0, 2.5);
+            circle(18.0, 18.0, 2.5);
+            line(&[(6.0, 8.5), (6.0, 15.0), (9.0, 18.0), (15.5, 18.0)]);
+            line(&[(18.0, 15.5), (18.0, 9.0), (15.0, 6.0), (8.5, 6.0)]);
         }
         Icon::Pin => {
             line(&[(9.0, 4.0), (15.0, 4.0)]);

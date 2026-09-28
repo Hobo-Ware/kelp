@@ -67,6 +67,10 @@ pub enum RepoAction {
     AddRemote,
     FileHistory,
     Blame,
+    FilterCommits,
+    CompareWithHead,
+    CompareWithWorkTree,
+    StopCompare,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -148,6 +152,10 @@ pub static ACTIONS: &[Action] = &[
     repo("redo", "Redo", "again", Some("Cmd+Shift+Z"), None, RepoAction::Redo),
     repo("refresh", "Refresh", "reload status", Some("Cmd+R"), None, RepoAction::Refresh),
     repo("search", "Search commits", "find message author hash", Some("Cmd+F"), None, RepoAction::Search),
+    repo("filter-commits", "Filter commits by author, path or date", "funnel narrow mine who when", Some("Cmd+Shift+F"), Some(Icon::Filter), RepoAction::FilterCommits),
+    repo("compare-with-head", "Compare the selected commit with the current branch", "diff range between", None, Some(Icon::Compare), RepoAction::CompareWithHead),
+    repo("compare-with-worktree", "Compare the selected commit with the working tree", "diff range uncommitted", None, Some(Icon::Compare), RepoAction::CompareWithWorkTree),
+    repo("stop-compare", "Stop comparing", "close clear", None, None, RepoAction::StopCompare),
     repo("show-graph", "Go to the graph", "history back close", Some("Esc"), None, RepoAction::ShowGraph),
     repo("show-worktrees", "Manage worktrees", "worktree list", None, Some(Icon::Worktree), RepoAction::ShowWorktrees),
     repo("show-reflog", "Show reflog", "history lost recover restore undo reset", None, Some(Icon::Undo), RepoAction::ShowReflog),
@@ -206,6 +214,7 @@ pub struct State {
     pub can_undo: bool,
     pub can_redo: bool,
     pub commit_selected: bool,
+    pub comparing: bool,
     pub filtering: bool,
     pub tabs: usize,
     pub pull: bool,
@@ -239,9 +248,11 @@ impl State {
             FileHistory | Blame => self.file_open,
             CreatePullRequest => self.github && self.branch && !self.pull,
             CheckoutCommit | CherryPick | Revert | InteractiveRebase | EditMessage
-            | CopyCommitHash | CreateTag => self.commit_selected,
+            | CopyCommitHash | CreateTag | CompareWithHead => self.commit_selected,
+            CompareWithWorkTree => self.commit_selected && self.workdir,
+            StopCompare => self.comparing,
             Fetch | NewBranch | Refresh | Search | ShowGraph | ShowWorktrees | ShowReflog
-            | RevealRepo | PushTags | AddRemote => true,
+            | RevealRepo | PushTags | AddRemote | FilterCommits => true,
         }
     }
 }
@@ -262,6 +273,7 @@ pub static KEYS: &[KeyRow] = &[
     key("Cmd+/", "Keyboard shortcuts", Group::Navigation),
     key("Up / Down, J / K", "Move through commits", Group::Navigation),
     key("Cmd+F", "Search; Enter / Shift+Enter for next / previous", Group::Navigation),
+    key("Cmd+Shift+F", "Filter commits by author, path or date; Esc closes", Group::Navigation),
     key("Cmd+Opt+F", "Filter the sidebar; Esc clears", Group::Navigation),
     key("F2", "Rename the selected branch; Enter saves, Esc cancels", Group::Actions),
     key("Esc", "Back to the graph, close search or dialogs", Group::Navigation),
@@ -283,6 +295,7 @@ pub static KEYS: &[KeyRow] = &[
     key("Right-click", "Actions for commits, branches, tags, stashes, worktrees and tabs", Group::Actions),
     key("Double-click a branch", "Check it out", Group::Actions),
     key("Double-click a graph label", "Check out that branch", Group::Actions),
+    key("Cmd-click a commit", "Compare it with the selected commit; Esc stops comparing", Group::Actions),
     key("Drag a graph label onto a commit", "Merge, rebase or reset", Group::Actions),
     key("Cmd-click / Shift-click a changed file", "Pick several to stage, stash or discard", Group::Actions),
     key("P / R / E / S / F / D", "In interactive rebase: pick, reword, edit, squash, fixup or drop the hovered commit", Group::Actions),
@@ -318,6 +331,10 @@ mod tests {
             "redo",
             "refresh",
             "search",
+            "filter-commits",
+            "compare-with-head",
+            "compare-with-worktree",
+            "stop-compare",
             "show-graph",
             "show-worktrees",
             "show-reflog",
