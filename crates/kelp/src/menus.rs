@@ -3,6 +3,7 @@ use std::path::Path;
 use eframe::egui::{Align2, Color32, FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
 use kelp_core::ops::{Op, ResetMode};
 use kelp_core::refs::{RefKind, RefLabel};
+use kelp_core::submodules::{State as SubmoduleState, Submodule};
 use kelp_core::workspace::{Stash, Worktree};
 
 use crate::commands::Command;
@@ -656,6 +657,43 @@ pub fn wip(ui: &mut Ui, out: &mut Vec<Command>) {
     menu_width(ui, 200.0);
     item(ui, Icon::Stash, "Stash all changes", out, || {
         Command::Run(Op::StashPush)
+    });
+}
+
+pub fn submodule(ui: &mut Ui, module: &Submodule, out: &mut Vec<Command>) {
+    menu_width(ui, 230.0);
+    heading(ui, &module.path);
+    let path = Some(module.path.clone());
+    if module.state == SubmoduleState::NotInitialized {
+        item(ui, Icon::Pull, "Initialize and update", out, || {
+            Command::Run(Op::SubmoduleUpdate {
+                path: path.clone(),
+                init: true,
+            })
+        });
+    } else {
+        item(ui, Icon::Pull, "Update to the recorded commit", out, || {
+            Command::Run(Op::SubmoduleUpdate {
+                path: path.clone(),
+                init: false,
+            })
+        });
+        item(ui, Icon::Plus, "Open in new tab", out, || {
+            Command::OpenRepo(module.path.clone().into())
+        });
+    }
+    item(ui, Icon::Pull, "Initialize and update all", out, || {
+        Command::Run(Op::SubmoduleUpdate {
+            path: None,
+            init: true,
+        })
+    });
+    separator(ui);
+    item(ui, Icon::Folder, "Reveal in Finder", out, || {
+        Command::RevealFile(module.path.clone())
+    });
+    item(ui, Icon::Copy, "Copy path", out, || {
+        Command::Copy(module.path.clone())
     });
 }
 

@@ -117,6 +117,7 @@ fn keep_both(lit: &mut [bool], other: &[bool]) {
 #[derive(Default)]
 pub struct WorkspaceInfo {
     pub stashes: Vec<Stash>,
+    pub submodules: Vec<kelp_core::submodules::Submodule>,
     pub worktrees: Vec<WorktreeRow>,
     pub ahead_behind: HashMap<String, (usize, usize)>,
 }
@@ -170,6 +171,7 @@ pub struct Repo {
     pub jobs: Jobs<JobOutput>,
     pub toast: Option<Toast>,
     pub avatars: AvatarStore,
+    pub signatures: crate::signatures::Signatures,
     github: Option<kelp_core::avatar::GitHubRepo>,
     pub pulls: kelp_core::pulls::Pulls,
     pub dialog: Option<Dialog>,
@@ -261,6 +263,7 @@ impl Repo {
             jobs: Jobs::new(ctx.clone()),
             toast: None,
             avatars,
+            signatures: crate::signatures::Signatures::default(),
             github,
             pulls: kelp_core::pulls::Pulls::default(),
             dialog: None,
@@ -1058,6 +1061,7 @@ impl Repo {
                 .collect();
             JobOutput::Workspace(Box::new(WorkspaceInfo {
                 stashes: workspace::stashes(&dir).unwrap_or_default(),
+                submodules: kelp_core::submodules::list(&dir).unwrap_or_default(),
                 worktrees,
                 ahead_behind,
             }))
