@@ -785,6 +785,10 @@ fn section_menu(
                 if menus::row(ui, Some(Icon::Plus), "Add remote…", None, false) {
                     commands.push(menus::add_remote());
                 }
+                if ctx.on_github && menus::row(ui, Some(Icon::Merge), "Pull requests", None, false)
+                {
+                    commands.push(Command::ShowPulls);
+                }
             }
             RefKind::Tag => {
                 if let Some(push) = menus::push_all_tags(ctx) {

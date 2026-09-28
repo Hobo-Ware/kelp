@@ -51,6 +51,7 @@ pub struct GraphView {
     drop: Option<DropPlan>,
     pub columns_changed: Option<GraphColumns>,
     pub filter_clicked: bool,
+    pub visible_commits: Vec<usize>,
 }
 
 pub struct GraphInput<'a> {
@@ -66,6 +67,7 @@ pub struct GraphInput<'a> {
     pub compare: crate::compare_view::Marks,
     pub picking: bool,
     pub filter_active: bool,
+    pub checks: &'a HashMap<gix::ObjectId, kelp_core::checks::Status>,
 }
 
 #[derive(Clone, Copy)]
@@ -113,6 +115,7 @@ impl GraphView {
             hover: None,
             columns_changed: None,
             filter_clicked: false,
+            visible_commits: Vec::new(),
         }
     }
 
@@ -140,6 +143,7 @@ impl GraphView {
             compare,
             picking,
             filter_active,
+            checks,
         } = input;
         let content_w = history.layout.lane_count() as f32 * LANE_W + GRAPH_PAD * 2.0;
         let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
@@ -183,6 +187,8 @@ impl GraphView {
         let open_refs = std::env::var("KELP_OPEN_REFS").ok();
         let open_drop = std::env::var("KELP_OPEN_DROP").ok();
         let hover = &mut self.hover;
+        let visible_commits = &mut self.visible_commits;
+        visible_commits.clear();
         scroll.show_rows(ui, ROW_H, map.total(), |ui, rows| {
             for display in rows.clone() {
                 if let Row::Commit(row) = map.resolve(display) {
@@ -237,6 +243,7 @@ impl GraphView {
             let mut label_events = Vec::new();
             let mut label_hits: Vec<(Rect, usize, RefLabel)> = Vec::new();
             let mut open_buttons = Vec::new();
+            let mut check_dots: Vec<(Rect, usize)> = Vec::new();
             let mut halos = Vec::new();
             for (i, display) in rows.clone().enumerate() {
                 let geo = RowGeo {
@@ -317,9 +324,15 @@ impl GraphView {
                                 style,
                                 path: visible_path.as_ref(),
                                 on_path: on_path(row),
+                                checks: checks.get(&history.id(row)),
                             },
                             now,
                         );
+                        visible_commits.push(row);
+                        let (placed, dot) = placed;
+                        if let Some(dot) = dot {
+                            check_dots.push((dot, row));
+                        }
                         let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
                         let force_open = open_refs
                             .as_deref()
@@ -460,6 +473,11 @@ impl GraphView {
                 clicked_at.and_then(|pos| open_buttons.iter().find(|(r, _)| r.contains(pos)))
             {
                 action = Some(Action::Command(Command::OpenRepo(path.clone())));
+            } else if let Some((_, row)) = clicked_at
+                .filter(|_| response.clicked())
+                .and_then(|pos| check_dots.iter().find(|(r, _)| r.contains(pos)))
+            {
+                action = Some(Action::Command(Command::OpenChecks(history.id(*row))));
             } else if (response.clicked() || response.secondary_clicked())
                 && let Some(pos) = response.interact_pointer_pos()
             {
@@ -502,7 +520,16 @@ impl GraphView {
                     }
                 });
             }
-            if let Some((row, _)) = hover.as_ref()
+            let over_dot = response
+                .hover_pos()
+                .and_then(|pos| check_dots.iter().find(|(r, _)| r.contains(pos)))
+                .and_then(|(_, row)| checks.get(&history.id(*row)));
+            if let Some(status) = over_dot {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                response
+                    .clone()
+                    .on_hover_ui_at_pointer(|ui| checks_tooltip(ui, status));
+            } else if let Some((row, _)) = hover.as_ref()
                 && let Some(summary) = summaries.get(row)
                 && !response.context_menu_opened()
             {
@@ -711,6 +738,7 @@ struct RowPaint<'a> {
     style: RowStyle,
     path: Option<&'a VisiblePath<'a>>,
     on_path: OnPath,
+    checks: Option<&'a kelp_core::checks::Status>,
 }
 
 fn paint_row(
@@ -719,7 +747,7 @@ fn paint_row(
     history: &History,
     paint: RowPaint<'_>,
     now: i64,
-) -> Vec<ref_labels::Placed> {
+) -> (Vec<ref_labels::Placed>, Option<Rect>) {
     let RowPaint {
         row,
         summary,
@@ -727,6 +755,7 @@ fn paint_row(
         style,
         path,
         on_path,
+        checks,
     } = paint;
     let RowStyle {
         selected,
@@ -825,16 +854,72 @@ fn paint_row(
         placed = paint_labels(&soft, geo, &labels, node, color);
     }
     paint_avatar(&graph_soft, node, summary, avatar, color);
-    paint_message(
+    let dot = paint_message(
         &soft,
         geo,
         history.id(row),
         summary,
-        selected,
-        descriptions,
+        MessageStyle {
+            selected,
+            descriptions,
+            checks: checks.map(|c| c.state),
+        },
         now,
     );
-    placed
+    (placed, dot)
+}
+
+fn checks_tooltip(ui: &mut Ui, status: &kelp_core::checks::Status) {
+    ui.set_max_width(360.0);
+    ui.spacing_mut().item_spacing.y = 4.0;
+    let heading = match status.state {
+        kelp_core::checks::State::Success => "Checks passed",
+        kelp_core::checks::State::Failure => "Checks failed",
+        kelp_core::checks::State::Pending => "Checks running",
+    };
+    ui.label(
+        egui::RichText::new(heading)
+            .family(theme::semibold())
+            .color(check_color(status.state)),
+    );
+    for (names, verb) in [(&status.failing, "failed"), (&status.pending, "running")] {
+        for name in names.iter().take(8) {
+            ui.label(
+                egui::RichText::new(format!("{name} · {verb}"))
+                    .size(12.0)
+                    .color(theme::TEXT),
+            );
+        }
+        if names.len() > 8 {
+            ui.label(
+                egui::RichText::new(format!("{} more {verb}", names.len() - 8))
+                    .size(12.0)
+                    .color(theme::TEXT_FAINT),
+            );
+        }
+    }
+    ui.label(
+        egui::RichText::new("Click to open the checks on GitHub")
+            .size(11.0)
+            .color(theme::TEXT_FAINT),
+    );
+}
+
+struct MessageStyle {
+    selected: bool,
+    descriptions: bool,
+    checks: Option<kelp_core::checks::State>,
+}
+
+const CHECK_DOT_R: f32 = 3.5;
+const CHECK_DOT_ROOM: f32 = 16.0;
+
+fn check_color(state: kelp_core::checks::State) -> Color32 {
+    match state {
+        kelp_core::checks::State::Success => theme::ADDED,
+        kelp_core::checks::State::Failure => theme::DELETED,
+        kelp_core::checks::State::Pending => theme::MODIFIED,
+    }
 }
 
 struct WipLabel {
@@ -1175,10 +1260,14 @@ fn paint_message(
     geo: &RowGeo,
     id: gix::ObjectId,
     summary: &Summary,
-    selected: bool,
-    descriptions: bool,
+    style: MessageStyle,
     now: i64,
-) {
+) -> Option<Rect> {
+    let MessageStyle {
+        selected,
+        descriptions,
+        checks,
+    } = style;
     let right = geo.message_right();
     crate::columns::paint_cells(
         painter,
@@ -1206,6 +1295,12 @@ fn paint_message(
         );
         time_w
     };
+    let dot = checks.map(|state| {
+        let center = pos2(right - 14.0 - time_w - CHECK_DOT_ROOM / 2.0, geo.mid());
+        painter.circle_filled(center, CHECK_DOT_R, check_color(state));
+        Rect::from_center_size(center, vec2(CHECK_DOT_ROOM, ROW_H))
+    });
+    let time_w = time_w + if dot.is_some() { CHECK_DOT_ROOM } else { 0.0 };
 
     let x = geo.msg_left() + 15.0;
     let max_width = (right - 14.0 - time_w - 12.0 - x).max(0.0);
@@ -1244,6 +1339,7 @@ fn paint_message(
         galley,
         theme::TEXT,
     );
+    dot
 }
 
 #[cfg(test)]
@@ -1329,6 +1425,7 @@ mod tests {
                 selected,
                 action,
             } = self;
+            let no_checks = std::collections::HashMap::new();
             let _ = ctx.run_ui(input, |ui| {
                 let graph = GraphInput {
                     repo,
@@ -1342,6 +1439,7 @@ mod tests {
                     columns: Default::default(),
                     compare: Default::default(),
                     picking: false,
+                    checks: &no_checks,
                     filter_active: false,
                 };
                 if let Some(done) = view.ui(ui, graph, avatars, |_, _| {}) {

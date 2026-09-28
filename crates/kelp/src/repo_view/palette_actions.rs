@@ -218,6 +218,7 @@ impl Repo {
                 None
             }
             RepoAction::OpenTerminal => self.workdir.clone().map(Command::OpenTerminal),
+            RepoAction::ShowPulls => Some(Command::ShowPulls),
             RepoAction::OpenPullRequest => {
                 self.current_pull().map(|p| Command::OpenUrl(p.url.clone()))
             }

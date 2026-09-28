@@ -325,7 +325,8 @@ fn open_diff_path(repo: &Repo) -> Option<String> {
         | Center::Worktrees
         | Center::Rebase(_)
         | Center::Stash(_)
-        | Center::Reflog(_) => None,
+        | Center::Reflog(_)
+        | Center::Pulls(_) => None,
     }
 }
 
