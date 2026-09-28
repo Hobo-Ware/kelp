@@ -5,13 +5,20 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.0 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.1 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
   site like stdusk (SEO, OG images, upkeep instructions); Homebrew
   publishing like stdusk with auto-install on release and an in-app
   update check.
+
+## 2026-09-29
+
+- **v0.8.1: faded history fades as a unit.** Edges carry the row they
+  come down from and fade with it; faded avatars get an opaque backing
+  so lines don't show through. Signing parked until there is an Apple
+  Developer account.
 
 ## 2026-09-28
 

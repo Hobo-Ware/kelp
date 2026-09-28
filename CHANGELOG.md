@@ -2,6 +2,10 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.1 - 2026-09-29
+
+- With fading outside the selected history turned on, a faded branch now fades as a whole: its lines fade with its commits, and lines no longer show through faded avatars.
+
 ## v0.8.0 - 2026-09-28
 
 - After an update, Kelp shows what's new since the version you last ran.
