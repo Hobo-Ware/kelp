@@ -236,7 +236,7 @@ milestone is a release; each item ends with a check we can run.
 | Graph filters: author, path, date range, "only my commits"; matches keep their lanes, the rest fade | Unit tests for each filter. |
 | Reflog view as the safety net, with "restore this" | Recover a dropped commit on a scratch repo. |
 
-### v0.6 "Remotes and GitHub"
+### v0.6 "Remotes and GitHub" (done 2026-09-28)
 
 | Item | Done when |
 |---|---|
