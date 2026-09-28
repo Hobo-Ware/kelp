@@ -40,11 +40,15 @@ impl History {
         let mut refs = Refs::load(repo)?;
         refs.apply(view);
         let started = Instant::now();
-        let (ids, times, raw_parents) = walk(repo, refs.tips())?;
+        let Walked {
+            ids,
+            times,
+            parents: raw_parents,
+            index: mut rows_by_id,
+        } = walk(repo, refs.tips())?;
         let walked = Instant::now();
         let order = date_order(&times, &raw_parents);
-        let mut rows_by_id = HashMap::default();
-        rows_by_id.reserve(ids.len());
+        drop(times);
         let mut row_of = vec![0u32; ids.len()];
         for (row, &i) in order.iter().enumerate() {
             row_of[i as usize] = row as u32;
@@ -52,12 +56,20 @@ impl History {
         let mut sorted_ids = Vec::with_capacity(ids.len());
         let mut parent_start = Vec::with_capacity(ids.len() + 1);
         let mut parents = Vec::with_capacity(ids.len() + ids.len() / 8);
-        for (row, &i) in order.iter().enumerate() {
+        for &i in &order {
             sorted_ids.push(ids[i as usize]);
-            rows_by_id.insert(ids[i as usize], row as u32);
             parent_start.push(parents.len() as u32);
-            parents.extend(raw_parents[i as usize].iter().map(|&p| row_of[p as usize]));
+            parents.extend(
+                raw_parents
+                    .of(i as usize)
+                    .iter()
+                    .map(|&p| row_of[p as usize]),
+            );
         }
+        for row in rows_by_id.values_mut() {
+            *row = row_of[*row as usize];
+        }
+        drop(raw_parents);
         parent_start.push(parents.len() as u32);
         let sorted = Instant::now();
         let layout = graph::layout(
@@ -113,46 +125,91 @@ impl History {
     }
 }
 
-type Walked = (Vec<ObjectId>, Vec<i64>, Vec<Vec<u32>>);
+pub struct Parents {
+    start: Vec<u32>,
+    list: Vec<u32>,
+}
+
+impl Parents {
+    pub fn from_lists(lists: &[Vec<u32>]) -> Self {
+        let mut parents = Self {
+            start: Vec::with_capacity(lists.len() + 1),
+            list: Vec::new(),
+        };
+        for ps in lists {
+            parents.start.push(parents.list.len() as u32);
+            parents.list.extend_from_slice(ps);
+        }
+        parents.start.push(parents.list.len() as u32);
+        parents
+    }
+
+    fn len(&self) -> usize {
+        self.start.len().saturating_sub(1)
+    }
+
+    fn of(&self, i: usize) -> &[u32] {
+        &self.list[self.start[i] as usize..self.start[i + 1] as usize]
+    }
+}
+
+struct Walked {
+    ids: Vec<ObjectId>,
+    times: Vec<i64>,
+    parents: Parents,
+    index: HashMap<ObjectId, u32>,
+}
 
 fn walk(repo: &gix::Repository, tips: Vec<ObjectId>) -> anyhow::Result<Walked> {
     let mut ids = Vec::new();
     let mut times = Vec::new();
-    let mut parent_ids: Vec<Vec<ObjectId>> = Vec::new();
-    if tips.is_empty() {
-        return Ok((ids, times, Vec::new()));
-    }
-    let walk = repo
-        .rev_walk(tips)
-        .sorting(Sorting::ByCommitTime(CommitTimeOrder::NewestFirst))
-        .use_commit_graph(true)
-        .all()?;
-    for info in walk {
-        let info = info?;
-        ids.push(info.id);
-        times.push(info.commit_time.unwrap_or_default());
-        parent_ids.push(info.parent_ids.iter().copied().collect());
+    let mut oid_start = vec![0u32];
+    let mut parent_oids: Vec<ObjectId> = Vec::new();
+    if !tips.is_empty() {
+        let walk = repo
+            .rev_walk(tips)
+            .sorting(Sorting::ByCommitTime(CommitTimeOrder::NewestFirst))
+            .use_commit_graph(true)
+            .all()?;
+        for info in walk {
+            let info = info?;
+            ids.push(info.id);
+            times.push(info.commit_time.unwrap_or_default());
+            parent_oids.extend(info.parent_ids.iter().copied());
+            oid_start.push(parent_oids.len() as u32);
+        }
     }
     let mut index = HashMap::default();
     index.reserve(ids.len());
     for (i, id) in ids.iter().enumerate() {
         index.insert(*id, i as u32);
     }
-    let parents = parent_ids
-        .into_iter()
-        .map(|ps| ps.iter().filter_map(|p| index.get(p).copied()).collect())
-        .collect();
-    Ok((ids, times, parents))
+    let mut parents = Parents {
+        start: Vec::with_capacity(ids.len() + 1),
+        list: Vec::with_capacity(parent_oids.len()),
+    };
+    for i in 0..ids.len() {
+        parents.start.push(parents.list.len() as u32);
+        let own = &parent_oids[oid_start[i] as usize..oid_start[i + 1] as usize];
+        parents
+            .list
+            .extend(own.iter().filter_map(|p| index.get(p).copied()));
+    }
+    parents.start.push(parents.list.len() as u32);
+    Ok(Walked {
+        ids,
+        times,
+        parents,
+        index,
+    })
 }
 
-/// Children always before parents; among commits that are ready, newest first.
-pub fn date_order(times: &[i64], parents: &[Vec<u32>]) -> Vec<u32> {
+pub fn date_order(times: &[i64], parents: &Parents) -> Vec<u32> {
     let n = times.len();
+    debug_assert_eq!(n, parents.len());
     let mut children = vec![0u32; n];
-    for ps in parents {
-        for &p in ps {
-            children[p as usize] += 1;
-        }
+    for &p in &parents.list {
+        children[p as usize] += 1;
     }
     let mut ready: BinaryHeap<(i64, Reverse<u32>)> = (0..n as u32)
         .filter(|&i| children[i as usize] == 0)
@@ -161,7 +218,7 @@ pub fn date_order(times: &[i64], parents: &[Vec<u32>]) -> Vec<u32> {
     let mut order = Vec::with_capacity(n);
     while let Some((_, Reverse(i))) = ready.pop() {
         order.push(i);
-        for &p in &parents[i as usize] {
+        for &p in parents.of(i as usize) {
             children[p as usize] -= 1;
             if children[p as usize] == 0 {
                 ready.push((times[p as usize], Reverse(p)));
@@ -179,13 +236,19 @@ mod tests {
     fn parents_never_come_before_children_even_with_clock_skew() {
         let times = [100, 500, 50];
         let parents = vec![vec![1], vec![], vec![0]];
-        assert_eq!(date_order(&times, &parents), [2, 0, 1]);
+        assert_eq!(
+            date_order(&times, &Parents::from_lists(&parents)),
+            [2, 0, 1]
+        );
     }
 
     #[test]
     fn newest_ready_commit_goes_first() {
         let times = [10, 30, 20, 0];
         let parents = vec![vec![3], vec![3], vec![3], vec![]];
-        assert_eq!(date_order(&times, &parents), [1, 2, 0, 3]);
+        assert_eq!(
+            date_order(&times, &Parents::from_lists(&parents)),
+            [1, 2, 0, 3]
+        );
     }
 }
