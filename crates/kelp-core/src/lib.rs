@@ -8,6 +8,7 @@ pub mod history;
 pub mod markdown;
 pub mod ops;
 pub mod preview;
+pub mod pulls;
 pub mod rebase;
 pub mod ref_tree;
 pub mod refs;
