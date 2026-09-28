@@ -44,10 +44,14 @@ impl Operation {
 pub struct InProgress {
     pub operation: Operation,
     pub subject: String,
+    pub editing: Option<String>,
 }
 
 impl InProgress {
     pub fn title(&self) -> String {
+        if let Some(sha) = &self.editing {
+            return format!("Rebase paused at {sha} for editing");
+        }
         if self.subject.is_empty() {
             format!("{} in progress", self.operation.noun())
         } else {
@@ -74,6 +78,7 @@ pub fn in_progress(git_dir: &Path) -> Option<InProgress> {
             return Some(InProgress {
                 operation: Operation::Rebase,
                 subject,
+                editing: crate::rebase::editing_at(git_dir),
             });
         }
     }
@@ -84,6 +89,7 @@ pub fn in_progress(git_dir: &Path) -> Option<InProgress> {
         return Some(InProgress {
             operation: Operation::Merge,
             subject,
+            editing: None,
         });
     }
     for (file, operation) in [
@@ -94,6 +100,7 @@ pub fn in_progress(git_dir: &Path) -> Option<InProgress> {
             return Some(InProgress {
                 operation,
                 subject: short(head),
+                editing: None,
             });
         }
     }

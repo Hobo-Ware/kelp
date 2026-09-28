@@ -21,6 +21,7 @@ mod jobs;
 mod macos;
 mod mascot;
 mod menus;
+mod message_editor;
 mod open_with;
 mod palette;
 mod panels;

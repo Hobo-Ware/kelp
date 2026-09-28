@@ -29,8 +29,14 @@ pub struct State {
 }
 
 #[derive(Debug, Clone)]
+pub enum Replay {
+    Op(Op),
+    Rewrite,
+}
+
+#[derive(Debug, Clone)]
 pub struct Record {
-    pub op: Op,
+    pub replay: Replay,
     pub label: String,
     before: State,
     after: State,
@@ -44,6 +50,15 @@ pub enum Outcome {
     Recorded(Box<Record>),
     NotUndoable { label: String, reason: &'static str },
     Unchanged,
+}
+
+impl Record {
+    pub fn op(&self) -> Option<&Op> {
+        match &self.replay {
+            Replay::Op(op) => Some(op),
+            Replay::Rewrite => None,
+        }
+    }
 }
 
 pub fn not_undoable_reason(op: &Op) -> Option<&'static str> {
@@ -98,7 +113,7 @@ pub fn run_recorded(op: &Op, dir: &Path) -> (anyhow::Result<String>, Outcome) {
     }
     let saved_refs = save_snapshots(dir, &[&before, &after]);
     let record = Record {
-        op: op.clone(),
+        replay: Replay::Op(op.clone()),
         label: op.label(),
         before,
         after,
@@ -107,6 +122,70 @@ pub fn run_recorded(op: &Op, dir: &Path) -> (anyhow::Result<String>, Outcome) {
         saved_refs,
     };
     (result, Outcome::Recorded(Box::new(record)))
+}
+
+/// Records a history rewrite (interactive rebase, message edit) that already
+/// finished, given the state captured before it ran.
+pub fn record_rewrite(dir: &Path, label: String, before: State) -> Outcome {
+    let Ok(after) = capture(dir) else {
+        return Outcome::NotUndoable {
+            label,
+            reason: "Kelp could not read the repository state around it",
+        };
+    };
+    if before == after {
+        return Outcome::Unchanged;
+    }
+    let mut saved_refs = save_snapshots(dir, &[&before, &after]);
+    let tips = changed_tips(&before, &after);
+    saved_refs.extend(save_commits(dir, tips));
+    Outcome::Recorded(Box::new(Record {
+        replay: Replay::Rewrite,
+        label,
+        before,
+        after,
+        untracked: Vec::new(),
+        branch_config: Vec::new(),
+        saved_refs,
+    }))
+}
+
+/// Re-applies an undone history rewrite by moving the refs back to the
+/// rewritten commits. Refuses when the repository changed since the undo.
+pub fn redo_rewrite(dir: &Path, record: &Record) -> anyhow::Result<Vec<String>> {
+    let current = capture(dir)?;
+    if !matches_state(&current, &record.before, &record.after) {
+        bail!(
+            "The repository changed since you undid {}, so redo would lose work. Nothing was changed.",
+            lowercase_first(&record.label)
+        );
+    }
+    let mut run = Runner {
+        dir,
+        list: Vec::new(),
+    };
+    let head_moves = record.before.head_ref != record.after.head_ref
+        || (record.after.head_ref.is_none() && record.before.head != record.after.head);
+    move_state(&mut run, &record.before, &record.after, head_moves, None)?;
+    let _ = git_cli::run(dir, &["update-index", "-q", "--refresh"]);
+    Ok(run.list)
+}
+
+fn changed_tips<'a>(before: &'a State, after: &'a State) -> Vec<&'a str> {
+    let mut tips: Vec<&str> = before
+        .branches
+        .iter()
+        .chain(after.branches.iter())
+        .filter(|(name, sha)| {
+            before.branches.get(*name) != after.branches.get(*name) && !sha.is_empty()
+        })
+        .map(|(_, sha)| sha.as_str())
+        .collect();
+    tips.extend(before.head.as_deref());
+    tips.extend(after.head.as_deref());
+    tips.sort_unstable();
+    tips.dedup();
+    tips
 }
 
 /// Reverses a recorded action and returns the git commands it ran. Refuses
@@ -125,8 +204,8 @@ pub fn undo(dir: &Path, record: &Record) -> anyhow::Result<Vec<String>> {
         list: Vec::new(),
     };
 
-    let renamed = match &record.op {
-        Op::RenameBranch { from, to } => {
+    let renamed = match record.op() {
+        Some(Op::RenameBranch { from, to }) => {
             run.git(&["branch", "-m", to, from])?;
             Some((from, to))
         }
@@ -135,41 +214,7 @@ pub fn undo(dir: &Path, record: &Record) -> anyhow::Result<Vec<String>> {
     let head_moves = renamed.is_none()
         && (before.head_ref != after.head_ref
             || (before.head_ref.is_none() && before.head != after.head));
-    if head_moves {
-        match (&before.head_ref, &before.head) {
-            (Some(name), _) => run.git(&["symbolic-ref", "HEAD", name])?,
-            (None, Some(sha)) => run.git(&["update-ref", "--no-deref", "HEAD", sha])?,
-            (None, None) => {}
-        }
-    }
-    let names: BTreeSet<&String> = before
-        .branches
-        .keys()
-        .chain(after.branches.keys())
-        .filter(|n| renamed.is_none_or(|(from, to)| *n != from && *n != to))
-        .collect();
-    for name in names {
-        let full = format!("refs/heads/{name}");
-        match (before.branches.get(name), after.branches.get(name)) {
-            (Some(old), Some(new)) if old != new => run.git(&["update-ref", &full, old, new])?,
-            (Some(old), None) => run.git(&["update-ref", &full, old])?,
-            (None, Some(new)) => run.git(&["update-ref", "-d", &full, new])?,
-            _ => {}
-        }
-    }
-    if before.worktree_tree != after.worktree_tree {
-        let (Some(from), Some(to)) = (&after.worktree_tree, &before.worktree_tree) else {
-            bail!("Kelp could not read the files as they were before");
-        };
-        run.git(&["read-tree", from])?;
-        run.git(&["read-tree", "-u", "--reset", to])?;
-    }
-    if before.index_tree != current_index(dir) {
-        let Some(index) = &before.index_tree else {
-            bail!("Kelp could not read the staged changes as they were before");
-        };
-        run.git(&["read-tree", index])?;
-    }
+    move_state(&mut run, after, before, head_moves, renamed)?;
     for (key, value) in &record.branch_config {
         run.git(&["config", key, value])?;
     }
@@ -195,6 +240,53 @@ pub fn undo(dir: &Path, record: &Record) -> anyhow::Result<Vec<String>> {
     }
     let _ = git_cli::run(dir, &["update-index", "-q", "--refresh"]);
     Ok(run.list)
+}
+
+fn move_state(
+    run: &mut Runner,
+    from: &State,
+    to: &State,
+    head_moves: bool,
+    renamed: Option<(&String, &String)>,
+) -> anyhow::Result<()> {
+    if head_moves {
+        match (&to.head_ref, &to.head) {
+            (Some(name), _) => run.git(&["symbolic-ref", "HEAD", name])?,
+            (None, Some(sha)) => run.git(&["update-ref", "--no-deref", "HEAD", sha])?,
+            (None, None) => {}
+        }
+    }
+    let names: BTreeSet<&String> = to
+        .branches
+        .keys()
+        .chain(from.branches.keys())
+        .filter(|n| renamed.is_none_or(|(a, b)| *n != a && *n != b))
+        .collect();
+    for name in names {
+        let full = format!("refs/heads/{name}");
+        match (to.branches.get(name), from.branches.get(name)) {
+            (Some(target), Some(current)) if target != current => {
+                run.git(&["update-ref", &full, target, current])?
+            }
+            (Some(target), None) => run.git(&["update-ref", &full, target])?,
+            (None, Some(current)) => run.git(&["update-ref", "-d", &full, current])?,
+            _ => {}
+        }
+    }
+    if to.worktree_tree != from.worktree_tree {
+        let (Some(current), Some(target)) = (&from.worktree_tree, &to.worktree_tree) else {
+            bail!("Kelp could not read the files as they were");
+        };
+        run.git(&["read-tree", current])?;
+        run.git(&["read-tree", "-u", "--reset", target])?;
+    }
+    if to.index_tree != current_index(run.dir) {
+        let Some(index) = &to.index_tree else {
+            bail!("Kelp could not read the staged changes as they were");
+        };
+        run.git(&["read-tree", index])?;
+    }
+    Ok(())
 }
 
 struct Runner<'a> {
@@ -285,27 +377,31 @@ impl Stack {
     }
 }
 
-fn still_after(dir: &Path, record: &Record, current: &State) -> bool {
-    let (before, after) = (&record.before, &record.after);
-    let same_trees = current.head_ref == after.head_ref
-        && current.head == after.head
-        && current.index_tree == after.index_tree
-        && current.worktree_tree == after.worktree_tree;
-    let names: BTreeSet<&String> = before
+fn matches_state(current: &State, expected: &State, other: &State) -> bool {
+    let same_trees = current.head_ref == expected.head_ref
+        && current.head == expected.head
+        && current.index_tree == expected.index_tree
+        && current.worktree_tree == expected.worktree_tree;
+    let names: BTreeSet<&String> = expected
         .branches
         .keys()
-        .chain(after.branches.keys())
+        .chain(other.branches.keys())
         .collect();
-    let branches_kept = names
-        .into_iter()
-        .filter(|n| before.branches.get(*n) != after.branches.get(*n))
-        .all(|n| current.branches.get(n) == after.branches.get(n));
+    same_trees
+        && names
+            .into_iter()
+            .filter(|n| expected.branches.get(*n) != other.branches.get(*n))
+            .all(|n| current.branches.get(n) == expected.branches.get(n))
+}
+
+fn still_after(dir: &Path, record: &Record, current: &State) -> bool {
+    let (before, after) = (&record.before, &record.after);
     let stashes_kept = before.stashes == after.stashes || current.stashes == after.stashes;
     let untracked_free = record
         .untracked
         .iter()
         .all(|(path, _)| !dir.join(path).exists());
-    same_trees && branches_kept && stashes_kept && untracked_free
+    matches_state(current, after, before) && stashes_kept && untracked_free
 }
 
 fn branch_config(dir: &Path, name: &str) -> Vec<(String, String)> {
@@ -397,13 +493,15 @@ fn read_untracked(dir: &Path, paths: &[String]) -> Option<Vec<(PathBuf, Vec<u8>)
 }
 
 fn save_snapshots(dir: &Path, states: &[&State]) -> Vec<String> {
+    save_commits(dir, states.iter().filter_map(|s| s.snapshot.as_deref()))
+}
+
+fn save_commits<'a>(dir: &Path, shas: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    states
-        .iter()
-        .filter_map(|s| s.snapshot.as_deref())
+    shas.into_iter()
         .filter_map(|sha| {
             let n = NEXT.fetch_add(1, Ordering::Relaxed);
             let name = format!("{SAVED_REFS}/{stamp}-{n}");

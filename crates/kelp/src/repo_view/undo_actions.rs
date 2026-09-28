@@ -1,5 +1,5 @@
 use kelp_core::ops::Op;
-use kelp_core::undo::{self, Outcome, Record, lowercase_first};
+use kelp_core::undo::{self, Outcome, Record, Replay, lowercase_first};
 
 use super::{JobOutput, Repo};
 
@@ -39,7 +39,16 @@ impl Repo {
         };
         let dir = self.dir.clone();
         self.jobs.spawn(REDOING, move || {
-            let (result, outcome) = undo::run_recorded(&original.op, &dir);
+            let (result, outcome) = match &original.replay {
+                Replay::Op(op) => undo::run_recorded(op, &dir),
+                Replay::Rewrite => match undo::redo_rewrite(&dir, &original) {
+                    Ok(commands) => (
+                        Ok(commands.join("; ")),
+                        Outcome::Recorded(Box::new(original.clone())),
+                    ),
+                    Err(e) => (Err(e), Outcome::Unchanged),
+                },
+            };
             JobOutput::Redone {
                 original: Box::new(original),
                 result,
@@ -83,7 +92,7 @@ impl Repo {
     pub(super) fn finish_undo(&mut self, record: Record, result: anyhow::Result<Vec<String>>) {
         match result {
             Ok(commands) => {
-                if let Op::Commit { message, amend } = &record.op {
+                if let Some(Op::Commit { message, amend }) = record.op() {
                     let (summary, body) = message.split_once("\n\n").unwrap_or((message, ""));
                     self.commit_summary = summary.to_string();
                     self.commit_body = body.to_string();
@@ -116,7 +125,7 @@ impl Repo {
     ) {
         match result {
             Ok(_) => {
-                if matches!(original.op, Op::Commit { .. }) {
+                if matches!(original.op(), Some(Op::Commit { .. })) {
                     self.commit_summary.clear();
                     self.commit_body.clear();
                     self.amend = false;
@@ -125,7 +134,9 @@ impl Repo {
                 if let Outcome::Recorded(record) = outcome {
                     self.undo.record_redone(*record);
                 }
-                self.forget(vec![original]);
+                if original.op().is_some() {
+                    self.forget(vec![original]);
+                }
             }
             Err(e) => {
                 self.notify(format!("{e:#}"), true);

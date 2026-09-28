@@ -391,6 +391,9 @@ pub fn commit(
             || Command::OpenRebase(id.to_string()),
         );
     });
+    item(ui, Icon::Pencil, "Edit message…", out, || {
+        Command::EditMessage(id.to_string())
+    });
     separator(ui);
     heading(
         ui,

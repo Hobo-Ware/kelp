@@ -164,6 +164,9 @@ impl Repo {
             RepoAction::InteractiveRebase => self
                 .selected_commit()
                 .map(|(id, _)| Command::OpenRebase(id)),
+            RepoAction::EditMessage => self
+                .selected_commit()
+                .map(|(id, _)| Command::EditMessage(id)),
             RepoAction::CopyCommitHash => self.selected_commit().map(|(id, _)| Command::Copy(id)),
             RepoAction::CopyBranchName => {
                 self.current_branch().map(|b| Command::Copy(b.to_string()))

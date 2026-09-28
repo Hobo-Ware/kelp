@@ -49,7 +49,7 @@ fn commit_is_undone_and_its_changes_stay_staged() {
     assert_eq!(status(&repo), "M  a.txt\n");
     assert!(commands.iter().any(|c| c.starts_with("git update-ref")));
 
-    record.op.run(repo.path()).unwrap();
+    record.op().unwrap().run(repo.path()).unwrap();
     assert_eq!(
         repo.git(&["log", "-1", "--format=%s"]).trim(),
         "third",
@@ -274,4 +274,140 @@ fn stack_keeps_fifty_and_clears_redo_on_new_actions() {
     let cleared = stack.record(recorded(&repo, Op::Stage(vec!["a.txt".into()])));
     assert_eq!(cleared.len(), 1);
     assert!(stack.next_redo().is_none());
+}
+
+fn rewrite(
+    repo: &Scratch,
+    label: &str,
+    run: impl FnOnce() -> kelp_core::rebase::Outcome,
+) -> Record {
+    let before = undo::capture(repo.path()).unwrap();
+    assert_eq!(run(), kelp_core::rebase::Outcome::Done);
+    match undo::record_rewrite(repo.path(), label.into(), before) {
+        Outcome::Recorded(record) => *record,
+        other => panic!("expected a rewrite record, got {other:?}"),
+    }
+}
+
+fn three_more(repo: &Scratch) {
+    repo.commit("b.txt", "b\n", "add b");
+    repo.commit("c.txt", "c\n", "add c");
+    repo.commit("d.txt", "d\n", "add d");
+}
+
+#[test]
+fn message_edit_of_head_is_undone_and_redone() {
+    let repo = Scratch::new("undo-reword-head");
+    let old = head(&repo);
+    let record = rewrite(&repo, "Edit message", || {
+        kelp_core::rebase::edit_message(repo.path(), "HEAD", "second, better").unwrap()
+    });
+    let new = head(&repo);
+    assert_ne!(new, old);
+    undo::undo(repo.path(), &record).unwrap();
+    assert_eq!(head(&repo), old);
+    assert_eq!(current_branch(&repo), "main");
+    undo::redo_rewrite(repo.path(), &record).unwrap();
+    assert_eq!(head(&repo), new);
+    assert_eq!(
+        repo.git(&["log", "-1", "--format=%s"]).trim(),
+        "second, better"
+    );
+}
+
+#[test]
+fn message_edit_three_back_is_undone() {
+    let repo = Scratch::new("undo-reword-older");
+    three_more(&repo);
+    let old = head(&repo);
+    let record = rewrite(&repo, "Edit message", || {
+        kelp_core::rebase::edit_message(repo.path(), "HEAD~2", "add b, renamed").unwrap()
+    });
+    assert_ne!(head(&repo), old);
+    undo::undo(repo.path(), &record).unwrap();
+    assert_eq!(head(&repo), old);
+    assert_eq!(
+        repo.git(&["log", "-1", "--format=%s", "HEAD~2"]).trim(),
+        "add b"
+    );
+    assert_eq!(status(&repo), "");
+}
+
+#[test]
+fn interactive_rebase_is_undone_to_the_exact_old_tip_and_redone() {
+    let repo = Scratch::new("undo-rebase");
+    three_more(&repo);
+    let old = head(&repo);
+    let mut plan = kelp_core::rebase::load(repo.path(), "HEAD~3").unwrap();
+    plan.steps.swap(0, 2);
+    plan.steps[2].action = kelp_core::rebase::Action::Squash;
+    let steps = plan.steps.clone();
+    let record = rewrite(&repo, "Interactive rebase", || {
+        kelp_core::rebase::run(repo.path(), &plan, &|g| {
+            kelp_core::rebase::default_combined(&steps, g)
+        })
+        .unwrap()
+    });
+    let rewritten = head(&repo);
+    assert_ne!(rewritten, old);
+    undo::undo(repo.path(), &record).unwrap();
+    assert_eq!(head(&repo), old, "undo restores the exact old tip");
+    assert!(repo.path().join("d.txt").exists());
+    assert_eq!(status(&repo), "");
+    undo::redo_rewrite(repo.path(), &record).unwrap();
+    assert_eq!(head(&repo), rewritten);
+    assert_eq!(status(&repo), "");
+}
+
+#[test]
+fn rewrite_undo_refuses_after_new_work() {
+    let repo = Scratch::new("undo-rebase-refuse");
+    three_more(&repo);
+    let record = rewrite(&repo, "Edit message", || {
+        kelp_core::rebase::edit_message(repo.path(), "HEAD~1", "add c, renamed").unwrap()
+    });
+    repo.commit("e.txt", "e\n", "add e");
+    let tip = head(&repo);
+    let err = undo::undo(repo.path(), &record).unwrap_err();
+    assert!(err.to_string().contains("Nothing was changed"), "{err}");
+    assert_eq!(head(&repo), tip);
+}
+
+#[test]
+fn rewrite_redo_refuses_after_new_work() {
+    let repo = Scratch::new("undo-redo-refuse");
+    three_more(&repo);
+    let record = rewrite(&repo, "Edit message", || {
+        kelp_core::rebase::edit_message(repo.path(), "HEAD", "add d, renamed").unwrap()
+    });
+    undo::undo(repo.path(), &record).unwrap();
+    repo.commit("e.txt", "e\n", "add e");
+    let tip = head(&repo);
+    let err = undo::redo_rewrite(repo.path(), &record).unwrap_err();
+    assert!(err.to_string().contains("Nothing was changed"), "{err}");
+    assert_eq!(head(&repo), tip);
+}
+
+#[test]
+fn undoing_a_rebase_that_dropped_a_commit_brings_the_file_back() {
+    let repo = Scratch::new("undo-rebase-drop");
+    three_more(&repo);
+    let old = head(&repo);
+    let mut plan = kelp_core::rebase::load(repo.path(), "HEAD~3").unwrap();
+    plan.steps[1].action = kelp_core::rebase::Action::Drop;
+    let steps = plan.steps.clone();
+    let record = rewrite(&repo, "Interactive rebase", || {
+        kelp_core::rebase::run(repo.path(), &plan, &|g| {
+            kelp_core::rebase::default_combined(&steps, g)
+        })
+        .unwrap()
+    });
+    assert!(!repo.path().join("c.txt").exists());
+    undo::undo(repo.path(), &record).unwrap();
+    assert_eq!(head(&repo), old);
+    assert_eq!(read(&repo, "c.txt"), "c\n");
+    assert_eq!(status(&repo), "");
+    undo::redo_rewrite(repo.path(), &record).unwrap();
+    assert!(!repo.path().join("c.txt").exists());
+    assert_eq!(status(&repo), "");
 }
