@@ -204,7 +204,7 @@ milestone is a release; each item ends with a check we can run.
 | Solo or hide a branch from the sidebar (eye toggle); hidden branches drop out of the lane layout | Layout test: hiding a branch removes its lanes. |
 | Optional columns: author, date, short hash; resizable and remembered | Settings round trip. |
 
-### v0.3 "Find anything"
+### v0.3 "Find anything" (done 2026-09-28)
 
 | Item | Done when |
 |---|---|
