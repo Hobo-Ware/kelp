@@ -1,5 +1,6 @@
 use eframe::egui::{Key, KeyboardShortcut, Modifiers};
 
+use crate::help::Page;
 use crate::icons::Icon;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -25,6 +26,8 @@ pub enum AppAction {
     Settings,
     Shortcuts,
     CheckUpdates,
+    WhatsNew,
+    Help(Page),
     ToggleDescriptions,
     ToggleFade,
     ToggleAuthorColumn,
@@ -219,6 +222,13 @@ pub static ACTIONS: &[Action] = &[
     app("settings", "Settings", "preferences options", Some("Cmd+,"), None, AppAction::Settings),
     app("shortcuts", "Keyboard shortcuts", "keys help", Some("Cmd+/"), None, AppAction::Shortcuts),
     app("check-updates", "Check for updates", "upgrade version", None, None, AppAction::CheckUpdates),
+    app("whats-new", "What's new in Kelp", "changelog release notes version", None, None, AppAction::WhatsNew),
+    app("help-getting-started", "Help: Getting started", "docs guide manual website", None, None, AppAction::Help(Page::GettingStarted)),
+    app("help-shortcuts", "Help: Keyboard shortcuts page", "docs keys website", None, None, AppAction::Help(Page::Shortcuts)),
+    app("help-undo", "Help: What undo covers", "docs reflog website", None, None, AppAction::Help(Page::Undo)),
+    app("help-faq", "Help: FAQ", "docs questions privacy website", None, None, AppAction::Help(Page::Faq)),
+    app("help-changelog", "Help: Changelog", "docs release notes website", None, None, AppAction::Help(Page::Changelog)),
+    app("report-bug", "Report a bug", "issue github feedback problem", None, None, AppAction::Help(Page::ReportBug)),
     app("toggle-descriptions", "Toggle commit descriptions", "view body", None, None, AppAction::ToggleDescriptions),
     app("toggle-fade", "Toggle fading outside the selected history", "view dim", None, None, AppAction::ToggleFade),
     app("toggle-author-column", "Toggle the Author column", "view columns", None, None, AppAction::ToggleAuthorColumn),
@@ -517,6 +527,13 @@ mod tests {
             "settings",
             "shortcuts",
             "check-updates",
+            "whats-new",
+            "help-getting-started",
+            "help-shortcuts",
+            "help-undo",
+            "help-faq",
+            "help-changelog",
+            "report-bug",
             "toggle-descriptions",
             "toggle-fade",
             "toggle-author-column",
@@ -687,5 +704,104 @@ mod tests {
         assert!(state.allows(Run::Repo(RepoAction::CherryPick)));
         assert!(!State::default().allows(Run::Repo(RepoAction::Fetch)));
         assert!(State::default().allows(Run::App(AppAction::OpenRepo)));
+    }
+
+    fn escape_html(text: &str) -> String {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+    }
+
+    fn key_html(part: &str) -> String {
+        if part.contains(' ') {
+            part.split(' ')
+                .map(|word| match word.contains('+') {
+                    true => format!("<kbd>{}</kbd>", escape_html(word)),
+                    false => escape_html(word),
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        } else if part.contains("-click") {
+            escape_html(part)
+        } else {
+            format!("<kbd>{}</kbd>", escape_html(part))
+        }
+    }
+
+    fn keys_html(keys: &str) -> String {
+        keys.split(" / ")
+            .map(|alternative| {
+                alternative
+                    .split(", ")
+                    .map(key_html)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .collect::<Vec<_>>()
+            .join(" / ")
+    }
+
+    fn shortcut_tables() -> String {
+        Group::ALL
+            .iter()
+            .map(|group| {
+                let rows: String = KEYS
+                    .iter()
+                    .filter(|k| k.group == *group)
+                    .map(|k| {
+                        format!(
+                            "      <tr><td>{}</td><td>{}</td></tr>\n",
+                            keys_html(k.keys),
+                            escape_html(k.what)
+                        )
+                    })
+                    .collect();
+                format!(
+                    "  <h2 id=\"{}\">{}</h2>\n  <table>\n    <thead><tr><th>Keys</th><th>What it does</th></tr></thead>\n    <tbody>\n{rows}    </tbody>\n  </table>\n",
+                    group.title().to_lowercase(),
+                    group.title()
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn shortcuts_page_matches_the_sheet() {
+        const OPEN: &str = "<div class=\"keys\">\n";
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../site/docs/shortcuts.html");
+        let page = std::fs::read_to_string(&path).expect("site/docs/shortcuts.html");
+        let start = page.find(OPEN).expect("shortcuts page has a keys block") + OPEN.len();
+        let end = start + page[start..].find("</div>").expect("keys block is closed");
+        let expected = shortcut_tables();
+        if std::env::var_os("KELP_WRITE_DOCS").is_some() {
+            std::fs::write(
+                &path,
+                format!("{}{expected}{}", &page[..start], &page[end..]),
+            )
+            .expect("write shortcuts page");
+            return;
+        }
+        assert!(
+            page[start..end] == expected,
+            "site/docs/shortcuts.html is out of date; run KELP_WRITE_DOCS=1 cargo test -p kelp shortcuts_page"
+        );
+    }
+
+    #[test]
+    fn shortcut_keys_render_as_kbd() {
+        assert_eq!(
+            keys_html("Up / Down, J / K"),
+            "<kbd>Up</kbd> / <kbd>Down</kbd>, <kbd>J</kbd> / <kbd>K</kbd>"
+        );
+        assert_eq!(
+            keys_html("Cmd+1 ... Cmd+9"),
+            "<kbd>Cmd+1</kbd> ... <kbd>Cmd+9</kbd>"
+        );
+        assert_eq!(
+            keys_html("Cmd-click / Shift-click a changed file"),
+            "Cmd-click / Shift-click a changed file"
+        );
+        assert_eq!(keys_html("Drag a tab"), "Drag a tab");
     }
 }

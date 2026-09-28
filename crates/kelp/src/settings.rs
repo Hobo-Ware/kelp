@@ -46,8 +46,11 @@ pub struct Settings {
     pub recent_repos: Vec<Recent>,
     pub panels: Panels,
     pub zoom: f32,
+    pub last_seen_version: Option<String>,
     #[serde(skip)]
     offline: bool,
+    #[serde(skip)]
+    fresh_install: bool,
 }
 
 impl Default for Settings {
@@ -69,7 +72,9 @@ impl Default for Settings {
             recent_repos: Vec::new(),
             panels: Panels::default(),
             zoom: 1.0,
+            last_seen_version: None,
             offline: false,
+            fresh_install: false,
         }
     }
 }
@@ -94,10 +99,12 @@ impl Settings {
     }
 
     pub fn load() -> Self {
-        let mut settings: Settings = std::fs::read(Self::file())
+        let file = Self::file();
+        let mut settings: Settings = std::fs::read(&file)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default();
+        settings.fresh_install = !file.exists();
         settings.offline = std::env::var_os("KELP_OFFLINE").is_some();
         if let Ok(names) = std::env::var("KELP_COLUMNS") {
             settings.graph_columns = GraphColumns::from_names(&names);
@@ -123,6 +130,10 @@ impl Settings {
             _ => None,
         });
         forced.unwrap_or_else(|| self.appearance.preference())
+    }
+
+    pub fn is_fresh_install(&self) -> bool {
+        self.fresh_install
     }
 
     pub fn avatars_enabled(&self) -> bool {
@@ -158,8 +169,9 @@ impl Settings {
         updater: &mut crate::updater::Updater,
         signing: &mut crate::signing_panel::SigningPanel,
         repo: Option<&std::path::Path>,
-    ) {
+    ) -> bool {
         let before = self.clone();
+        let mut whats_new = false;
         let modal = egui::Modal::new(egui::Id::new("kelp-settings")).backdrop_color(theme::backdrop())
             .frame(
                 egui::Frame::new()
@@ -258,6 +270,11 @@ impl Settings {
                 signing.ui(ui, repo);
                 ui.separator();
                 updater.settings_section(ui, &mut self.auto_update, &mut self.check_updates);
+                ui.separator();
+                whats_new = help_section(ui);
+                if std::env::var("KELP_OPEN_SETTINGS").as_deref() == Ok("help") {
+                    ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
+                }
                     });
                 ui.add_space(4.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -279,7 +296,26 @@ impl Settings {
         if *self != before {
             self.save();
         }
+        whats_new
     }
+}
+
+fn help_section(ui: &mut egui::Ui) -> bool {
+    let mut whats_new = false;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        ui.label(RichText::new("Help").color(theme::text_strong()));
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 14.0;
+            for page in crate::help::Page::IN_SETTINGS {
+                if ui.link(page.title()).clicked() {
+                    let _ = page.open();
+                }
+            }
+            whats_new = ui.link("What's new").clicked();
+        });
+    });
+    whats_new
 }
 
 fn option(ui: &mut egui::Ui, value: &mut bool, label: &str, hint: &str) {

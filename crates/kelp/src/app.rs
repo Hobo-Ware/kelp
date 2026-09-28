@@ -38,6 +38,7 @@ pub struct KelpApp {
     updater: crate::updater::Updater,
     palette: Palette,
     shortcuts_open: bool,
+    whats_new: Option<crate::whats_new::WhatsNew>,
     signing: crate::signing_panel::SigningPanel,
     instance: Option<crate::instance::Listener>,
     applied_theme: Option<egui::ThemePreference>,
@@ -103,7 +104,8 @@ impl Tab {
 impl KelpApp {
     pub fn open(ctx: egui::Context, paths: Vec<PathBuf>) -> Self {
         let tabs = paths.into_iter().map(|p| Tab::open(&ctx, p)).collect();
-        let settings = Settings::load();
+        let mut settings = Settings::load();
+        let whats_new = crate::whats_new::on_launch(&mut settings);
         let palette = palette_from_env(&settings);
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         ctx.set_zoom_factor(settings.zoom);
@@ -128,6 +130,7 @@ impl KelpApp {
             updater: crate::updater::Updater::new(ctx.clone()),
             palette,
             shortcuts_open: std::env::var_os("KELP_OPEN_SHORTCUTS").is_some(),
+            whats_new,
             signing: crate::signing_panel::SigningPanel::default(),
             instance: (!crate::settings::is_dev_run())
                 .then(|| {
@@ -1026,13 +1029,22 @@ impl eframe::App for KelpApp {
         self.paint_notice(&ctx);
         if self.show_settings {
             let repo = self.tabs.get(self.active).map(|t| t.path.clone());
-            self.settings.window(
+            let whats_new = self.settings.window(
                 &ctx,
                 &mut self.show_settings,
                 &mut self.updater,
                 &mut self.signing,
                 repo.as_deref(),
             );
+            if whats_new {
+                self.show_settings = false;
+                self.whats_new = crate::whats_new::WhatsNew::since(None);
+            }
+        }
+        if let Some(notes) = &mut self.whats_new
+            && !notes.show(&ctx)
+        {
+            self.whats_new = None;
         }
     }
 }
