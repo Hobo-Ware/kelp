@@ -49,6 +49,10 @@ pub enum Selection {
 }
 
 pub enum JobOutput {
+    CommitHints {
+        conventional: bool,
+        people: Vec<kelp_core::commit_message::Person>,
+    },
     Reloaded(anyhow::Result<Box<History>>),
     Status(anyhow::Result<status::WorkingStatus>),
     CommitGraph(anyhow::Result<()>),
@@ -663,12 +667,29 @@ impl Repo {
         if let Some(choice) = self.commit_prefs.conventional {
             return choice;
         }
-        *self.conventional_detected.get_or_insert_with(|| {
-            let ids: Vec<_> = self.history.ids().iter().take(50).copied().collect();
-            kelp_core::commit_message::uses_conventional(&kelp_core::commit_message::subjects(
-                &self.dir, &ids,
-            ))
-        })
+        self.load_commit_hints();
+        self.conventional_detected.unwrap_or(false)
+    }
+
+    fn load_commit_hints(&mut self) {
+        if self.conventional_detected.is_some() || self.jobs.is_running("Reading authors") {
+            return;
+        }
+        let dir = self.dir.clone();
+        let ids: Vec<_> = self.history.ids().iter().take(1000).copied().collect();
+        let me = self
+            .repo
+            .config_snapshot()
+            .string("user.email")
+            .map(|email| email.to_string());
+        self.jobs.spawn("Reading authors", move || {
+            use kelp_core::commit_message as message;
+            let recent = &ids[..ids.len().min(50)];
+            JobOutput::CommitHints {
+                conventional: message::uses_conventional(&message::subjects(&dir, recent)),
+                people: message::people(&dir, &ids, me.as_deref()),
+            }
+        });
     }
 
     pub fn set_conventional(&mut self, on: bool) {
@@ -679,19 +700,7 @@ impl Repo {
     }
 
     pub fn people(&mut self) -> &[kelp_core::commit_message::Person] {
-        if self.co_author_people.is_none() {
-            let ids: Vec<_> = self.history.ids().iter().take(1000).copied().collect();
-            let me = self
-                .repo
-                .config_snapshot()
-                .string("user.email")
-                .map(|email| email.to_string());
-            self.co_author_people = Some(kelp_core::commit_message::people(
-                &self.dir,
-                &ids,
-                me.as_deref(),
-            ));
-        }
+        self.load_commit_hints();
         self.co_author_people.as_deref().unwrap_or_default()
     }
 
@@ -1267,6 +1276,13 @@ impl Repo {
                     if std::mem::take(&mut self.reload_again) {
                         self.reload();
                     }
+                }
+                JobOutput::CommitHints {
+                    conventional,
+                    people,
+                } => {
+                    self.conventional_detected = Some(conventional);
+                    self.co_author_people = Some(people);
                 }
                 JobOutput::Opened(Ok(())) => {}
                 JobOutput::Opened(Err(e)) => self.notify(e, true),
