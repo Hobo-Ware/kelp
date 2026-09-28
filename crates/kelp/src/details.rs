@@ -17,6 +17,12 @@ const BODY_COLOR: Color32 = Color32::from_rgb(0xb4, 0xb9, 0xc2);
 const INDENT: f32 = 16.0;
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo) {
+    let active = repo.range_diff_path().map(str::to_string);
+    if let Some(compare) = &mut repo.compare {
+        let event = compare.ui(ui, active.as_deref());
+        repo.compare_event(ui.ctx(), event);
+        return;
+    }
     if repo.selected == Some(Selection::Wip) {
         crate::staging::ui(ui, repo);
         return;
@@ -552,17 +558,17 @@ fn folder_row(ui: &mut Ui, name: &str, depth: usize, open: bool) -> egui::Respon
     response
 }
 
-struct FileRow<'a> {
-    kind: Option<ChangeKind>,
-    path: &'a str,
-    label: Option<&'a str>,
-    depth: usize,
-    active: bool,
-    comments: usize,
+pub struct FileRow<'a> {
+    pub kind: Option<ChangeKind>,
+    pub path: &'a str,
+    pub label: Option<&'a str>,
+    pub depth: usize,
+    pub active: bool,
+    pub comments: usize,
 }
 
 impl FileRow<'_> {
-    fn show(&self, ui: &mut Ui) -> egui::Response {
+    pub fn show(&self, ui: &mut Ui) -> egui::Response {
         let (rect, response) =
             ui.allocate_exact_size(vec2(ui.available_width(), FILE_ROW_H), Sense::click());
         let painter = ui.painter_at(rect);

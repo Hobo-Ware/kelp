@@ -34,6 +34,7 @@ const GRAPH_PAD: f32 = 16.0;
 const MIN_GRAPH_W: f32 = 80.0;
 const DEFAULT_MAX_LANES: f32 = 14.0;
 const HEADER_H: f32 = 28.0;
+const MARK_INSET: f32 = 12.0;
 const WIP_GREY: Color32 = Color32::from_rgb(0x3a, 0x41, 0x50);
 const HOVER_LINE_W: f32 = 3.5;
 const OFF_PATH_OPACITY: f32 = 0.45;
@@ -49,6 +50,7 @@ pub struct GraphView {
     drag: Option<ref_labels::Drag>,
     drop: Option<DropPlan>,
     pub columns_changed: Option<GraphColumns>,
+    pub filter_clicked: bool,
 }
 
 pub struct GraphInput<'a> {
@@ -61,6 +63,9 @@ pub struct GraphInput<'a> {
     pub descriptions: bool,
     pub other_wips: &'a [OtherWip<'a>],
     pub columns: GraphColumns,
+    pub compare: crate::compare_view::Marks,
+    pub picking: bool,
+    pub filter_active: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -84,6 +89,7 @@ pub struct OtherWip<'a> {
 
 pub enum Action {
     Select(Selection),
+    Compare(usize),
     Command(Command),
 }
 
@@ -106,6 +112,7 @@ impl GraphView {
             drop: None,
             hover: None,
             columns_changed: None,
+            filter_clicked: false,
         }
     }
 
@@ -130,6 +137,9 @@ impl GraphView {
             descriptions,
             other_wips,
             mut columns,
+            compare,
+            picking,
+            filter_active,
         } = input;
         let content_w = history.layout.lane_count() as f32 * LANE_W + GRAPH_PAD * 2.0;
         let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
@@ -137,7 +147,14 @@ impl GraphView {
         let graph_w = self.graph_w.unwrap_or(auto_w).clamp(MIN_GRAPH_W, max_w);
         self.lane_offset = self.lane_offset.clamp(0.0, (content_w - graph_w).max(0.0));
         let msg_x = LABELS_W + graph_w;
-        if self.header(ui, msg_x, auto_w, content_w > graph_w, &mut columns) {
+        if self.header(
+            ui,
+            msg_x,
+            auto_w,
+            content_w > graph_w,
+            &mut columns,
+            filter_active,
+        ) {
             self.columns_changed = Some(columns);
         }
 
@@ -220,7 +237,7 @@ impl GraphView {
             let mut label_events = Vec::new();
             let mut label_hits: Vec<(Rect, usize, RefLabel)> = Vec::new();
             let mut open_buttons = Vec::new();
-            let mut halo = None;
+            let mut halos = Vec::new();
             for (i, display) in rows.clone().enumerate() {
                 let geo = RowGeo {
                     left: rect.left(),
@@ -231,8 +248,13 @@ impl GraphView {
                     columns,
                 };
                 let row_kind = map.resolve(display);
-                let is_selected =
-                    row_kind.selection().is_some() && row_kind.selection() == selected;
+                let compared = match row_kind {
+                    Row::Commit(row) => compare.mark(row).is_some(),
+                    Row::CurrentWip => compare.work_tree,
+                    Row::OtherWip(_) => false,
+                };
+                let is_selected = compared
+                    || (row_kind.selection().is_some() && row_kind.selection() == selected);
                 if let Row::Commit(row) = row_kind
                     && hover.as_ref().is_some_and(|(h, _)| *h == row)
                     && !is_selected
@@ -254,6 +276,14 @@ impl GraphView {
                             has_button: false,
                         };
                         paint_wip_row(&painter, &geo, history, wip.head_row, &label, is_selected);
+                        if compare.work_tree {
+                            let spot = pos2(geo.msg_left() - MARK_INSET, geo.mid());
+                            crate::compare_view::paint_mark(
+                                &painter,
+                                spot,
+                                crate::compare_view::MARK_B,
+                            );
+                        }
                     }
                     (Row::OtherWip(i), _) => {
                         let other = &other_wips[i];
@@ -303,7 +333,11 @@ impl GraphView {
                         if is_selected {
                             let center = pos2(geo.lane_x(history.layout.node_lane(row)), geo.mid());
                             let graph_x = geo.graph_left()..=geo.msg_left();
-                            halo = Some((center, lane, graph_x));
+                            halos.push((center, lane, graph_x));
+                        }
+                        if let Some(mark) = compare.mark(row) {
+                            let spot = pos2(geo.msg_left() - MARK_INSET, geo.mid());
+                            crate::compare_view::paint_mark(&painter, spot, mark);
                         }
                         let events = ref_labels::interact(
                             ui, row, &labels, &placed, lane, force_open, &mut menu,
@@ -313,7 +347,7 @@ impl GraphView {
                     (Row::CurrentWip, None) => {}
                 }
             }
-            if let Some((center, lane, graph_x)) = halo {
+            for (center, lane, graph_x) in halos {
                 let clip = Rect::from_x_y_ranges(graph_x, rect.y_range());
                 selection_halo(&painter.with_clip_rect(clip), center, AVATAR_R, lane);
             }
@@ -430,8 +464,15 @@ impl GraphView {
                 && let Some(pos) = response.interact_pointer_pos()
             {
                 let row = row_at(pos.y);
-                if let Some(selection) = row.selection() {
-                    action = Some(Action::Select(selection));
+                let comparing =
+                    response.clicked() && (picking || ui.input(|i| i.modifiers.command));
+                match (row, comparing) {
+                    (Row::Commit(commit), true) => action = Some(Action::Compare(commit)),
+                    _ => {
+                        if let Some(selection) = row.selection() {
+                            action = Some(Action::Select(selection));
+                        }
+                    }
                 }
                 if response.secondary_clicked() {
                     *context = Some(row);
@@ -520,6 +561,7 @@ impl GraphView {
         auto_w: f32,
         scrollable: bool,
         columns: &mut GraphColumns,
+        filter_active: bool,
     ) -> bool {
         let (rect, _) =
             ui.allocate_exact_size(vec2(ui.available_width(), HEADER_H), Sense::hover());
@@ -575,8 +617,40 @@ impl GraphView {
         response.on_hover_text(
             "Drag to resize the graph. Double-click to reset. Scroll sideways to see more lanes.",
         );
-        crate::columns::header(ui, rect, columns)
+        let changed = crate::columns::header(ui, rect, columns);
+        if filter_button(ui, &painter, rect, filter_active) {
+            self.filter_clicked = true;
+        }
+        changed
     }
+}
+
+fn filter_button(ui: &Ui, painter: &egui::Painter, header: Rect, active: bool) -> bool {
+    let rect = Rect::from_center_size(
+        pos2(header.left() + LABELS_W - 16.0, header.center().y),
+        vec2(22.0, 20.0),
+    );
+    let response = ui
+        .interact(rect, ui.id().with("graph-filter"), Sense::click())
+        .on_hover_text("Filter commits (Cmd+Shift+F)")
+        .on_hover_cursor(CursorIcon::PointingHand);
+    if response.hovered() {
+        painter.rect_filled(rect, 4.0, theme::CONTROL_HOVER);
+    }
+    let color = if active {
+        theme::ACCENT
+    } else if response.hovered() {
+        theme::TEXT_STRONG
+    } else {
+        theme::TEXT_FAINT
+    };
+    crate::icons::paint(
+        painter,
+        crate::icons::center_square(rect, 12.0),
+        crate::icons::Icon::Filter,
+        color,
+    );
+    response.clicked()
 }
 
 fn load_summary(repo: &gix::Repository, history: &History, row: usize) -> Summary {
@@ -1177,11 +1251,12 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
-    use eframe::egui::{self, Event, Pos2, RawInput, Rect, vec2};
+    use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, vec2};
     use kelp_core::history::History;
 
-    use super::{GraphInput, GraphView, HEADER_H, ROW_H};
+    use super::{Action, GraphInput, GraphView, HEADER_H, ROW_H};
     use crate::avatars::AvatarStore;
+    use crate::repo_view::Selection;
 
     fn scratch_repo(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("kelp-graph-{name}-{}", std::process::id()));
@@ -1214,13 +1289,35 @@ mod tests {
         repo: gix::Repository,
         history: History,
         avatars: AvatarStore,
+        selected: Option<Selection>,
+        action: Option<Action>,
     }
 
     impl Harness {
-        fn frame(&mut self, events: Vec<Event>) {
+        fn new(name: &str) -> (Self, PathBuf) {
+            let dir = scratch_repo(name);
+            let (repo, history) = History::open(Path::new(&dir)).unwrap();
+            let ctx = egui::Context::default();
+            crate::fonts::install(&ctx);
+            let mut avatars = AvatarStore::new(ctx.clone(), None);
+            avatars.enabled = false;
+            let harness = Harness {
+                ctx,
+                view: GraphView::new(),
+                repo,
+                history,
+                avatars,
+                selected: None,
+                action: None,
+            };
+            (harness, dir)
+        }
+
+        fn frame_with(&mut self, events: Vec<Event>, modifiers: Modifiers) {
             let input = RawInput {
                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 400.0))),
                 events,
+                modifiers,
                 ..Default::default()
             };
             let Self {
@@ -1229,39 +1326,82 @@ mod tests {
                 repo,
                 history,
                 avatars,
+                selected,
+                action,
             } = self;
             let _ = ctx.run_ui(input, |ui| {
                 let graph = GraphInput {
                     repo,
                     history,
-                    selected: None,
+                    selected: *selected,
                     head_row: Some(0),
                     wip: None,
                     lit: None,
                     descriptions: false,
                     other_wips: &[],
                     columns: Default::default(),
+                    compare: Default::default(),
+                    picking: false,
+                    filter_active: false,
                 };
-                view.ui(ui, graph, avatars, |_, _| {});
+                if let Some(done) = view.ui(ui, graph, avatars, |_, _| {}) {
+                    *action = Some(done);
+                }
             });
         }
+
+        fn frame(&mut self, events: Vec<Event>) {
+            self.frame_with(events, Modifiers::NONE);
+        }
+
+        fn click(&mut self, at: Pos2, modifiers: Modifiers) {
+            let press = |pressed| Event::PointerButton {
+                pos: at,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers,
+            };
+            self.frame_with(vec![Event::PointerMoved(at)], modifiers);
+            self.frame_with(vec![press(true)], modifiers);
+            self.frame_with(vec![press(false)], modifiers);
+        }
+    }
+
+    fn row_center(row: usize) -> Pos2 {
+        Pos2::new(600.0, HEADER_H + ROW_H * (row as f32 + 0.5))
+    }
+
+    #[test]
+    fn cmd_click_asks_to_compare_and_a_plain_click_selects() {
+        let (mut h, dir) = Harness::new("compare-click");
+        h.selected = Some(Selection::Commit(0));
+        h.frame(vec![]);
+        h.click(row_center(2), Modifiers::COMMAND);
+        assert!(matches!(h.action.take(), Some(Action::Compare(2))));
+        h.click(row_center(1), Modifiers::NONE);
+        assert!(matches!(
+            h.action.take(),
+            Some(Action::Select(Selection::Commit(1)))
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_funnel_in_the_header_asks_for_the_filter_bar() {
+        let (mut h, dir) = Harness::new("funnel");
+        h.frame(vec![]);
+        assert!(!h.view.filter_clicked);
+        h.click(
+            Pos2::new(super::LABELS_W - 16.0, HEADER_H / 2.0),
+            Modifiers::NONE,
+        );
+        assert!(h.view.filter_clicked);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn hovering_a_row_traces_its_path_to_the_branch_tip() {
-        let dir = scratch_repo("hover");
-        let (repo, history) = History::open(Path::new(&dir)).unwrap();
-        let ctx = egui::Context::default();
-        crate::fonts::install(&ctx);
-        let mut avatars = AvatarStore::new(ctx.clone(), None);
-        avatars.enabled = false;
-        let mut h = Harness {
-            ctx,
-            view: GraphView::new(),
-            repo,
-            history,
-            avatars,
-        };
+        let (mut h, dir) = Harness::new("hover");
         h.frame(vec![]);
         assert!(h.view.hover.is_none());
 

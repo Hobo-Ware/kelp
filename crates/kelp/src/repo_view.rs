@@ -18,11 +18,13 @@ use kelp_core::{git_cli, status};
 
 use crate::avatars::AvatarStore;
 use crate::commands::Command;
+use crate::compare_view::CompareView;
 use crate::conflict_view::{self, ConflictView};
 use crate::dev_bench::ScrollBench;
 use crate::dialogs::{self, Dialog, NewWorktree, Outcome, force_push_dialog};
 use crate::diff_view::{self, DiffSource, DiffView};
 use crate::file_history_view::{self, FileHistoryView};
+use crate::filter_bar::FilterBar;
 use crate::graph_view::{self, GraphView};
 use crate::icons::{self, Icon};
 use crate::jobs::Jobs;
@@ -34,6 +36,7 @@ use crate::settings::Settings;
 use crate::stash_view::{self, StashView};
 use crate::{details, sidebar, theme, worktrees_view};
 
+mod compare_actions;
 mod palette_actions;
 mod rewrite_actions;
 mod undo_actions;
@@ -100,8 +103,15 @@ pub struct Search {
 struct LitKey {
     selected: Option<Selection>,
     search: Option<u64>,
+    filter: Option<u64>,
     dim: bool,
     rows: usize,
+}
+
+fn keep_both(lit: &mut [bool], other: &[bool]) {
+    for (keep, also) in lit.iter_mut().zip(other) {
+        *keep &= *also;
+    }
 }
 
 #[derive(Default)]
@@ -192,6 +202,9 @@ pub struct Repo {
     auto_fetch_failed: bool,
     undo: undo::Stack,
     head_reach: HeadReach,
+    pub compare: Option<CompareView>,
+    compare_pick: Option<gix::ObjectId>,
+    pub filter: FilterBar,
     bench: Option<ScrollBench>,
 }
 
@@ -273,6 +286,9 @@ impl Repo {
             auto_fetch_failed: false,
             undo: undo::Stack::default(),
             head_reach: HeadReach::new(),
+            compare: None,
+            compare_pick: None,
+            filter: FilterBar::from_env(),
             bench: ScrollBench::from_env(),
         };
         if let Some(row) = ready.head_row() {
@@ -298,6 +314,9 @@ impl Repo {
         {
             ready.selected = None;
             ready.reveal(Selection::Commit(row));
+        }
+        if let Ok(spec) = std::env::var("KELP_COMPARE") {
+            ready.compare_from_spec(ctx, &spec);
         }
         if let Ok(commit) = std::env::var("KELP_EDIT_MESSAGE") {
             ready.open_message_editor(&commit);
@@ -753,6 +772,11 @@ impl Repo {
                     }
                 }
                 Command::ShowCommit(id) => self.reveal_commit(id),
+                Command::Compare { base, target } => {
+                    self.compare_revs(ctx, &base, target.as_deref())
+                }
+                Command::PickCompare(rev) => self.pick_compare(&rev),
+                Command::ClearFilter => self.filter.clear(),
                 Command::ShowStash(name) => {
                     match StashView::open(&self.repo, self.workdir.as_deref(), &name) {
                         Ok(view) => self.center = Center::Stash(Box::new(view)),
@@ -891,31 +915,40 @@ impl Repo {
 
     fn ensure_lit(&mut self, settings: &Settings) {
         let searching = self.search.open && !self.search.searched.is_empty();
+        let filter_rows = self.filter.rows(self.history.len());
         let key = LitKey {
             selected: self.selected,
             search: searching.then_some(self.search.generation),
+            filter: filter_rows.is_some().then_some(self.filter.generation()),
             dim: settings.dim_outside_history,
             rows: self.history.len(),
         };
         let fading_history =
             settings.dim_outside_history && matches!(self.selected, Some(Selection::Commit(_)));
-        if !searching && !fading_history {
+        if !searching && !fading_history && filter_rows.is_none() {
             self.lit_cache = None;
             return;
         }
         if self.lit_cache.as_ref().is_none_or(|(k, _)| *k != key) {
-            let mut lit = vec![false; self.history.len()];
+            let mut lit = match filter_rows {
+                Some(rows) => rows.to_vec(),
+                None => vec![true; self.history.len()],
+            };
             if searching {
+                let mut found = vec![false; self.history.len()];
                 for &row in &self.search.rows {
-                    lit[row] = true;
+                    found[row] = true;
                 }
-            } else if let Some(Selection::Commit(start)) = self.selected {
+                keep_both(&mut lit, &found);
+            } else if fading_history && let Some(Selection::Commit(start)) = self.selected {
+                let mut reachable = vec![false; self.history.len()];
                 let mut stack = vec![start];
                 while let Some(row) = stack.pop() {
-                    if !std::mem::replace(&mut lit[row], true) {
+                    if !std::mem::replace(&mut reachable[row], true) {
                         stack.extend(self.history.parents(row).iter().map(|&p| p as usize));
                     }
                 }
+                keep_both(&mut lit, &reachable);
             }
             self.lit_cache = Some((key, lit));
         }
@@ -1059,11 +1092,15 @@ impl Repo {
 
     pub fn poll(&mut self, ctx: &egui::Context, fetch_every: Option<Duration>) {
         self.avatars.poll();
+        self.filter.poll(&self.dir, self.history.ids(), ctx);
         for output in self.jobs.finished() {
             match output {
                 JobOutput::Status(Ok(working)) => {
                     if std::mem::take(&mut self.status_again) {
                         self.refresh_status();
+                    }
+                    if let Some(compare) = &mut self.compare {
+                        compare.refresh(ctx, self.dir.clone());
                     }
                     self.operation = conflict::in_progress(self.repo.path());
                     if let Center::Conflict(view) = &self.center
@@ -1250,6 +1287,7 @@ impl Repo {
         self.history = history;
         self.history.refs.attach_pulls(&self.pulls);
         self.graph.clear_cache();
+        self.filter.history_changed();
         let keep_wip = self.selected == Some(Selection::Wip);
         self.selected = None;
         if keep_wip {
@@ -1474,10 +1512,20 @@ impl Repo {
         if self.search.open {
             self.search_bar(ui);
         }
+        if self.filter.open && matches!(self.filter.ui(ui), crate::filter_bar::Outcome::Close) {
+            self.filter.open = false;
+        }
         self.ensure_lit(settings);
         let head_row = self.head_row();
         let menu_ctx = self.menu_context();
         let filtering = self.view.is_filtering();
+        let compare_marks = self
+            .compare
+            .as_ref()
+            .map(|c| c.marks(&self.history))
+            .unwrap_or_default();
+        let picking = self.is_picking_compare();
+        let filter_active = self.filter.is_active();
         let Repo {
             repo: git,
             history,
@@ -1517,13 +1565,16 @@ impl Repo {
         let input = graph_view::GraphInput {
             repo: git,
             history,
-            selected: *selected,
+            selected: selected.filter(|_| compare_marks.base.is_none() && !compare_marks.work_tree),
             head_row,
             wip,
             lit: lit_cache.as_ref().map(|(_, lit)| lit.as_slice()),
             descriptions: settings.show_descriptions,
             other_wips: &other_wips,
             columns: settings.graph_columns,
+            compare: compare_marks,
+            picking,
+            filter_active,
         };
         let action = graph.ui(ui, input, avatars, |ui, target| match target {
             MenuFor::Worktree(tree) => menus::worktree(ui, tree, commands),
@@ -1546,8 +1597,17 @@ impl Repo {
         if let Some(columns) = graph.columns_changed.take() {
             *columns_changed = Some(columns);
         }
+        if std::mem::take(&mut graph.filter_clicked) {
+            self.filter.toggle();
+        }
         match action {
-            Some(graph_view::Action::Select(selection)) => self.select(selection),
+            Some(graph_view::Action::Select(selection)) => {
+                if self.compare.is_some() || self.compare_pick.is_some() {
+                    self.stop_compare();
+                }
+                self.select(selection);
+            }
+            Some(graph_view::Action::Compare(row)) => self.compare_with_row(ui.ctx(), row),
             Some(graph_view::Action::Command(command)) => commands.push(command),
             None => {}
         }
@@ -1648,12 +1708,32 @@ impl Repo {
     }
 
     fn handle_keys(&mut self, ui: &egui::Ui) {
-        if ui.input(|i| i.modifiers.command && !i.modifiers.alt && i.key_pressed(Key::F)) {
+        let (find, filter) = ui.input(|i| {
+            let f = i.modifiers.command && !i.modifiers.alt && i.key_pressed(Key::F);
+            (f && !i.modifiers.shift, f && i.modifiers.shift)
+        });
+        if find {
             self.search.open = true;
             self.center = Center::Graph;
         }
+        if filter {
+            self.filter.toggle();
+            self.center = Center::Graph;
+        }
+        if self.filter.open && ui.input(|i| i.key_pressed(Key::Escape)) {
+            self.filter.open = false;
+            ui.ctx().memory_mut(|m| m.stop_text_input());
+            return;
+        }
         if ui.ctx().egui_wants_keyboard_input() || self.dialog.is_some() || self.history.is_empty()
         {
+            return;
+        }
+        if matches!(self.center, Center::Graph)
+            && (self.compare.is_some() || self.is_picking_compare())
+            && ui.input(|i| i.key_pressed(Key::Escape))
+        {
+            self.stop_compare();
             return;
         }
         let (undo, redo) = ui.input(|i| {
@@ -1894,9 +1974,27 @@ impl Repo {
                 .color(theme::TEXT_MUTED),
             );
             if let Some(text) = self.view_summary()
-                && view_chip(ui, &text)
+                && status_chip(
+                    ui,
+                    &text,
+                    "Show all",
+                    "Show every branch in the graph again",
+                )
             {
                 commands.push(Command::ShowAllRefs);
+            }
+            if self.filter.is_active()
+                && status_chip(
+                    ui,
+                    &self.filter.chip_text(),
+                    "Clear",
+                    "Show every commit again",
+                )
+            {
+                commands.push(Command::ClearFilter);
+            }
+            if let Some(hint) = self.compare_pick_hint() {
+                ui.label(RichText::new(hint).size(11.0).color(theme::ACCENT));
             }
             let time = ui.input(|i| i.time) as f32;
             let mut any_job = false;
@@ -2073,8 +2171,8 @@ pub fn open_terminal(path: &Path) -> std::io::Result<()> {
     command.spawn().map(|_| ())
 }
 
-fn view_chip(ui: &mut egui::Ui, text: &str) -> bool {
-    let label = format!("{text}  ·  Show all");
+fn status_chip(ui: &mut egui::Ui, text: &str, action: &str, hint: &str) -> bool {
+    let label = format!("{text}  ·  {action}");
     let galley = ui
         .painter()
         .layout_no_wrap(label, FontId::proportional(11.0), theme::ACCENT);
@@ -2087,7 +2185,7 @@ fn view_chip(ui: &mut egui::Ui, text: &str) -> bool {
         .galley(rect.center() - galley.size() / 2.0, galley, theme::ACCENT);
     response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("Show every branch in the graph again")
+        .on_hover_text(hint)
         .clicked()
 }
 

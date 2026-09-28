@@ -118,6 +118,14 @@ folder if it is a repo.
   the palette. The latest commit is amended (staged changes stay staged); older
   ones are reworded through a rebase. Cmd+Z undoes it.
 - **Search:** Cmd+F across messages, authors, emails and hash prefixes.
+- **Compare:** Cmd-click a second commit, or pick Compare with… in a
+  commit or branch menu, to see every file that changed between them
+  (A is the older one). Compare with the current branch or the working
+  tree in one click; each file opens a diff across the range.
+- **Filter:** Cmd+Shift+F or the funnel in the graph header narrows the
+  graph by author (with suggestions), path, a time span or only your own
+  commits. Other commits fade but keep their lanes; the status bar shows
+  the match count and a Clear.
 - **Command palette:** Cmd+K (or Cmd+Shift+P) finds any action, branch,
   commit, changed file or tab. Prefix with `>` for actions, `@` for
   branches, `#` for commits and `/` for files; Cmd+Enter on a branch lists
@@ -149,6 +157,7 @@ folder if it is a repo.
 | Cmd+/ | Keyboard shortcuts |
 | Up / Down, J / K | Move through commits |
 | Cmd+F | Search; Enter / Shift+Enter for next / previous |
+| Cmd+Shift+F | Filter commits by author, path or date; Esc closes |
 | Cmd+Opt+F | Filter the sidebar; Esc clears |
 | F2 | Rename the selected branch; Enter saves, Esc cancels |
 | Esc | Back to the graph, close search or dialogs |
@@ -170,6 +179,7 @@ folder if it is a repo.
 | Right-click | Actions for commits, branches, tags, stashes, worktrees and tabs |
 | Double-click a branch | Check it out |
 | Double-click a graph label | Check out that branch |
+| Cmd-click a commit | Compare it with the selected commit; Esc stops comparing |
 | Drag a graph label onto a commit | Merge, rebase or reset |
 | Cmd-click / Shift-click a changed file | Pick several to stage, stash or discard |
 | P / R / E / S / F / D | In interactive rebase: pick, reword, edit, squash, fixup or drop the hovered commit |
@@ -217,6 +227,7 @@ Developer switches (environment variables):
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
 | `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`, `tag`, `add-remote`, `rename-remote-branch`, `clone`; `KELP_CLONE_URL=<url>` prefills it), `KELP_OPEN_WELCOME=1` (the new tab page; `KELP_RECENTS=<path>,<path>` fakes its list), `KELP_ZOOM=1.25`, `KELP_COLLAPSE=sidebar,details`, `KELP_OPEN_SETTINGS=1`, `KELP_OPEN_PALETTE=<query>`, `KELP_OPEN_SHORTCUTS=1`, `KELP_OPEN_MESSAGE=1` (full commit message), `KELP_PICK=<file>,<file>` (picks unstaged files; add `KELP_OPEN_STASH=1` for the stash prompt), `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`, `sort`), `KELP_SIDEBAR_FILTER=text`, `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu), `KELP_RENAME=<branch>` (inline rename), `KELP_SHOW_STASH=stash@{0}` (a stash's changes), `KELP_OPEN_REFLOG=1` (or a branch name), `KELP_FILE_HISTORY=<path>`, `KELP_BLAME=<path>` | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
+| `KELP_COMPARE=<a>..<b>` (`<b>` can be `worktree`), `KELP_FILTER=author:<name>,path:<prefix>,period:day\|week\|month,mine` | Start comparing or filtering |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
 | `KELP_FAKE_PULLS=<file>` | Load pull requests from a `gh pr list --json` file instead of GitHub |
 | `KELP_HOVER_ROW=<row>` | Draw the graph as if that commit row were hovered |

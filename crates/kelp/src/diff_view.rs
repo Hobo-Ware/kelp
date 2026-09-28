@@ -47,6 +47,7 @@ pub enum DiffSource {
     Unstaged,
     Staged,
     File(ObjectId),
+    Range(ObjectId, Option<ObjectId>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -84,6 +85,7 @@ enum Item {
 pub struct DiffView {
     pub source: DiffSource,
     pub diff: FileDiff,
+    old_path: Option<String>,
     hunks: Vec<String>,
     lines: Vec<(usize, Line)>,
     old_lines: Vec<String>,
@@ -126,7 +128,20 @@ impl DiffView {
         source: DiffSource,
         path: &str,
     ) -> anyhow::Result<Self> {
+        Self::load_moved(repo, workdir, source, path, None)
+    }
+
+    pub fn load_moved(
+        repo: &gix::Repository,
+        workdir: Option<&Path>,
+        source: DiffSource,
+        path: &str,
+        old_path: Option<&str>,
+    ) -> anyhow::Result<Self> {
         let diff = match (source, workdir) {
+            (DiffSource::Range(base, target), _) => {
+                diff::range_file(repo, workdir, base, target, path, old_path)?
+            }
             (DiffSource::Commit(id), _) => diff::commit_file(repo, id, path)?,
             (DiffSource::Unstaged, Some(workdir)) => diff::unstaged_file(repo, workdir, path)?,
             (DiffSource::Staged, Some(_)) => diff::staged_file(repo, path)?,
@@ -156,8 +171,11 @@ impl DiffView {
                 DiffSource::Commit(id) | DiffSource::File(id) => {
                     diff::file_at(repo, id, repo_path).ok().flatten()
                 }
+                DiffSource::Range(_, Some(id)) => diff::file_at(repo, id, repo_path).ok().flatten(),
                 DiffSource::Staged => diff::index_blob(repo, repo_path).ok().flatten(),
-                DiffSource::Unstaged => workdir.and_then(|w| std::fs::read(w.join(repo_path)).ok()),
+                DiffSource::Unstaged | DiffSource::Range(_, None) => {
+                    workdir.and_then(|w| std::fs::read(w.join(repo_path)).ok())
+                }
             }
         };
         let preview = diff
@@ -185,6 +203,7 @@ impl DiffView {
         };
         Ok(Self {
             source,
+            old_path: old_path.map(str::to_string),
             old_lines: split(&diff.old_text),
             new_lines: split(&diff.new_text),
             diff,
@@ -220,11 +239,20 @@ impl DiffView {
     }
 
     pub fn is_working(&self) -> bool {
-        matches!(self.source, DiffSource::Unstaged | DiffSource::Staged)
+        matches!(
+            self.source,
+            DiffSource::Unstaged | DiffSource::Staged | DiffSource::Range(_, None)
+        )
     }
 
     pub fn reload(&mut self, repo: &gix::Repository, workdir: Option<&Path>) -> anyhow::Result<()> {
-        let fresh = Self::load(repo, workdir, self.source, &self.diff.path.clone())?;
+        let fresh = Self::load_moved(
+            repo,
+            workdir,
+            self.source,
+            &self.diff.path.clone(),
+            self.old_path.as_deref(),
+        )?;
         let kept = std::mem::replace(self, fresh);
         self.mode = kept.mode;
         self.layout = kept.layout;
@@ -366,8 +394,10 @@ impl DiffView {
 
     fn commit(&self) -> Option<String> {
         match self.source {
-            DiffSource::Commit(id) | DiffSource::File(id) => Some(id.to_string()),
-            DiffSource::Unstaged | DiffSource::Staged => None,
+            DiffSource::Commit(id) | DiffSource::File(id) | DiffSource::Range(_, Some(id)) => {
+                Some(id.to_string())
+            }
+            DiffSource::Unstaged | DiffSource::Staged | DiffSource::Range(_, None) => None,
         }
     }
 
@@ -618,6 +648,13 @@ impl DiffView {
                             DiffSource::Commit(id) | DiffSource::File(id) => {
                                 format!("in {}", id.to_hex_with_len(7))
                             }
+                            DiffSource::Range(base, target) => format!(
+                                "{}..{}",
+                                base.to_hex_with_len(7),
+                                target.map_or("working tree".to_string(), |t| t
+                                    .to_hex_with_len(7)
+                                    .to_string())
+                            ),
                             DiffSource::Unstaged => "unstaged".into(),
                             DiffSource::Staged => "staged".into(),
                         };

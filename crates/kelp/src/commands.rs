@@ -34,4 +34,10 @@ pub enum Command {
     FileHistory(String),
     Blame(String),
     ShowCommit(gix::ObjectId),
+    Compare {
+        base: String,
+        target: Option<String>,
+    },
+    PickCompare(String),
+    ClearFilter,
 }

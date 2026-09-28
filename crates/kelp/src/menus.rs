@@ -231,6 +231,28 @@ impl Sink for Vec<Entry> {
     fn separator(&mut self) {}
 }
 
+fn compare(base: &str, target: Option<&str>) -> Command {
+    Command::Compare {
+        base: base.to_string(),
+        target: target.map(str::to_string),
+    }
+}
+
+fn compare_items(sink: &mut impl Sink, rev: &str, is_current: bool) {
+    sink.separator();
+    sink.item(Icon::Compare, "Compare with…", &|| {
+        Command::PickCompare(rev.to_string())
+    });
+    if !is_current {
+        sink.item(Icon::Compare, "Compare with current branch", &|| {
+            compare(rev, Some("HEAD"))
+        });
+    }
+    sink.item(Icon::Compare, "Compare with working tree", &|| {
+        compare(rev, None)
+    });
+}
+
 fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
     let name = label.name.clone();
     let current = ctx.current_branch.as_deref();
@@ -289,6 +311,7 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
                 Command::ShowReflog(name.clone())
             });
             pull_items(sink, label, ctx);
+            compare_items(sink, &name, current == Some(name.as_str()));
             if current != Some(name.as_str()) {
                 sink.separator();
                 let remote = label.has_remote.then(|| "origin".to_string());
@@ -327,6 +350,7 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
                 Command::Copy(name.clone())
             });
             pull_items(sink, label, ctx);
+            compare_items(sink, &name, false);
             sink.separator();
             if let Some((remote, branch)) = name.split_once('/') {
                 let (remote, branch) = (remote.to_string(), branch.to_string());
@@ -361,6 +385,7 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
                 new_branch("", &name)
             });
             sink.item(Icon::Copy, "Copy tag name", &|| Command::Copy(name.clone()));
+            compare_items(sink, &name, false);
             sink.separator();
             for remote in &ctx.remotes {
                 let text = if ctx.remotes.len() == 1 {
@@ -463,6 +488,22 @@ pub fn commit(
     });
     item(ui, Icon::Pencil, "Edit message…", out, || {
         Command::EditMessage(id.to_string())
+    });
+    separator(ui);
+    item(ui, Icon::Compare, "Compare with…", out, || {
+        Command::PickCompare(id.to_string())
+    });
+    if ctx.head.as_deref() != Some(id) {
+        item(
+            ui,
+            Icon::Compare,
+            "Compare with current branch",
+            out,
+            || compare(id, Some("HEAD")),
+        );
+    }
+    item(ui, Icon::Compare, "Compare with working tree", out, || {
+        compare(id, None)
     });
     separator(ui);
     heading(

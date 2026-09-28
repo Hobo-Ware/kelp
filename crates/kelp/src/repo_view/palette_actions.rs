@@ -25,6 +25,7 @@ impl Repo {
             can_undo: self.can_undo(),
             can_redo: self.undo.next_redo().is_some(),
             commit_selected: self.selected_commit().is_some(),
+            comparing: self.compare.is_some() || self.is_picking_compare(),
             pull: self.current_pull().is_some(),
             github: self.github.is_some(),
             filtering: self.view.is_filtering(),
@@ -197,6 +198,25 @@ impl Repo {
             }),
             RepoAction::PushTags => crate::menus::push_all_tags(&self.menu_context()),
             RepoAction::AddRemote => Some(crate::menus::add_remote()),
+            RepoAction::FilterCommits => {
+                self.filter.toggle();
+                self.center = Center::Graph;
+                None
+            }
+            RepoAction::CompareWithHead => self.selected_commit().map(|(id, _)| Command::Compare {
+                base: id,
+                target: Some("HEAD".into()),
+            }),
+            RepoAction::CompareWithWorkTree => {
+                self.selected_commit().map(|(id, _)| Command::Compare {
+                    base: id,
+                    target: None,
+                })
+            }
+            RepoAction::StopCompare => {
+                self.stop_compare();
+                None
+            }
             RepoAction::OpenTerminal => self.workdir.clone().map(Command::OpenTerminal),
             RepoAction::OpenPullRequest => {
                 self.current_pull().map(|p| Command::OpenUrl(p.url.clone()))
