@@ -149,14 +149,17 @@ pub fn run_step(dir: &Path, operation: Operation, step: Step) -> anyhow::Result<
     if step == Step::Skip && operation == Operation::Merge {
         bail!("a merge cannot skip a commit");
     }
+    let args = [operation.command(), step.flag()];
+    let log = crate::console::as_action(|| crate::console::start("git", &args, dir));
     let output = Command::new("git")
         .current_dir(dir)
-        .args([operation.command(), step.flag()])
+        .args(args)
         .env("GIT_EDITOR", "true")
         .env("GIT_SEQUENCE_EDITOR", "true")
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .with_context(|| format!("could not start {}", command_line(operation, step)))?;
+    log.finish_output(&output);
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);

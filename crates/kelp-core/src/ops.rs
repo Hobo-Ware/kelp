@@ -458,6 +458,10 @@ impl Op {
     }
 
     pub fn run(&self, dir: &Path) -> anyhow::Result<String> {
+        crate::console::as_action(|| self.run_steps(dir))
+    }
+
+    fn run_steps(&self, dir: &Path) -> anyhow::Result<String> {
         let args = self.args();
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let out = match self {

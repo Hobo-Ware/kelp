@@ -283,10 +283,19 @@ fn amend_line(path: &Path) -> String {
 
 fn git_todo_for(dir: &Path, base: &ObjectId, work: &Path) -> anyhow::Result<String> {
     let captured = work.join("git-todo");
-    let _ = Command::new("git")
+    let base = base.to_string();
+    let args = [
+        "-c",
+        "core.abbrev=40",
+        "rebase",
+        "-i",
+        "--rebase-merges",
+        &base,
+    ];
+    let log = crate::console::start("git", &args, dir);
+    let captured_run = Command::new("git")
         .current_dir(dir)
-        .args(["-c", "core.abbrev=40", "rebase", "-i", "--rebase-merges"])
-        .arg(base.to_string())
+        .args(args)
         .env(
             "GIT_SEQUENCE_EDITOR",
             format!(
@@ -298,10 +307,19 @@ fn git_todo_for(dir: &Path, base: &ObjectId, work: &Path) -> anyhow::Result<Stri
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .context("could not start git rebase")?;
+    log.finish_output(&captured_run);
     std::fs::read_to_string(&captured).context("git did not produce a rebase plan")
 }
 
 pub fn run(
+    dir: &Path,
+    plan: &Plan,
+    combined: &dyn Fn(&Group) -> String,
+) -> anyhow::Result<Outcome> {
+    crate::console::as_action(|| run_plan(dir, plan, combined))
+}
+
+fn run_plan(
     dir: &Path,
     plan: &Plan,
     combined: &dyn Fn(&Group) -> String,
@@ -337,6 +355,7 @@ pub fn run(
         args.push("--rebase-merges");
     }
     args.push(&base);
+    let log = crate::console::start("git", &args, dir);
     let output = Command::new("git")
         .current_dir(dir)
         .args(&args)
@@ -348,6 +367,7 @@ pub fn run(
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .context("could not start git rebase")?;
+    log.finish_output(&output);
     let stopped = git_dir.join("rebase-merge");
     if output.status.success() && !stopped.exists() {
         let _ = std::fs::remove_dir_all(&work);

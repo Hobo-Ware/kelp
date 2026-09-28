@@ -116,9 +116,13 @@ pub fn run(
 ) -> anyhow::Result<Option<Blame>> {
     let mut command = Command::new("git");
     command.current_dir(dir).args(["blame", "--porcelain"]);
+    let mut log_args = vec!["blame".to_string(), "--porcelain".to_string()];
     if let Some(rev) = rev {
         command.arg(rev.to_string());
+        log_args.push(rev.to_string());
     }
+    log_args.extend(["--".to_string(), path.to_string()]);
+    let log = crate::console::start("git", &log_args, dir);
     let mut child = command
         .arg("--")
         .arg(path)
@@ -154,11 +158,10 @@ pub fn run(
         std::thread::sleep(POLL);
     };
     let bytes = output.join().unwrap_or_default();
+    let errors = errors.join().unwrap_or_default();
+    log.finish(status.code(), &bytes, errors.as_bytes());
     if !status.success() {
-        bail!(
-            "git blame failed: {}",
-            errors.join().unwrap_or_default().trim()
-        );
+        bail!("git blame failed: {}", errors.trim());
     }
     parse(&String::from_utf8_lossy(&bytes)).map(Some)
 }

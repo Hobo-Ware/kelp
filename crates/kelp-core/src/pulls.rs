@@ -258,6 +258,7 @@ fn gh_pr_list(repo: &GitHubRepo, state: &str, limit: &str, fields: &str) -> anyh
 /// the pipe buffer never stall it, and gives up after a timeout.
 pub fn run_gh(args: &[&str]) -> anyhow::Result<String> {
     use std::process::Stdio;
+    let log = crate::console::start("gh", args, Path::new(""));
     let mut child = Command::new("gh")
         .args(args)
         .env("GH_PROMPT_DISABLED", "1")
@@ -283,6 +284,7 @@ pub fn run_gh(args: &[&str]) -> anyhow::Result<String> {
         }
         if started.elapsed() > GH_TIMEOUT {
             let _ = child.kill();
+            log.finish(None, b"", b"timed out");
             bail!(
                 "gh {} took longer than {}s",
                 args.first().unwrap_or(&""),
@@ -292,8 +294,9 @@ pub fn run_gh(args: &[&str]) -> anyhow::Result<String> {
         std::thread::sleep(Duration::from_millis(50));
     };
     let stdout = stdout.join().unwrap_or_default();
+    let stderr = stderr.join().unwrap_or_default();
+    log.finish(status.code(), &stdout, &stderr);
     if !status.success() {
-        let stderr = stderr.join().unwrap_or_default();
         let out = String::from_utf8_lossy(&stdout);
         let err = String::from_utf8_lossy(&stderr);
         bail!("{} {}", err.trim(), out.trim());
