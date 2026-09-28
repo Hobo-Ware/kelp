@@ -246,7 +246,7 @@ milestone is a release; each item ends with a check we can run.
 | Signed commits: show a verified badge; setting to sign (GPG or SSH) | Test with an SSH-signed fixture. |
 | Submodules and Git LFS: shown and updated instead of breaking diffs | Fixture repos for both. |
 
-### v0.7 "Trust and polish"
+### v0.7 "Trust and polish" (done 2026-09-28, soak result pending)
 
 | Item | Done when |
 |---|---|
