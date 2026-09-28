@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
@@ -10,11 +11,17 @@ use kelp_core::diff::{self, Body, FileDiff, Line, LineKind};
 use kelp_core::ops::Op;
 use kelp_core::review::{Anchor, Comment, Review, Side, Thread};
 
+use crate::dialogs::Dialog;
 use crate::preview_view::Preview;
 use crate::{theme, widgets};
 
+thread_local! {
+    static ASKED_BEFORE_DISCARD: Cell<bool> = const { Cell::new(false) };
+}
+
 const LINE_H: f32 = 22.0;
 const HUNK_H: f32 = 28.0;
+const DISCARD_W: f32 = 76.0;
 const NUM_W: f32 = 46.0;
 const GUTTER_W: f32 = 24.0;
 const HEADER_H: f32 = 48.0;
@@ -82,6 +89,7 @@ pub struct DiffView {
     replies: HashMap<u64, String>,
     expanded: HashMap<u64, bool>,
     pending: Option<Op>,
+    ask: Option<Dialog>,
     preview: Option<Preview>,
     file_change_starts: Vec<u32>,
     selected_lines: BTreeSet<usize>,
@@ -95,6 +103,7 @@ pub enum Event {
     Close,
     Changed,
     Run(Op),
+    Ask(Dialog),
     OpenInEditor,
 }
 
@@ -165,6 +174,7 @@ impl DiffView {
             replies: HashMap::new(),
             expanded: HashMap::new(),
             pending: None,
+            ask: None,
             preview,
             file_change_starts,
             selected_lines: BTreeSet::new(),
@@ -246,6 +256,44 @@ impl DiffView {
         self.select_anchor = None;
     }
 
+    fn can_discard(&self) -> bool {
+        self.source == DiffSource::Unstaged && self.lines_selectable()
+    }
+
+    fn discard_selected_lines(&mut self, skip_confirm: bool) {
+        let count = self.selected_lines.len();
+        if let Some(patch) = diff::discard_lines_patch(&self.diff, &self.selected_lines) {
+            let what = format!("{count} line{}", if count == 1 { "" } else { "s" });
+            self.discard(patch, &what, skip_confirm);
+        }
+        self.selected_lines.clear();
+        self.select_anchor = None;
+    }
+
+    fn discard_hunk(&mut self, hunk: usize, skip_confirm: bool) {
+        if let Some(patch) = diff::hunk_patch(&self.diff, hunk) {
+            self.discard(patch, "this hunk", skip_confirm);
+        }
+    }
+
+    fn discard(&mut self, patch: String, what: &str, skip_confirm: bool) {
+        let op = Op::DiscardPatch(patch);
+        if skip_confirm || ASKED_BEFORE_DISCARD.replace(true) {
+            self.pending = Some(op);
+            return;
+        }
+        self.ask = Some(Dialog::Confirm {
+            title: format!("Discard {what}?"),
+            body: format!(
+                "The change goes away from {} on disk. Cmd+Z brings it back. \
+                 Kelp won't ask again until it restarts, and Shift-click skips this.",
+                self.diff.path
+            ),
+            op,
+            danger: true,
+        });
+    }
+
     fn toggle_line(&mut self, index: usize, extend: bool) {
         match self.select_anchor.filter(|_| extend) {
             Some(anchor) => {
@@ -314,6 +362,9 @@ impl DiffView {
                 }
                 if let Some(op) = self.pending.take() {
                     event = Event::Run(op);
+                }
+                if let Some(dialog) = self.ask.take() {
+                    event = Event::Ask(dialog);
                 }
             }
         }
@@ -431,6 +482,26 @@ impl DiffView {
                             .corner_radius(5);
                             if ui.add(button).clicked() {
                                 self.stage_selected_lines();
+                            }
+                            if self.can_discard() {
+                                let discard = egui::Button::new(
+                                    RichText::new(format!(
+                                        "Discard {count} line{}",
+                                        if count == 1 { "" } else { "s" }
+                                    ))
+                                    .size(12.0)
+                                    .color(theme::DELETED),
+                                )
+                                .fill(theme::with_alpha(theme::DELETED, 0x1c))
+                                .stroke(Stroke::new(1.0, theme::with_alpha(theme::DELETED, 0x66)))
+                                .corner_radius(5);
+                                let response = ui.add(discard).on_hover_text(
+                                    "Undo these lines in the file. Shift-click skips the question.",
+                                );
+                                if response.clicked() {
+                                    let shift = ui.input(|i| i.modifiers.shift);
+                                    self.discard_selected_lines(shift);
+                                }
                             }
                             let clear = egui::Button::new(
                                 RichText::new("Clear").size(12.0).color(theme::TEXT_MUTED),
@@ -654,6 +725,24 @@ impl DiffView {
                             {
                                 let reverse = self.source == DiffSource::Staged;
                                 self.pending = Some(Op::ApplyToIndex { patch, reverse });
+                            }
+                            if self.can_discard() {
+                                let discard_rect = Rect::from_min_size(
+                                    button_rect.min - vec2(DISCARD_W + 8.0, 0.0),
+                                    vec2(DISCARD_W, button_rect.height()),
+                                );
+                                let discard = egui::Button::new(
+                                    RichText::new("Discard").size(12.0).color(theme::DELETED),
+                                )
+                                .corner_radius(5)
+                                .fill(theme::with_alpha(theme::DELETED, 0x1c));
+                                let response = ui.put(discard_rect, discard).on_hover_text(
+                                    "Undo this hunk in the file. Shift-click skips the question.",
+                                );
+                                if response.clicked() {
+                                    let shift = ui.input(|i| i.modifiers.shift);
+                                    self.discard_hunk(h, shift);
+                                }
                             }
                         }
                     }
@@ -1305,6 +1394,8 @@ mod tests {
     use kelp_core::ops::Op;
     use kelp_core::review::Review;
 
+    use crate::dialogs::Dialog;
+
     use super::{DiffSource, DiffView, HEADER_H, HUNK_H, LINE_H};
 
     struct Scratch(PathBuf);
@@ -1363,6 +1454,57 @@ mod tests {
         let spacing = egui::Style::default().spacing.item_spacing.y;
         let top = HEADER_H + spacing + HUNK_H + index as f32 * LINE_H;
         pos2(20.0, top + LINE_H / 2.0)
+    }
+
+    #[test]
+    fn discarding_asks_once_then_runs_and_shift_skips_the_question() {
+        let repo = scratch("discard");
+        let git = gix::open(&repo.0).unwrap();
+        let mut view = DiffView::load(&git, Some(&repo.0), DiffSource::Unstaged, "f.txt").unwrap();
+        assert!(view.can_discard());
+
+        view.selected_lines.insert(2);
+        view.discard_selected_lines(false);
+        let Some(Dialog::Confirm {
+            op, danger: true, ..
+        }) = view.ask.take()
+        else {
+            panic!("the first discard should ask")
+        };
+        assert!(view.pending.is_none());
+        op.run(&repo.0).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(repo.0.join("f.txt")).unwrap(),
+            "a\nx\nz\nb\n"
+        );
+
+        let git = gix::open(&repo.0).unwrap();
+        let mut view = DiffView::load(&git, Some(&repo.0), DiffSource::Unstaged, "f.txt").unwrap();
+        view.discard_hunk(0, false);
+        assert!(view.ask.is_none(), "asked only once per session");
+        let Some(op @ Op::DiscardPatch(_)) = view.pending.take() else {
+            panic!("expected a discard patch")
+        };
+        op.run(&repo.0).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(repo.0.join("f.txt")).unwrap(),
+            "a\nb\n"
+        );
+    }
+
+    #[test]
+    fn shift_click_discards_without_asking_and_staged_diffs_cannot_discard() {
+        let repo = scratch("discard-shift");
+        let git = gix::open(&repo.0).unwrap();
+        let mut view = DiffView::load(&git, Some(&repo.0), DiffSource::Unstaged, "f.txt").unwrap();
+        view.discard_hunk(0, true);
+        assert!(view.ask.is_none());
+        assert!(matches!(view.pending, Some(Op::DiscardPatch(_))));
+
+        run(&repo.0, &["add", "f.txt"]).unwrap();
+        let git = gix::open(&repo.0).unwrap();
+        let staged = DiffView::load(&git, Some(&repo.0), DiffSource::Staged, "f.txt").unwrap();
+        assert!(!staged.can_discard());
     }
 
     #[test]
