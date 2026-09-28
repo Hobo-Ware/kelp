@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.4.0 released (with the `kelp <dir>` fix for #1). Next: v0.5 "History tools".
+- **Current milestone:** v0.5 built on main, not released yet. Next: v0.6 "Remotes and GitHub".
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,29 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-28
+
+- **v0.5 "History tools", all items in (three parallel branches, merged
+  on main).**
+  - File history (follows renames, streamed: trakt-web `deno.lock` 250
+    commits, first rows in 42 ms, all in 161 ms) with the diff beside it.
+  - Blame mode (avatar, hash, date per block, hover tooltip, click to
+    reveal, Blame before this commit): 7,605 lines in 190 ms.
+  - Compare any two commits (Cmd-click, Compare with..., with working
+    tree), A/B marks, range diffs that follow renames.
+  - Graph filters (author, path, time span, only mine) in the
+    background; others fade and keep their lanes. Filter pass on git/git
+    85,787 commits: author 0.43 s, path 1.42 s. Scroll unchanged.
+  - Reflog page with lost-commit detection (0.2 s on git/git), Restore
+    branch here (reset --keep, undoable), branch/checkout/cherry-pick.
+  - Stash view lists untracked files (third parent).
+  - Fixes: every menu caps its width; file history's embedded diff has
+    no second X; the reflog refreshes after actions.
+  - 316 tests pass.
+
+| git/git scroll (background window) | Smooth avg / p95 | Jumps avg |
+|---|---|---|
+| No filter | 0.30 / 0.50 ms | 2.12 ms |
+| Author + path filter | 0.31 / 0.52 ms | 1.55 ms |
 
 - **v0.4 "Edit anything", all items in (three parallel branches, merged
   on main).**
