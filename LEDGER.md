@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.6.0 released. Next: v0.7 "Trust and polish".
+- **Current milestone:** v0.7.0 released (8 h soak result pending). Next: v1.0 "Ship".
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,22 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-28
+
+- **v0.7 "Trust and polish" (soak still running).**
+  - Git console (Cmd+Opt+L): every git and gh command with args
+    (secrets redacted), time, exit code and output; error toasts link to
+    their entry.
+  - Commit box: Conventional Commit type picker (auto when the history
+    uses it), co-author picker, Commit and push (Cmd+Shift+Enter).
+    History hints load in the background.
+  - Keyboard: every action has a shortcut or palette entry (checklist
+    test), no colliding or macOS-reserved shortcuts, F6 area focus,
+    Shift+F10 menus, keyboard-only focus rings, AccessKit labels.
+  - Light theme from one palette (System / Light / Dark, live), WCAG
+    contrast tests, 21 scenes checked in both themes.
+  - Scale on the Linux kernel logged above. Soak script `scripts/soak.sh`
+    (8 h run in progress: RSS flat around 106 MB, CPU 0.0 to 0.1%).
+  - 382 tests pass. Idle CPU 0.0% in both themes.
 
 - **Scale: the Linux kernel (1,484,088 commits, 702 lanes).** Lanes are
   stored as spans with a bucket index instead of one pass edge per lane
