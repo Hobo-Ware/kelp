@@ -1,7 +1,9 @@
 pub mod avatar;
+pub mod blame;
 pub mod commit;
 pub mod conflict;
 pub mod diff;
+pub mod file_history;
 pub mod git_cli;
 pub mod graph;
 pub mod history;
