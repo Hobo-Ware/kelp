@@ -1273,6 +1273,7 @@ impl Repo {
                             }
                         }
                         diff_view::Event::Run(op) => commands.push(Command::Run(op)),
+                        diff_view::Event::Ask(dialog) => commands.push(Command::Open(dialog)),
                         diff_view::Event::OpenInEditor => {
                             commands.push(Command::OpenInEditor(view.path().to_string()))
                         }
