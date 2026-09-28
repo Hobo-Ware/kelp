@@ -26,6 +26,7 @@ use crate::graph_view::{self, GraphView};
 use crate::icons::{self, Icon};
 use crate::jobs::Jobs;
 use crate::menus::{self, MenuContext};
+use crate::panels::{Panels, Side};
 use crate::rebase_view::{self, HeadReach, RebaseView};
 use crate::ref_labels::MenuFor;
 use crate::settings::Settings;
@@ -165,6 +166,8 @@ pub struct Repo {
     pub view: ViewFilter,
     pub sidebar: sidebar::State,
     pub columns_changed: Option<crate::columns::GraphColumns>,
+    pub panels_changed: Option<Panels>,
+    panels: Panels,
     pub editor: String,
     _watcher: Option<Watcher>,
     watch_events: mpsc::Receiver<watch::Change>,
@@ -241,6 +244,8 @@ impl Repo {
             view,
             sidebar,
             columns_changed: None,
+            panels_changed: None,
+            panels: Panels::default(),
             editor: String::new(),
             _watcher: watcher,
             watch_events,
@@ -621,6 +626,11 @@ impl Repo {
                 Command::ShowAllRefs => {
                     self.view.show_all();
                     self.apply_view();
+                }
+                Command::TogglePanel(side) => {
+                    let mut panels = self.panels_changed.unwrap_or(self.panels);
+                    panels.toggle(side);
+                    self.panels_changed = Some(panels);
                 }
                 Command::OpenRebase(base) => {
                     let view = RebaseView::open(ctx, self.dir.clone(), base);
@@ -1094,6 +1104,7 @@ impl Repo {
     pub fn ui(&mut self, ui: &mut egui::Ui, settings: &Settings) {
         let ctx = ui.ctx().clone();
         let mut commands = Vec::new();
+        self.panels = settings.panels;
         self.handle_keys(ui);
 
         egui::Panel::top("toolbar")
@@ -1115,25 +1126,32 @@ impl Repo {
             )
             .show(ui, |ui| self.status_bar(ui, &mut commands));
 
-        egui::Panel::left("sidebar")
-            .default_size(250.0)
+        let mut panels = settings.panels;
+        let panel_frame = egui::Frame::new()
+            .fill(theme::PANEL)
+            .stroke(Stroke::new(1.0, theme::BORDER));
+        let sidebar = egui::Panel::left("sidebar")
+            .default_size(panels.sidebar_width)
             .min_size(180.0)
-            .frame(
-                egui::Frame::new()
-                    .fill(theme::PANEL)
-                    .stroke(Stroke::new(1.0, theme::BORDER)),
-            )
-            .show(ui, |ui| sidebar::ui(ui, self, &mut commands));
-
-        egui::Panel::right("details")
-            .default_size(370.0)
+            .frame(panel_frame)
+            .show_collapsible(ui, &mut panels.sidebar_open, |ui| {
+                sidebar::ui(ui, self, &mut commands)
+            });
+        let details = egui::Panel::right("details")
+            .default_size(panels.details_width)
             .min_size(260.0)
-            .frame(
-                egui::Frame::new()
-                    .fill(theme::PANEL)
-                    .stroke(Stroke::new(1.0, theme::BORDER)),
-            )
-            .show(ui, |ui| details::ui(ui, self));
+            .frame(panel_frame)
+            .show_collapsible(ui, &mut panels.details_open, |ui| details::ui(ui, self));
+        let settled = !ui.ctx().input(|i| i.pointer.any_down());
+        if let Some(width) = sidebar.filter(|_| panels.sidebar_open && settled) {
+            panels.sidebar_width = width.response.rect.width().round();
+        }
+        if let Some(width) = details.filter(|_| panels.details_open && settled) {
+            panels.details_width = width.response.rect.width().round();
+        }
+        if panels != settings.panels {
+            self.panels_changed = Some(panels);
+        }
 
         if let Some(operation) = self.operation.clone() {
             let conflicted = self.status.conflicted.len();
@@ -1592,6 +1610,11 @@ impl Repo {
     fn status_bar(&self, ui: &mut egui::Ui, commands: &mut Vec<Command>) {
         ui.horizontal_centered(|ui| {
             ui.spacing_mut().item_spacing.x = 18.0;
+            let (toggle, _) = ui.allocate_exact_size(vec2(22.0, 20.0), Sense::hover());
+            if panel_toggle(ui, toggle, Side::Sidebar, self.panels.sidebar_open) {
+                commands.push(Command::TogglePanel(Side::Sidebar));
+            }
+            ui.add_space(-8.0);
             let branch = self.current_branch().unwrap_or("detached");
             let (dot, _) = ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
             ui.painter()
@@ -1641,8 +1664,15 @@ impl Repo {
                 ui.ctx().request_repaint_after(Duration::from_millis(33));
             }
             let rect = ui.max_rect();
+            let toggle = egui::Rect::from_center_size(
+                egui::pos2(rect.right() - 11.0, rect.center().y),
+                vec2(22.0, 20.0),
+            );
+            if panel_toggle(ui, toggle, Side::Details, self.panels.details_open) {
+                commands.push(Command::TogglePanel(Side::Details));
+            }
             ui.painter().text(
-                rect.right_center(),
+                egui::pos2(toggle.left() - 10.0, rect.center().y),
                 Align2::RIGHT_CENTER,
                 format!(
                     "Kelp {}  ·  loaded in {} ms",
@@ -1812,4 +1842,45 @@ fn view_chip(ui: &mut egui::Ui, text: &str) -> bool {
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text("Show every branch in the graph again")
         .clicked()
+}
+
+fn panel_toggle(ui: &egui::Ui, rect: egui::Rect, side: Side, open: bool) -> bool {
+    let (hint, id) = match side {
+        Side::Sidebar => ("Toggle the sidebar (⌘⌥S)", "toggle-sidebar"),
+        Side::Details => ("Toggle the details panel (⌘⌥D)", "toggle-details"),
+    };
+    let response = ui
+        .interact(rect, egui::Id::new(id), Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(hint);
+    let painter = ui.painter();
+    if response.hovered() {
+        painter.rect_filled(rect, 4.0, theme::with_alpha(Color32::WHITE, 0x10));
+    }
+    let color = if response.hovered() {
+        theme::TEXT_STRONG
+    } else {
+        theme::TEXT_FAINT
+    };
+    let frame = egui::Rect::from_center_size(rect.center(), vec2(14.0, 11.0));
+    painter.rect_stroke(
+        frame,
+        2.5,
+        Stroke::new(1.2, color),
+        egui::StrokeKind::Inside,
+    );
+    let strip = match side {
+        Side::Sidebar => egui::Rect::from_min_size(frame.min, vec2(5.0, frame.height())),
+        Side::Details => egui::Rect::from_min_size(
+            egui::pos2(frame.right() - 5.0, frame.top()),
+            vec2(5.0, frame.height()),
+        ),
+    };
+    let fill = if open {
+        color
+    } else {
+        theme::with_alpha(color, 0x30)
+    };
+    painter.rect_filled(strip.shrink(1.5), 1.0, fill);
+    response.clicked()
 }

@@ -95,6 +95,10 @@ folder if it is a repo.
 - **Stays current:** changes made from the command line or another app
   show up on their own, and remotes are fetched in the background every
   5 minutes (change or turn off in Settings).
+- **Start anywhere:** the new tab page lists recent repositories (type to
+  filter) with Open folder, Clone (progress, cancel, opens when done) and
+  New repository. The sidebar and details panels collapse, and the whole
+  app zooms from 80% to 160%; sizes and zoom are remembered.
 
 ## Keys
 
@@ -106,8 +110,11 @@ folder if it is a repo.
 | Cmd+F | Search; Enter / Shift+Enter for next / previous |
 | Cmd+Opt+F | Filter the sidebar; Esc clears |
 | Esc | Back to the graph, close search or dialogs |
-| Cmd+T / Cmd+O | Open a repository in a new tab |
+| Cmd+T | New tab: recent repositories, open, clone or create one |
+| Cmd+O | Open a folder in a new tab |
 | Cmd+W | Close the tab |
+| Cmd+Opt+S / Cmd+Opt+D | Show or hide the sidebar / details panel |
+| Cmd+Plus / Cmd+Minus / Cmd+0 | Zoom in / out / reset |
 | Cmd+1 ... Cmd+9 | Go to a tab (Cmd+9 is the last one) |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
 | Middle-click a tab | Close it |
@@ -128,7 +135,7 @@ folder if it is a repo.
 
 | What | Where |
 |---|---|
-| Settings, open tabs, window size and position | `~/Library/Application Support/kelp/settings.json` |
+| Settings, open tabs, recent repositories, window size and position, panel sizes, zoom | `~/Library/Application Support/kelp/settings.json` |
 | Avatar cache | `~/Library/Caches/kelp/avatars` |
 | Review comments | `<repo>/.git/kelp/comments.json` |
 
@@ -165,7 +172,7 @@ Developer switches (environment variables):
 | `KELP_OFFLINE=1` | No avatar downloads |
 | `KELP_HIDE_REFS=a,b`, `KELP_COLUMNS=author,date,hash` | Hide branches or show columns for this run |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
-| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`), `KELP_OPEN_SETTINGS=1`, `KELP_OPEN_PALETTE=<query>`, `KELP_OPEN_SHORTCUTS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`, `sort`), `KELP_SIDEBAR_FILTER=text`, `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu) | Open a screen on start |
+| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`, `clone`; `KELP_CLONE_URL=<url>` prefills it), `KELP_OPEN_WELCOME=1` (the new tab page; `KELP_RECENTS=<path>,<path>` fakes its list), `KELP_ZOOM=1.25`, `KELP_COLLAPSE=sidebar,details`, `KELP_OPEN_SETTINGS=1`, `KELP_OPEN_PALETTE=<query>`, `KELP_OPEN_SHORTCUTS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`, `sort`), `KELP_SIDEBAR_FILTER=text`, `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
 | `KELP_HOVER_ROW=<row>` | Draw the graph as if that commit row were hovered |

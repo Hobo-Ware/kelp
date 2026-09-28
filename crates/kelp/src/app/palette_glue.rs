@@ -4,7 +4,8 @@ use super::{KelpApp, State, Tab};
 use crate::actions::{AppAction, Run};
 use crate::columns::Column;
 use crate::palette::{self, Pick, Sources};
-use crate::settings;
+use crate::panels::{self, Side};
+use crate::{settings, welcome};
 
 impl KelpApp {
     pub(super) fn palette_frame(&mut self, ctx: &egui::Context) {
@@ -71,10 +72,36 @@ impl KelpApp {
     pub(super) fn run_app_action(&mut self, action: AppAction) {
         let columns = &mut self.settings.graph_columns;
         match action {
+            AppAction::NewTab => self.show_home(),
             AppAction::OpenRepo => self.pick_folder(),
+            AppAction::Clone => {
+                let ctx = self.ctx.clone();
+                self.run_welcome(&ctx, welcome::Action::Clone);
+            }
+            AppAction::NewRepository => {
+                let ctx = self.ctx.clone();
+                self.init_repository(&ctx);
+            }
+            AppAction::ToggleSidebar => self.toggle_panel(Side::Sidebar),
+            AppAction::ToggleDetails => self.toggle_panel(Side::Details),
+            AppAction::ZoomIn | AppAction::ZoomOut | AppAction::ZoomReset => {
+                let direction = match action {
+                    AppAction::ZoomIn => 1,
+                    AppAction::ZoomOut => -1,
+                    _ => 0,
+                };
+                let ctx = self.ctx.clone();
+                self.set_zoom(&ctx, panels::zoom_step(self.settings.zoom, direction));
+            }
             AppAction::CloseTab => self.close_tab(self.active),
-            AppAction::NextTab => self.active = super::cycled(self.active, self.tabs.len(), 1),
-            AppAction::PreviousTab => self.active = super::cycled(self.active, self.tabs.len(), -1),
+            AppAction::NextTab => {
+                self.active = super::cycled(self.active, self.tabs.len(), 1);
+                self.home = false;
+            }
+            AppAction::PreviousTab => {
+                self.active = super::cycled(self.active, self.tabs.len(), -1);
+                self.home = false;
+            }
             AppAction::Settings => self.show_settings = true,
             AppAction::Shortcuts => self.shortcuts_open = true,
             AppAction::CheckUpdates => self.updater.check_now(),
