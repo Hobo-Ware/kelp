@@ -261,7 +261,7 @@ milestone is a release; each item ends with a check we can run.
 
 | Item | Done when |
 |---|---|
-| Signed and notarized app (Developer ID), no quarantine step in the cask | Gatekeeper accepts a fresh download. |
+| Signed and notarized app (Developer ID), no quarantine step in the cask | Gatekeeper accepts a fresh download. Parked 2026-09-29 until there is an Apple Developer account; until then releases ship unsigned and the cask clears the quarantine flag, same as stdusk. The workflow switches over by itself once the 5 secrets exist. |
 | In-app "What's new" after each update; changelog page on the site | Shown once per version. Done 2026-09-28 (v0.8.0). |
 | Docs on the site: getting started, shortcuts, how undo works, FAQ | Linked from Settings and the palette. Done 2026-09-28 (v0.8.0). |
 | Bug bash and feature freeze: two weeks of daily use on work repos with no data-loss or crash reports | Zero open P0/P1 issues. |
