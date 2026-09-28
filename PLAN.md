@@ -215,7 +215,7 @@ milestone is a release; each item ends with a check we can run.
 | Collapse the sidebar and details panel (Cmd+Opt+S / Cmd+Opt+D), remember panel widths | Settings round trip. |
 | Zoom (Cmd+Plus / Cmd+Minus / Cmd+0) and a shortcut sheet (Cmd+/) | Screenshots at 3 zoom levels. |
 
-### v0.4 "Edit anything"
+### v0.4 "Edit anything" (done 2026-09-28)
 
 | Item | Done when |
 |---|---|

@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.3.1 released (pull requests inline, polish). Next: v0.4 "Edit anything".
+- **Current milestone:** v0.4 built on main (plus the `kelp <dir>` fix for #1), not released yet. Next: v0.5 "History tools".
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,29 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-28
+
+- **v0.4 "Edit anything", all items in (three parallel branches, merged
+  on main).**
+  - Rename in place: F2 or Rename turns a sidebar branch into a text
+    field with `check-ref-format` errors inline; remote branch rename
+    (push new, delete old, move upstream) behind a confirm.
+  - Edit message on any commit: HEAD amends with `--only` (index kept),
+    older commits reword through the rebase engine, no editor.
+  - Undo and redo cover interactive rebases and message edits (exact old
+    tip restored, refused if the repo moved on); tags are tracked too.
+  - Rebase view: Edit stops at a commit with a banner to amend and
+    Continue; merge commits in range use `--rebase-merges` (merge rows
+    fixed, no reorder or squash there).
+  - Discard hunks or selected lines (reverse patch on the work tree,
+    CRLF and missing EOF newline kept, undoable); staging multi-select
+    (Cmd/Shift-click) to stage, stash or discard several files; stash
+    one file, or staged changes only.
+  - Stashes: rename, and a stash view with its diff. Worktrees: move.
+    Tags: create (light or annotated), push, delete local and remote.
+    Remotes: add, fetch, prune, rename, change URL, remove.
+  - Diff header lays out its controls first; in a narrow center the
+    folder, then the change arrows, then Split/Unified step aside.
+  - 280 tests pass.
 
 - **`kelp <dir>` from the terminal (issue #1).** From a terminal the
   command hands the folders to a running Kelp over a per-user Unix socket
