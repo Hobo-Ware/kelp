@@ -13,7 +13,6 @@ use crate::{menus, theme};
 const FILE_ROW_H: f32 = 28.0;
 const BODY_MAX_H: f32 = 170.0;
 const BODY_FADE_H: f32 = 36.0;
-const BODY_COLOR: Color32 = Color32::from_rgb(0xb4, 0xb9, 0xc2);
 const INDENT: f32 = 16.0;
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo) {
@@ -44,7 +43,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                     details.changes.clone()
                 } else {
                     ui.centered_and_justified(|ui| {
-                        ui.label(RichText::new("Select a commit").color(theme::TEXT_MUTED))
+                        ui.label(RichText::new("Select a commit").color(theme::text_muted()))
                     });
                     return;
                 };
@@ -81,23 +80,23 @@ fn commit_body(ui: &mut Ui, details: &commit::Details) {
     let galley = ui.painter().layout(
         details.body.clone(),
         FontId::proportional(14.0),
-        BODY_COLOR,
+        theme::text_body(),
         width,
     );
     if galley.size().y <= BODY_MAX_H {
-        ui.label(RichText::new(&details.body).color(BODY_COLOR));
+        ui.label(RichText::new(&details.body).color(theme::text_body()));
         return;
     }
     let (rect, _) = ui.allocate_exact_size(vec2(width, BODY_MAX_H), Sense::hover());
     let painter = ui.painter_at(rect);
-    painter.galley(rect.min, galley, BODY_COLOR);
+    painter.galley(rect.min, galley, theme::text_body());
     let fade = egui::Rect::from_min_max(pos2(rect.left(), rect.bottom() - BODY_FADE_H), rect.max);
     let mut mesh = egui::Mesh::default();
-    let clear = theme::with_alpha(theme::PANEL, 0);
+    let clear = theme::with_alpha(theme::panel(), 0);
     mesh.colored_vertex(fade.left_top(), clear);
     mesh.colored_vertex(fade.right_top(), clear);
-    mesh.colored_vertex(fade.right_bottom(), theme::PANEL);
-    mesh.colored_vertex(fade.left_bottom(), theme::PANEL);
+    mesh.colored_vertex(fade.right_bottom(), theme::panel());
+    mesh.colored_vertex(fade.left_bottom(), theme::panel());
     mesh.add_triangle(0, 1, 2);
     mesh.add_triangle(0, 2, 3);
     painter.add(mesh);
@@ -107,7 +106,7 @@ fn commit_body(ui: &mut Ui, details: &commit::Details) {
             egui::Label::new(
                 RichText::new("Show full message")
                     .size(12.0)
-                    .color(theme::ACCENT),
+                    .color(theme::accent()),
             )
             .selectable(false)
             .sense(Sense::click()),
@@ -123,33 +122,35 @@ fn commit_body(ui: &mut Ui, details: &commit::Details) {
 
 fn message_viewer(ui: &Ui, details: &commit::Details) -> bool {
     let mut open = true;
-    let modal = egui::Modal::new(egui::Id::new("message-viewer")).show(ui.ctx(), |ui| {
-        let screen = ui.ctx().content_rect();
-        ui.set_width((screen.width() * 0.6).clamp(420.0, 860.0));
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(&details.title)
-                    .size(17.0)
-                    .family(theme::semibold())
-                    .color(theme::TEXT_STRONG),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if crate::widgets::close_button(ui, "Close (Esc)") {
-                    open = false;
-                }
-                if ui.button("Copy").clicked() {
-                    ui.ctx()
-                        .copy_text(format!("{}\n\n{}", details.title, details.body));
-                }
+    let modal = egui::Modal::new(egui::Id::new("message-viewer"))
+        .backdrop_color(theme::backdrop())
+        .show(ui.ctx(), |ui| {
+            let screen = ui.ctx().content_rect();
+            ui.set_width((screen.width() * 0.6).clamp(420.0, 860.0));
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(&details.title)
+                        .size(17.0)
+                        .family(theme::semibold())
+                        .color(theme::text_strong()),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if crate::widgets::close_button(ui, "Close (Esc)") {
+                        open = false;
+                    }
+                    if ui.button("Copy").clicked() {
+                        ui.ctx()
+                            .copy_text(format!("{}\n\n{}", details.title, details.body));
+                    }
+                });
             });
+            ui.add_space(8.0);
+            egui::ScrollArea::vertical()
+                .max_height(screen.height() * 0.65)
+                .show(ui, |ui| {
+                    ui.label(RichText::new(&details.body).color(theme::text_body()));
+                });
         });
-        ui.add_space(8.0);
-        egui::ScrollArea::vertical()
-            .max_height(screen.height() * 0.65)
-            .show(ui, |ui| {
-                ui.label(RichText::new(&details.body).color(BODY_COLOR));
-            });
-    });
     if modal.should_close() {
         open = false;
     }
@@ -162,18 +163,21 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
         .history
         .row(&details.id)
         .map(|r| theme::lane(repo.history.layout.node_color(r)))
-        .unwrap_or(theme::ACCENT);
+        .unwrap_or(theme::accent());
     let mut reveal = None;
     egui::Frame::new()
         .inner_margin(Margin::same(16))
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 10.0;
             ui.horizontal(|ui| {
-                ui.label(RichText::new("commit").color(theme::TEXT_MUTED));
+                ui.label(RichText::new("commit").color(theme::text_muted()));
                 let short = details.id.to_hex_with_len(7).to_string();
-                let label =
-                    egui::Label::new(RichText::new(&short).monospace().color(theme::TEXT_STRONG))
-                        .sense(Sense::click());
+                let label = egui::Label::new(
+                    RichText::new(&short)
+                        .monospace()
+                        .color(theme::text_strong()),
+                )
+                .sense(Sense::click());
                 if ui.add(label).on_hover_text("Copy full hash").clicked() {
                     ui.ctx().copy_text(details.id.to_string());
                 }
@@ -192,7 +196,7 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
                 RichText::new(&details.title)
                     .size(17.0)
                     .family(theme::semibold())
-                    .color(theme::TEXT_STRONG),
+                    .color(theme::text_strong()),
             );
             if !details.body.is_empty() {
                 commit_body(ui, details);
@@ -213,12 +217,12 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
                 );
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
-                    ui.label(RichText::new(&details.author).color(theme::TEXT_STRONG));
+                    ui.label(RichText::new(&details.author).color(theme::text_strong()));
                     let when = format!("authored {}", commit::relative_time(details.time, now));
-                    ui.label(RichText::new(when).size(12.0).color(theme::TEXT_MUTED));
+                    ui.label(RichText::new(when).size(12.0).color(theme::text_muted()));
                     if details.committer != details.author {
                         let by = format!("committed by {}", details.committer);
-                        ui.label(RichText::new(by).size(12.0).color(theme::TEXT_MUTED));
+                        ui.label(RichText::new(by).size(12.0).color(theme::text_muted()));
                     }
                 });
             });
@@ -229,7 +233,7 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
                     } else {
                         "parent"
                     };
-                    ui.label(RichText::new(label).size(12.0).color(theme::TEXT_MUTED));
+                    ui.label(RichText::new(label).size(12.0).color(theme::text_muted()));
                     for parent in &details.parents {
                         let short = parent.to_hex_with_len(7).to_string();
                         if ui
@@ -237,7 +241,7 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
                                 RichText::new(short)
                                     .monospace()
                                     .size(12.0)
-                                    .color(theme::ACCENT),
+                                    .color(theme::accent()),
                             )
                             .clicked()
                         {
@@ -269,13 +273,13 @@ fn pull_line(ui: &mut Ui, repo: &Repo, commit: gix::ObjectId) {
             ui.label(
                 RichText::new("pull request")
                     .size(12.0)
-                    .color(theme::TEXT_MUTED),
+                    .color(theme::text_muted()),
             );
             if crate::pulls_ui::clicked_pill(ui, pull) {
                 let _ = crate::pulls_ui::open_url(&pull.url);
             }
             ui.add(
-                egui::Label::new(RichText::new(&pull.title).size(12.0).color(theme::TEXT))
+                egui::Label::new(RichText::new(&pull.title).size(12.0).color(theme::text()))
                     .truncate(),
             );
         });
@@ -302,13 +306,13 @@ fn file_controls(ui: &mut Ui, repo: &mut Repo, changes: &[FileChange]) {
                         &mut repo.show_all_files,
                         RichText::new("All files")
                             .size(12.0)
-                            .color(theme::TEXT_MUTED),
+                            .color(theme::text_muted()),
                     );
                     if changes.is_empty() {
                         ui.label(
                             RichText::new("no file changes")
                                 .size(12.0)
-                                .color(theme::TEXT_FAINT),
+                                .color(theme::text_faint()),
                         );
                     }
                 });
@@ -339,17 +343,17 @@ fn stats(ui: &mut Ui, changes: &[FileChange]) {
         ui.label(
             RichText::new(format!("{modified} modified"))
                 .size(12.0)
-                .color(theme::MODIFIED),
+                .color(theme::modified()),
         );
         ui.label(
             RichText::new(format!("{} added", count(ChangeKind::Added)))
                 .size(12.0)
-                .color(theme::ADDED),
+                .color(theme::added()),
         );
         ui.label(
             RichText::new(format!("{} deleted", count(ChangeKind::Deleted)))
                 .size(12.0)
-                .color(theme::DELETED),
+                .color(theme::deleted()),
         );
     });
 }
@@ -484,7 +488,7 @@ fn all_files(
                 RichText::new("ALL FILES")
                     .size(11.0)
                     .family(theme::semibold())
-                    .color(theme::TEXT_MUTED),
+                    .color(theme::text_muted()),
             );
         });
     browse(ui, repo, id, "", 0, changes, active, picks);
@@ -543,7 +547,7 @@ fn folder_row(ui: &mut Ui, name: &str, depth: usize, open: bool) -> egui::Respon
         ui.allocate_exact_size(vec2(ui.available_width(), FILE_ROW_H), Sense::click());
     let painter = ui.painter_at(rect);
     if response.hovered() {
-        painter.rect_filled(rect, 0.0, theme::with_alpha(Color32::WHITE, 0x08));
+        painter.rect_filled(rect, 0.0, theme::overlay(0x08));
     }
     let x = rect.left() + 14.0 + depth as f32 * INDENT;
     let y = rect.center().y;
@@ -552,14 +556,14 @@ fn folder_row(ui: &mut Ui, name: &str, depth: usize, open: bool) -> egui::Respon
         Align2::LEFT_CENTER,
         if open { "▾" } else { "▸" },
         FontId::proportional(11.0),
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     painter.text(
         pos2(x + 16.0, y),
         Align2::LEFT_CENTER,
         name,
         FontId::monospace(12.0),
-        Color32::from_rgb(0xb4, 0xb9, 0xc2),
+        theme::text_body(),
     );
     crate::widgets::focus_ring(ui, &response, 0.0);
     crate::focus_areas::offer(
@@ -592,9 +596,9 @@ impl FileRow<'_> {
             ui.allocate_exact_size(vec2(ui.available_width(), FILE_ROW_H), Sense::click());
         let painter = ui.painter_at(rect);
         if self.active {
-            painter.rect_filled(rect, 0.0, theme::SIDEBAR_SELECTED);
+            painter.rect_filled(rect, 0.0, theme::sidebar_selected());
         } else if response.hovered() {
-            painter.rect_filled(rect, 0.0, theme::with_alpha(Color32::WHITE, 0x08));
+            painter.rect_filled(rect, 0.0, theme::overlay(0x08));
         }
         let y = rect.center().y;
         let font = FontId::monospace(12.0);
@@ -614,25 +618,21 @@ impl FileRow<'_> {
             let g = painter.layout_no_wrap(
                 self.comments.to_string(),
                 FontId::proportional(11.0),
-                Color32::from_rgb(0x10, 0x13, 0x1a),
+                theme::on_accent(),
             );
             let badge = egui::Rect::from_center_size(
                 pos2(right - 9.0, y),
                 vec2((g.size().x + 10.0).max(18.0), 18.0),
             );
-            painter.rect_filled(badge, 9.0, theme::ACCENT);
-            painter.galley(
-                badge.center() - g.size() / 2.0,
-                g,
-                Color32::from_rgb(0x10, 0x13, 0x1a),
-            );
+            painter.rect_filled(badge, 9.0, theme::accent());
+            painter.galley(badge.center() - g.size() / 2.0, g, theme::on_accent());
             right = badge.left() - 8.0;
         }
         let text_left = left + 20.0;
         let name_color = if self.kind == Some(ChangeKind::Deleted) {
-            theme::TEXT_FAINT
+            theme::text_faint()
         } else {
-            theme::TEXT
+            theme::text()
         };
         match self.label {
             Some(label) => {
@@ -656,9 +656,13 @@ impl FileRow<'_> {
                 let mut x = text_left;
                 if !dir.is_empty() {
                     let dir_text = elide_end(&painter, &format!("{dir}/"), &font, dir_space);
-                    let g = painter.layout_no_wrap(dir_text, font.clone(), theme::TEXT_FAINT);
+                    let g = painter.layout_no_wrap(dir_text, font.clone(), theme::text_faint());
                     x += g.size().x;
-                    painter.galley(pos2(text_left, y - g.size().y / 2.0), g, theme::TEXT_FAINT);
+                    painter.galley(
+                        pos2(text_left, y - g.size().y / 2.0),
+                        g,
+                        theme::text_faint(),
+                    );
                 }
                 painter.galley(
                     pos2(x, y - name_galley.size().y / 2.0),
@@ -701,8 +705,8 @@ fn review_card(ui: &mut Ui, repo: &mut Repo) {
     let total = repo.review.threads.len();
     let open = repo.review.open_count();
     egui::Frame::new()
-        .fill(Color32::from_rgb(0x20, 0x25, 0x2e))
-        .stroke(Stroke::new(1.0, Color32::from_rgb(0x2c, 0x33, 0x40)))
+        .fill(theme::inset())
+        .stroke(Stroke::new(1.0, theme::card_active()))
         .corner_radius(8)
         .inner_margin(Margin::same(14))
         .outer_margin(Margin::same(12))
@@ -712,14 +716,14 @@ fn review_card(ui: &mut Ui, repo: &mut Repo) {
                 ui.label(
                     RichText::new("Your review")
                         .family(theme::semibold())
-                        .color(theme::TEXT_STRONG),
+                        .color(theme::text_strong()),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let text = format!(
                         "{total} comment{} · {open} open",
                         if total == 1 { "" } else { "s" }
                     );
-                    ui.label(RichText::new(text).size(12.0).color(theme::TEXT_MUTED));
+                    ui.label(RichText::new(text).size(12.0).color(theme::text_muted()));
                 });
             });
             let copy = egui::Button::new(RichText::new("Copy as Markdown").size(12.0))
@@ -735,7 +739,7 @@ fn review_card(ui: &mut Ui, repo: &mut Repo) {
 fn elide_end(painter: &egui::Painter, text: &str, font: &FontId, max_width: f32) -> String {
     let width = |t: &str| {
         painter
-            .layout_no_wrap(t.to_string(), font.clone(), theme::TEXT)
+            .layout_no_wrap(t.to_string(), font.clone(), theme::text())
             .size()
             .x
     };
@@ -768,9 +772,9 @@ fn now() -> i64 {
 
 pub fn change_letter(kind: ChangeKind) -> (&'static str, Color32) {
     match kind {
-        ChangeKind::Added => ("A", theme::ADDED),
-        ChangeKind::Deleted => ("D", theme::DELETED),
-        ChangeKind::Modified => ("M", theme::MODIFIED),
-        ChangeKind::Renamed => ("R", theme::MODIFIED),
+        ChangeKind::Added => ("A", theme::added()),
+        ChangeKind::Deleted => ("D", theme::deleted()),
+        ChangeKind::Modified => ("M", theme::modified()),
+        ChangeKind::Renamed => ("R", theme::modified()),
     }
 }

@@ -15,8 +15,6 @@ const SVG_PREVIEW_ZOOM: f32 = 4.0;
 const PANE_GAP: f32 = 16.0;
 const LABEL_H: f32 = 28.0;
 const CHECKER: f32 = 10.0;
-const CHECKER_DARK: Color32 = Color32::from_rgb(0x1f, 0x23, 0x2a);
-const CHECKER_LIGHT: Color32 = Color32::from_rgb(0x27, 0x2c, 0x34);
 const MARKDOWN_W: f32 = 820.0;
 
 enum Picture {
@@ -95,7 +93,7 @@ impl Preview {
         }
         if self.panes.is_empty() {
             ui.centered_and_justified(|ui| {
-                ui.label(RichText::new("Nothing to preview.").color(theme::TEXT_MUTED))
+                ui.label(RichText::new("Nothing to preview.").color(theme::text_muted()))
             });
             return;
         }
@@ -158,14 +156,14 @@ impl Pane {
             Align2::LEFT_CENTER,
             label,
             FontId::proportional(12.0),
-            theme::TEXT_MUTED,
+            theme::text_muted(),
         );
         let stage = Rect::from_min_max(pos2(rect.left(), label_rect.bottom()), rect.max);
         painter.rect(
             stage,
             CornerRadius::same(8),
-            CHECKER_DARK,
-            Stroke::new(1.0, theme::BORDER),
+            theme::panel(),
+            Stroke::new(1.0, theme::border()),
             egui::StrokeKind::Inside,
         );
         checkerboard(&painter, stage.shrink(1.0));
@@ -176,7 +174,7 @@ impl Pane {
                     Align2::CENTER_CENTER,
                     "Loading…",
                     FontId::proportional(13.0),
-                    theme::TEXT_FAINT,
+                    theme::text_faint(),
                 );
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_millis(50));
@@ -187,7 +185,7 @@ impl Pane {
                     Align2::CENTER_CENTER,
                     format!("Could not show this image: {e}"),
                     FontId::proportional(13.0),
-                    theme::TEXT_MUTED,
+                    theme::text_muted(),
                 );
             }
             Picture::Ready(texture) => {
@@ -216,7 +214,7 @@ fn checkerboard(painter: &egui::Painter, rect: Rect) {
         for col in (row % 2..cols).step_by(2) {
             let min = rect.min + vec2(col as f32 * CHECKER, row as f32 * CHECKER);
             let cell = Rect::from_min_size(min, vec2(CHECKER, CHECKER)).intersect(rect);
-            painter.rect_filled(cell, 0.0, CHECKER_LIGHT);
+            painter.rect_filled(cell, 0.0, theme::checker_light());
         }
     }
 }
@@ -289,7 +287,7 @@ fn markdown_style(ui: &mut Ui) {
         .insert(egui::TextStyle::Body, FontId::proportional(14.5));
     style.spacing.item_spacing.y = 8.0;
     style.visuals.override_text_color = None;
-    style.visuals.widgets.noninteractive.fg_stroke.color = theme::TEXT;
+    style.visuals.widgets.noninteractive.fg_stroke.color = theme::text();
 }
 
 fn fingerprint(bytes: &[u8]) -> u64 {

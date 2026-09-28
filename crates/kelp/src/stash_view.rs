@@ -97,19 +97,19 @@ impl StashView {
     ) -> Event {
         let mut event = Event::None;
         egui::Frame::new()
-            .fill(theme::PANEL)
+            .fill(theme::panel())
             .inner_margin(Margin::symmetric(16, 10))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(&self.name)
                             .monospace()
-                            .color(theme::TEXT_MUTED),
+                            .color(theme::text_muted()),
                     );
                     ui.label(
                         RichText::new(&self.message)
                             .family(theme::semibold())
-                            .color(theme::TEXT_STRONG),
+                            .color(theme::text_strong()),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if widgets::close_button(ui, "Close (Esc)") {
@@ -121,7 +121,7 @@ impl StashView {
         let mut picked = None;
         egui::Panel::left("stash-files")
             .exact_size(LIST_W)
-            .frame(egui::Frame::new().fill(theme::PANEL))
+            .frame(egui::Frame::new().fill(theme::panel()))
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
@@ -132,7 +132,7 @@ impl StashView {
                         }
                     }
                     if self.files.is_empty() {
-                        ui.label(RichText::new("No file changes").color(theme::TEXT_FAINT));
+                        ui.label(RichText::new("No file changes").color(theme::text_faint()));
                     }
                 });
             });
@@ -155,10 +155,10 @@ fn file_row(ui: &mut Ui, file: &StashFile, active: bool) -> bool {
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
     if active {
-        ui.painter().rect_filled(rect, 0.0, theme::SIDEBAR_SELECTED);
-    } else if response.hovered() {
         ui.painter()
-            .rect_filled(rect, 0.0, theme::with_alpha(egui::Color32::WHITE, 0x08));
+            .rect_filled(rect, 0.0, theme::sidebar_selected());
+    } else if response.hovered() {
+        ui.painter().rect_filled(rect, 0.0, theme::overlay(0x08));
     }
     let (letter, color) = crate::details::change_letter(change.kind);
     ui.painter().text(
@@ -172,7 +172,7 @@ fn file_row(ui: &mut Ui, file: &StashFile, active: bool) -> bool {
         let tag = ui.painter().layout_no_wrap(
             "untracked".into(),
             FontId::proportional(10.5),
-            theme::TEXT_FAINT,
+            theme::text_faint(),
         );
         let w = tag.size().x;
         ui.painter().galley(
@@ -181,7 +181,7 @@ fn file_row(ui: &mut Ui, file: &StashFile, active: bool) -> bool {
                 rect.center().y - tag.size().y / 2.0,
             ),
             tag,
-            theme::TEXT_FAINT,
+            theme::text_faint(),
         );
         w + 12.0
     } else {
@@ -191,13 +191,13 @@ fn file_row(ui: &mut Ui, file: &StashFile, active: bool) -> bool {
         ui.painter(),
         change.path.clone(),
         FontId::monospace(12.0),
-        theme::TEXT,
+        theme::text(),
         rect.width() - 44.0 - tag_w,
     );
     ui.painter().galley(
         rect.left_center() + vec2(32.0, -name.size().y / 2.0),
         name,
-        theme::TEXT,
+        theme::text(),
     );
     response
         .on_hover_cursor(egui::CursorIcon::PointingHand)

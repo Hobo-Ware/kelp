@@ -12,7 +12,7 @@ pub fn segmented<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, options: &[(T,
         .iter()
         .map(|(_, label)| {
             ui.painter()
-                .layout_no_wrap(label.to_string(), font.clone(), theme::TEXT)
+                .layout_no_wrap(label.to_string(), font.clone(), theme::text())
         })
         .collect();
     let widths: Vec<f32> = galleys
@@ -25,8 +25,8 @@ pub fn segmented<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, options: &[(T,
     painter.rect(
         rect,
         CornerRadius::same(6),
-        theme::FIELD,
-        Stroke::new(1.0, theme::BORDER),
+        theme::field(),
+        Stroke::new(1.0, theme::border()),
         egui::StrokeKind::Inside,
     );
     let mut x = rect.left() + INSET;
@@ -41,19 +41,19 @@ pub fn segmented<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, options: &[(T,
             .on_hover_cursor(CursorIcon::PointingHand);
         let active = *value == *option;
         let fill = if active {
-            theme::CONTROL_ACTIVE
+            theme::control_active()
         } else if response.hovered() {
-            theme::CONTROL
+            theme::control()
         } else {
             egui::Color32::TRANSPARENT
         };
         painter.rect_filled(segment, CornerRadius::same(4), fill);
         let color = if active {
-            theme::TEXT_STRONG
+            theme::text_strong()
         } else if response.hovered() {
-            theme::TEXT
+            theme::text()
         } else {
-            theme::TEXT_MUTED
+            theme::text_muted()
         };
         let pos = Align2::CENTER_CENTER
             .align_size_within_rect(galley.size(), segment)
@@ -74,10 +74,10 @@ pub fn icon_button(ui: &mut Ui, icon: crate::icons::Icon, hint: &str) -> bool {
         .on_hover_cursor(CursorIcon::PointingHand);
     let color = if response.hovered() {
         ui.painter()
-            .rect_filled(rect, CornerRadius::same(5), theme::CONTROL_HOVER);
-        theme::TEXT_STRONG
+            .rect_filled(rect, CornerRadius::same(5), theme::control_hover());
+        theme::text_strong()
     } else {
-        theme::TEXT_MUTED
+        theme::text_muted()
     };
     let glyph = Rect::from_center_size(rect.center(), vec2(15.0, 15.0));
     crate::icons::paint(ui.painter(), glyph, icon, color);
@@ -93,12 +93,12 @@ pub fn close_button(ui: &mut Ui, hint: &str) -> bool {
         .on_hover_cursor(CursorIcon::PointingHand);
     let painter = ui.painter();
     if response.hovered() {
-        painter.rect_filled(rect, CornerRadius::same(5), theme::CONTROL_HOVER);
+        painter.rect_filled(rect, CornerRadius::same(5), theme::control_hover());
     }
     let color = if response.hovered() {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_MUTED
+        theme::text_muted()
     };
     let c = rect.center();
     let d = 4.5;
@@ -155,7 +155,7 @@ pub fn focus_ring(ui: &Ui, response: &egui::Response, radius: f32) {
         ui.painter().rect_stroke(
             response.rect.shrink(1.0),
             radius,
-            Stroke::new(FOCUS_RING_W, theme::ACCENT),
+            Stroke::new(FOCUS_RING_W, theme::accent()),
             egui::StrokeKind::Inside,
         );
     }

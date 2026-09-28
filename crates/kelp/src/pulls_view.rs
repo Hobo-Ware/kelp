@@ -68,12 +68,12 @@ impl PullsView {
                         RichText::new("Pull requests")
                             .size(18.0)
                             .family(theme::semibold())
-                            .color(theme::TEXT_STRONG),
+                            .color(theme::text_strong()),
                     );
                     ui.label(
                         RichText::new(format!("{}/{}", self.github.owner, self.github.name))
                             .size(12.0)
-                            .color(theme::TEXT_FAINT),
+                            .color(theme::text_faint()),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if widgets::close_button(ui, "Close (Esc)") {
@@ -198,7 +198,7 @@ fn row(
     let painter = ui.painter_at(rect);
     let hovered = response.hovered();
     if hovered {
-        painter.rect_filled(rect, CornerRadius::same(8), theme::CONTROL);
+        painter.rect_filled(rect, CornerRadius::same(8), theme::control());
     }
     crate::graph_view::draw_avatar(
         &painter,
@@ -207,7 +207,7 @@ fn row(
         &item.author,
         &item.author,
         None,
-        theme::BORDER,
+        theme::border(),
         false,
     );
     let text_x = rect.left() + 12.0 + AVATAR_R * 2.0 + 12.0;
@@ -223,13 +223,13 @@ fn row(
         &painter,
         pull.title.clone(),
         FontId::new(13.5, theme::semibold()),
-        theme::TEXT_STRONG,
+        theme::text_strong(),
         title_room,
     );
     painter.galley(
         pos2(pill.right() + 8.0, rect.top() + 8.0),
         title,
-        theme::TEXT_STRONG,
+        theme::text_strong(),
     );
     let mut meta = vec![format!("{} wants to merge {}", item.author, pull.head)];
     meta.extend(pull.review_text().map(str::to_string));
@@ -238,17 +238,17 @@ fn row(
         &painter,
         meta.join("  ·  "),
         FontId::proportional(12.0),
-        theme::TEXT_MUTED,
+        theme::text_muted(),
         (rect.right() - actions_w - text_x).max(40.0),
     );
-    painter.galley(pos2(text_x, rect.top() + 30.0), meta, theme::TEXT_MUTED);
+    painter.galley(pos2(text_x, rect.top() + 30.0), meta, theme::text_muted());
     if let Some(updated) = item.updated {
         painter.text(
             pos2(rect.right() - 14.0, rect.center().y),
             Align2::RIGHT_CENTER,
             kelp_core::commit::relative_time(updated, now),
             FontId::proportional(11.5),
-            theme::TEXT_FAINT,
+            theme::text_faint(),
         );
     }
     let on_remote = remote
@@ -266,11 +266,11 @@ fn row(
                 r,
                 CornerRadius::same(5),
                 if hot {
-                    theme::CONTROL_HOVER
+                    theme::control_hover()
                 } else {
-                    theme::PANEL
+                    theme::panel()
                 },
-                Stroke::new(1.0, theme::BORDER),
+                Stroke::new(1.0, theme::border()),
                 egui::StrokeKind::Inside,
             );
             painter.text(
@@ -278,7 +278,7 @@ fn row(
                 Align2::CENTER_CENTER,
                 label,
                 FontId::proportional(12.0),
-                theme::TEXT,
+                theme::text(),
             );
             hot && response.clicked()
         };
@@ -329,7 +329,7 @@ fn row(
 fn notice(ui: &mut Ui, text: &str) {
     ui.add_space(40.0);
     ui.vertical_centered(|ui| {
-        ui.label(RichText::new(text).color(theme::TEXT_MUTED));
+        ui.label(RichText::new(text).color(theme::text_muted()));
     });
 }
 

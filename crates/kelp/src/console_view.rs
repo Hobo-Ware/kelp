@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use eframe::egui::{self, Color32, Margin, RichText, Sense, Stroke, Ui, vec2};
+use eframe::egui::{self, Margin, RichText, Sense, Stroke, Ui, vec2};
 use kelp_core::console::{self, Entry, Kind};
 
 use crate::{theme, widgets};
@@ -96,7 +96,7 @@ impl ConsoleView {
                         RichText::new("Git console")
                             .size(17.0)
                             .family(theme::semibold())
-                            .color(theme::TEXT_STRONG),
+                            .color(theme::text_strong()),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if widgets::close_button(ui, "Close (Esc)") {
@@ -110,7 +110,7 @@ impl ConsoleView {
                          Reads done in-process through gitoxide are not listed.",
                     )
                     .size(12.0)
-                    .color(theme::TEXT_FAINT),
+                    .color(theme::text_faint()),
                 );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
@@ -123,14 +123,14 @@ impl ConsoleView {
                         &mut self.show_background,
                         RichText::new("Background checks")
                             .size(12.0)
-                            .color(theme::TEXT_MUTED),
+                            .color(theme::text_muted()),
                     )
                     .on_hover_text("Status polls, watcher checks and other housekeeping");
                     ui.checkbox(
                         &mut self.all_repos,
                         RichText::new("All repositories")
                             .size(12.0)
-                            .color(theme::TEXT_MUTED),
+                            .color(theme::text_muted()),
                     );
                 });
             });
@@ -146,7 +146,7 @@ impl ConsoleView {
                 "Nothing ran yet.".to_string()
             };
             ui.centered_and_justified(|ui| {
-                ui.label(RichText::new(text).color(theme::TEXT_MUTED));
+                ui.label(RichText::new(text).color(theme::text_muted()));
             });
             return event;
         }
@@ -185,12 +185,12 @@ fn entry_row(ui: &mut Ui, entry: &Entry, open: bool, now: SystemTime) -> egui::R
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     let painter = ui.painter_at(rect);
     if response.hovered() || open {
-        painter.rect_filled(rect, 0.0, theme::with_alpha(Color32::WHITE, 0x06));
+        painter.rect_filled(rect, 0.0, theme::overlay(0x06));
     }
     let color = match entry.exit {
-        Some(0) => theme::ADDED,
-        None => theme::MODIFIED,
-        Some(_) => theme::DELETED,
+        Some(0) => theme::added(),
+        None => theme::modified(),
+        Some(_) => theme::deleted(),
     };
     let left = rect.left() + 24.0;
     painter.circle_filled(egui::pos2(left, rect.center().y), 3.5, color);
@@ -202,7 +202,7 @@ fn entry_row(ui: &mut Ui, entry: &Entry, open: bool, now: SystemTime) -> egui::R
     let right = painter.layout_no_wrap(
         right_text,
         egui::FontId::proportional(11.0),
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     let right_w = right.size().x;
     painter.galley(
@@ -211,14 +211,14 @@ fn entry_row(ui: &mut Ui, entry: &Entry, open: bool, now: SystemTime) -> egui::R
             rect.center().y - right.size().y / 2.0,
         ),
         right,
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     let mut x = left + 14.0;
     if entry.kind == Kind::Background {
         let tag = painter.layout_no_wrap(
             "bg".into(),
             egui::FontId::proportional(10.0),
-            theme::TEXT_FAINT,
+            theme::text_faint(),
         );
         let tag_rect = egui::Rect::from_min_size(
             egui::pos2(x, rect.center().y - 8.0),
@@ -227,30 +227,34 @@ fn entry_row(ui: &mut Ui, entry: &Entry, open: bool, now: SystemTime) -> egui::R
         painter.rect_stroke(
             tag_rect,
             4.0,
-            Stroke::new(1.0, theme::BORDER),
+            Stroke::new(1.0, theme::border()),
             egui::StrokeKind::Inside,
         );
-        painter.galley(tag_rect.center() - tag.size() / 2.0, tag, theme::TEXT_FAINT);
+        painter.galley(
+            tag_rect.center() - tag.size() / 2.0,
+            tag,
+            theme::text_faint(),
+        );
         x = tag_rect.right() + 8.0;
     }
     let command = crate::graph_view::truncated(
         &painter,
         entry.command_line(),
         egui::FontId::monospace(12.0),
-        theme::TEXT,
+        theme::text(),
         (rect.right() - 48.0 - right_w - x).max(0.0),
     );
     painter.galley(
         egui::pos2(x, rect.center().y - command.size().y / 2.0),
         command,
-        theme::TEXT,
+        theme::text(),
     );
     response
 }
 
 fn entry_details(ui: &mut Ui, entry: &Entry) {
     egui::Frame::new()
-        .fill(theme::FIELD)
+        .fill(theme::field())
         .inner_margin(Margin {
             left: 38,
             right: 24,
@@ -272,7 +276,7 @@ fn entry_details(ui: &mut Ui, entry: &Entry) {
             ui.label(
                 RichText::new(format!("{exit}{dir}"))
                     .size(12.0)
-                    .color(theme::TEXT_MUTED),
+                    .color(theme::text_muted()),
             );
             ui.horizontal(|ui| {
                 if ui.button("Copy command").clicked() {
@@ -297,7 +301,7 @@ fn output_block(ui: &mut Ui, label: &str, output: &console::Output, id: u64) {
     } else {
         label.to_string()
     };
-    ui.label(RichText::new(caption).size(11.0).color(theme::TEXT_FAINT));
+    ui.label(RichText::new(caption).size(11.0).color(theme::text_faint()));
     egui::ScrollArea::vertical()
         .id_salt((label, id))
         .max_height(OUTPUT_MAX_H)
@@ -307,7 +311,7 @@ fn output_block(ui: &mut Ui, label: &str, output: &console::Output, id: u64) {
                     RichText::new(output.text.trim_end())
                         .monospace()
                         .size(12.0)
-                        .color(theme::TEXT),
+                        .color(theme::text()),
                 )
                 .selectable(true),
             );

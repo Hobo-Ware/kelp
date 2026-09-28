@@ -16,10 +16,6 @@ const BANNER_H: f32 = 44.0;
 const CONTEXT_EDGE: usize = 3;
 const COLUMN_GAP: f32 = 12.0;
 const CARD_W: f32 = 1100.0;
-const KEPT_BG: Color32 = Color32::from_rgb(0x16, 0x30, 0x2a);
-const DROPPED_BG: Color32 = Color32::from_rgb(0x3a, 0x1f, 0x22);
-const PENDING_BG: Color32 = Color32::from_rgb(0x17, 0x1a, 0x20);
-const CONTEXT_TEXT: Color32 = Color32::from_rgb(0x8f, 0x96, 0xa2);
 
 pub enum Job {
     Resolve {
@@ -194,7 +190,7 @@ impl ConflictView {
         let total = self.choices.len();
         let left = self.choices.iter().filter(|c| c.is_none()).count();
         egui::Frame::new()
-            .fill(theme::PANEL)
+            .fill(theme::panel())
             .inner_margin(Margin::symmetric(16, 0))
             .show(ui, |ui| {
                 ui.set_height(HEADER_H);
@@ -208,7 +204,7 @@ impl ConflictView {
                         ui.label(
                             RichText::new(format!("{dir}/"))
                                 .monospace()
-                                .color(theme::TEXT_FAINT),
+                                .color(theme::text_faint()),
                         );
                         ui.add_space(-12.0);
                     }
@@ -216,7 +212,7 @@ impl ConflictView {
                         RichText::new(name)
                             .monospace()
                             .family(theme::semibold())
-                            .color(theme::TEXT_STRONG),
+                            .color(theme::text_strong()),
                     );
                     if matches!(self.body, Body::Text(_)) {
                         let summary = match (total, left) {
@@ -225,9 +221,9 @@ impl ConflictView {
                             (t, l) => format!("{l} of {t} left"),
                         };
                         let color = if left == 0 {
-                            theme::ADDED
+                            theme::added()
                         } else {
-                            theme::MODIFIED
+                            theme::modified()
                         };
                         ui.label(RichText::new(summary).size(12.0).color(color));
                     }
@@ -292,7 +288,7 @@ impl ConflictView {
         ui.painter().hline(
             rect.x_range(),
             rect.bottom(),
-            Stroke::new(1.0, theme::BORDER),
+            Stroke::new(1.0, theme::border()),
         );
         event
     }
@@ -317,7 +313,7 @@ impl ConflictView {
                                     "No conflict markers left in this file. Mark it resolved \
                                      to stage it.",
                                 )
-                                .color(theme::TEXT_MUTED),
+                                .color(theme::text_muted()),
                             );
                         }
                         let mut index = 0;
@@ -343,12 +339,12 @@ impl ConflictView {
         let choice = self.choices[index];
         let current = self.current == index;
         let border = if current {
-            theme::with_alpha(theme::ACCENT, 0x88)
+            theme::with_alpha(theme::accent(), 0x88)
         } else {
-            theme::BORDER
+            theme::border()
         };
         egui::Frame::new()
-            .fill(theme::PANEL)
+            .fill(theme::panel())
             .stroke(Stroke::new(1.0, border))
             .corner_radius(8)
             .inner_margin(Margin::same(12))
@@ -359,7 +355,7 @@ impl ConflictView {
                         RichText::new(format!("Conflict {} of {total}", index + 1))
                             .size(12.0)
                             .family(theme::semibold())
-                            .color(theme::TEXT_STRONG),
+                            .color(theme::text_strong()),
                     );
                     ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                         let mut picked = choice;
@@ -418,7 +414,7 @@ impl ConflictView {
                                     if lines == 1 { "" } else { "s" }
                                 ))
                                 .size(12.0)
-                                .color(theme::TEXT_MUTED),
+                                .color(theme::text_muted()),
                             )
                             .sense(Sense::click()),
                         )
@@ -431,7 +427,7 @@ impl ConflictView {
                         }
                     }
                     if open {
-                        code_block(ui, base, PENDING_BG, CONTEXT_TEXT);
+                        code_block(ui, base, theme::field(), theme::text_muted());
                     }
                 }
             })
@@ -454,9 +450,9 @@ impl ConflictView {
                             .iter()
                             .any(|m| line.starts_with(m));
                         let color = if is_marker {
-                            theme::MODIFIED
+                            theme::modified()
                         } else {
-                            theme::TEXT
+                            theme::text()
                         };
                         ui.label(
                             RichText::new(if line.is_empty() { " " } else { line })
@@ -469,7 +465,7 @@ impl ConflictView {
                         ui.label(
                             RichText::new("Conflicts without a pick still show their markers.")
                                 .size(12.0)
-                                .color(theme::TEXT_FAINT),
+                                .color(theme::text_faint()),
                         );
                     }
                 });
@@ -487,18 +483,18 @@ fn column(ui: &mut Ui, width: f32, side: &str, label: &str, text: &str, kept: Op
             format!("{side} · {label}")
         };
         let title_color = match kept {
-            Some(true) => theme::ADDED,
-            Some(false) => theme::TEXT_FAINT,
-            None => theme::TEXT_MUTED,
+            Some(true) => theme::added(),
+            Some(false) => theme::text_faint(),
+            None => theme::text_muted(),
         };
         ui.label(RichText::new(title).size(12.0).color(title_color));
         let (fill, ink) = match kept {
-            Some(true) => (KEPT_BG, theme::TEXT),
-            Some(false) => (DROPPED_BG, theme::TEXT_FAINT),
-            None => (PENDING_BG, theme::TEXT),
+            Some(true) => (theme::added_bg(), theme::text()),
+            Some(false) => (theme::removed_bg(), theme::text_faint()),
+            None => (theme::field(), theme::text()),
         };
         if text.is_empty() {
-            code_block(ui, "(no lines)", fill, theme::TEXT_FAINT);
+            code_block(ui, "(no lines)", fill, theme::text_faint());
         } else {
             code_block(ui, text, fill, ink);
         }
@@ -550,7 +546,7 @@ fn context(ui: &mut Ui, text: &str, at_start: bool, at_end: bool) {
         egui::Label::new(
             RichText::new(shown.join("\n"))
                 .font(FontId::monospace(12.5))
-                .color(CONTEXT_TEXT),
+                .color(theme::text_muted()),
         )
         .wrap(),
     );
@@ -560,7 +556,7 @@ fn whole_file_notice(ui: &mut Ui, note: &str, stages: &Stages) -> Option<Side> {
     let mut picked = None;
     ui.vertical_centered(|ui| {
         ui.add_space(ui.available_height() / 3.0);
-        ui.label(RichText::new(note).color(theme::TEXT_MUTED));
+        ui.label(RichText::new(note).color(theme::text_muted()));
         ui.add_space(12.0);
         ui.horizontal(|ui| {
             let width = 290.0;
@@ -595,7 +591,7 @@ impl Banner {
         let mut job = None;
         let operation = op.operation;
         egui::Frame::new()
-            .fill(theme::with_alpha(theme::MODIFIED, 0x1c))
+            .fill(theme::with_alpha(theme::modified(), 0x1c))
             .inner_margin(Margin::symmetric(16, 0))
             .show(ui, |ui| {
                 ui.set_height(BANNER_H);
@@ -604,15 +600,15 @@ impl Banner {
                     ui.label(
                         RichText::new(op.title())
                             .family(theme::semibold())
-                            .color(theme::TEXT_STRONG),
+                            .color(theme::text_strong()),
                     );
                     let (note, color) = match conflicted {
                         0 if op.editing.is_some() => {
-                            ("amend, then Continue".to_string(), theme::TEXT_MUTED)
+                            ("amend, then Continue".to_string(), theme::text_muted())
                         }
-                        0 => ("all conflicts resolved".to_string(), theme::ADDED),
-                        1 => ("1 conflicted file".to_string(), theme::MODIFIED),
-                        n => (format!("{n} conflicted files"), theme::MODIFIED),
+                        0 => ("all conflicts resolved".to_string(), theme::added()),
+                        1 => ("1 conflicted file".to_string(), theme::modified()),
+                        n => (format!("{n} conflicted files"), theme::modified()),
                     };
                     ui.label(RichText::new(format!("·  {note}")).color(color));
                     ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
@@ -652,10 +648,11 @@ impl Banner {
     fn confirm(&mut self, ctx: &egui::Context, op: &InProgress) -> bool {
         let mut abort = false;
         let modal = egui::Modal::new(egui::Id::new("kelp-abort-operation"))
+            .backdrop_color(theme::backdrop())
             .frame(
                 egui::Frame::new()
-                    .fill(theme::POPUP)
-                    .stroke(Stroke::new(1.0, theme::POPUP_BORDER))
+                    .fill(theme::popup())
+                    .stroke(Stroke::new(1.0, theme::popup_border()))
                     .corner_radius(10)
                     .inner_margin(Margin::same(22)),
             )
@@ -667,19 +664,19 @@ impl Banner {
                     RichText::new(format!("Abort the {}?", noun.to_lowercase()))
                         .size(16.0)
                         .family(theme::semibold())
-                        .color(theme::TEXT_STRONG),
+                        .color(theme::text_strong()),
                 );
                 ui.label(
                     RichText::new(
                         "Your branch goes back to where it was before it started. Conflicts \
                          you already resolved are thrown away.",
                     )
-                    .color(theme::TEXT_MUTED),
+                    .color(theme::text_muted()),
                 );
                 ui.label(
                     RichText::new(conflict::command_line(op.operation, Step::Abort))
                         .monospace()
-                        .color(theme::TEXT_FAINT),
+                        .color(theme::text_faint()),
                 );
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
@@ -707,10 +704,10 @@ fn arrow_button(ui: &mut Ui, up: bool, hint: &str) -> egui::Response {
         .on_hover_cursor(CursorIcon::PointingHand);
     let color = if response.hovered() {
         ui.painter()
-            .rect_filled(rect, CornerRadius::same(5), theme::CONTROL_HOVER);
-        theme::TEXT_STRONG
+            .rect_filled(rect, CornerRadius::same(5), theme::control_hover());
+        theme::text_strong()
     } else {
-        theme::TEXT_MUTED
+        theme::text_muted()
     };
     let c = rect.center();
     let d = if up { -3.0 } else { 3.0 };
@@ -729,7 +726,7 @@ fn plain_button(text: &str) -> egui::Button<'_> {
 }
 
 fn danger_button(text: &str) -> egui::Button<'_> {
-    egui::Button::new(RichText::new(text).size(12.0).color(theme::DELETED))
+    egui::Button::new(RichText::new(text).size(12.0).color(theme::deleted()))
         .corner_radius(5)
         .min_size(vec2(0.0, 30.0))
 }
@@ -739,9 +736,9 @@ fn danger_fill_button(text: &str) -> egui::Button<'_> {
         RichText::new(text)
             .size(12.0)
             .family(theme::semibold())
-            .color(Color32::from_rgb(0x1a, 0x10, 0x12)),
+            .color(theme::on_danger()),
     )
-    .fill(theme::DELETED)
+    .fill(theme::deleted())
     .corner_radius(5)
     .min_size(vec2(0.0, 30.0))
 }
@@ -751,9 +748,9 @@ fn accent_button(text: &str) -> egui::Button<'_> {
         RichText::new(text)
             .size(12.0)
             .family(theme::semibold())
-            .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+            .color(theme::on_accent()),
     )
-    .fill(theme::ACCENT)
+    .fill(theme::accent())
     .corner_radius(5)
     .min_size(vec2(0.0, 30.0))
 }

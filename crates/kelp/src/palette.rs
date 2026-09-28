@@ -5,8 +5,8 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Key, Margin, Modifiers, Rect, Sense, Stroke, Ui,
-    pos2, text::LayoutJob, vec2,
+    self, Align2, CornerRadius, FontId, Key, Margin, Modifiers, Rect, Sense, Stroke, Ui, pos2,
+    text::LayoutJob, vec2,
 };
 use gix::ObjectId;
 
@@ -522,16 +522,16 @@ impl Palette {
         }
 
         let modal = egui::Modal::new(egui::Id::new("kelp-palette"))
+            .backdrop_color(theme::backdrop())
             .area(
                 egui::Area::new(egui::Id::new("kelp-palette-area"))
                     .anchor(Align2::CENTER_TOP, vec2(0.0, 88.0))
                     .order(egui::Order::Foreground),
             )
-            .backdrop_color(Color32::from_black_alpha(90))
             .frame(
                 egui::Frame::new()
-                    .fill(theme::POPUP)
-                    .stroke(Stroke::new(1.0, theme::POPUP_BORDER))
+                    .fill(theme::popup())
+                    .stroke(Stroke::new(1.0, theme::popup_border()))
                     .corner_radius(12)
                     .inner_margin(Margin::same(8)),
             )
@@ -543,7 +543,7 @@ impl Palette {
                 ui.painter().hline(
                     ui.max_rect().x_range(),
                     ui.cursor().top(),
-                    Stroke::new(1.0, theme::BORDER),
+                    Stroke::new(1.0, theme::border()),
                 );
                 ui.add_space(6.0);
                 if rows.is_empty() {
@@ -560,7 +560,7 @@ impl Palette {
                         Align2::CENTER_CENTER,
                         hint,
                         FontId::proportional(13.0),
-                        theme::TEXT_FAINT,
+                        theme::text_faint(),
                     );
                 } else {
                     egui::ScrollArea::vertical()
@@ -634,15 +634,15 @@ impl Palette {
     fn paint_row(&self, ui: &Ui, rect: Rect, row: &Row, selected: bool, sources: &Sources<'_>) {
         let painter = ui.painter_at(rect);
         if selected {
-            painter.rect_filled(rect, CornerRadius::same(6), theme::MENU_HOVER);
+            painter.rect_filled(rect, CornerRadius::same(6), theme::menu_hover());
         }
         let (icon, label, detail, hint, danger) = self.describe(row.target, sources);
         let ink = if danger {
-            theme::DELETED
+            theme::deleted()
         } else if selected {
-            theme::TEXT_STRONG
+            theme::text_strong()
         } else {
-            theme::TEXT
+            theme::text()
         };
         if let Some(icon) = icon {
             let glyph =
@@ -651,13 +651,13 @@ impl Palette {
                 &painter,
                 glyph,
                 icon,
-                if selected { ink } else { theme::TEXT_MUTED },
+                if selected { ink } else { theme::text_muted() },
             );
         }
         let mut job = LayoutJob::default();
         for (i, c) in label.chars().enumerate() {
             let color = if row.positions.contains(&i) {
-                theme::ACCENT
+                theme::accent()
             } else {
                 ink
             };
@@ -671,7 +671,7 @@ impl Palette {
             job.append(
                 &detail,
                 10.0,
-                egui::TextFormat::simple(FontId::proportional(12.0), theme::TEXT_FAINT),
+                egui::TextFormat::simple(FontId::proportional(12.0), theme::text_faint()),
             );
         }
         let hint_w = hint.as_ref().map_or(0.0, |h| h.len() as f32 * 7.0 + 24.0);
@@ -688,7 +688,7 @@ impl Palette {
                 Align2::RIGHT_CENTER,
                 hint,
                 FontId::monospace(11.0),
-                theme::TEXT_FAINT,
+                theme::text_faint(),
             );
         }
     }
@@ -843,7 +843,7 @@ fn footer(ui: &mut Ui, branch_menu: bool) {
         Align2::LEFT_CENTER,
         text,
         FontId::proportional(11.0),
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
 }
 
@@ -852,10 +852,11 @@ pub fn shortcut_sheet(ctx: &egui::Context, open: &mut bool) {
         return;
     }
     let modal = egui::Modal::new(egui::Id::new("kelp-shortcuts"))
+        .backdrop_color(theme::backdrop())
         .frame(
             egui::Frame::new()
-                .fill(theme::POPUP)
-                .stroke(Stroke::new(1.0, theme::POPUP_BORDER))
+                .fill(theme::popup())
+                .stroke(Stroke::new(1.0, theme::popup_border()))
                 .corner_radius(12)
                 .inner_margin(Margin::same(22)),
         )
@@ -867,7 +868,7 @@ pub fn shortcut_sheet(ctx: &egui::Context, open: &mut bool) {
                     egui::RichText::new("Keyboard shortcuts")
                         .size(17.0)
                         .family(theme::semibold())
-                        .color(theme::TEXT_STRONG),
+                        .color(theme::text_strong()),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     close = crate::widgets::close_button(ui, "Close (Esc)");
@@ -891,7 +892,7 @@ fn group_block(ui: &mut Ui, group: actions::Group) {
         egui::RichText::new(group.title().to_uppercase())
             .size(11.0)
             .family(theme::semibold())
-            .color(theme::TEXT_MUTED),
+            .color(theme::text_muted()),
     );
     ui.add_space(4.0);
     for row in actions::KEYS.iter().filter(|k| k.group == group) {
@@ -908,8 +909,12 @@ fn group_block(ui: &mut Ui, group: actions::Group) {
                 },
             );
             ui.add(
-                egui::Label::new(egui::RichText::new(row.what).size(12.5).color(theme::TEXT))
-                    .wrap(),
+                egui::Label::new(
+                    egui::RichText::new(row.what)
+                        .size(12.5)
+                        .color(theme::text()),
+                )
+                .wrap(),
             );
         });
         ui.add_space(4.0);
@@ -927,14 +932,14 @@ fn key_label(ui: &mut Ui, part: &str) {
         ui.label(
             egui::RichText::new(part)
                 .size(12.0)
-                .color(theme::TEXT_MUTED),
+                .color(theme::text_muted()),
         );
     } else if let Some((first, last)) = part.split_once(" ... ") {
         key_chip(ui, first);
         ui.label(
             egui::RichText::new("to")
                 .size(11.5)
-                .color(theme::TEXT_FAINT),
+                .color(theme::text_faint()),
         );
         key_chip(ui, last);
     } else {
@@ -946,21 +951,21 @@ fn key_chip(ui: &mut Ui, text: &str) {
     let galley = ui.painter().layout_no_wrap(
         text.to_string(),
         FontId::monospace(11.0),
-        theme::TEXT_STRONG,
+        theme::text_strong(),
     );
     let size = galley.size() + vec2(12.0, 6.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     ui.painter().rect(
         rect,
         CornerRadius::same(5),
-        theme::FIELD,
-        Stroke::new(1.0, theme::BORDER),
+        theme::field(),
+        Stroke::new(1.0, theme::border()),
         egui::StrokeKind::Inside,
     );
     ui.painter().galley(
         rect.center() - galley.size() / 2.0,
         galley,
-        theme::TEXT_STRONG,
+        theme::text_strong(),
     );
 }
 

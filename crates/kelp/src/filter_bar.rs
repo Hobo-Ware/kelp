@@ -237,7 +237,7 @@ impl FilterBar {
         let mut outcome = Outcome::None;
         let before = self.draft.clone();
         let bar = egui::Frame::new()
-            .fill(theme::PANEL)
+            .fill(theme::panel())
             .inner_margin(Margin::symmetric(14, 10))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -254,7 +254,7 @@ impl FilterBar {
                         ui.label(
                             RichText::new(self.status())
                                 .size(12.0)
-                                .color(theme::TEXT_FAINT),
+                                .color(theme::text_faint()),
                         );
                     });
                 });
@@ -304,7 +304,7 @@ impl FilterBar {
         ui.painter().hline(
             bar.response.rect.x_range(),
             bar.response.rect.bottom(),
-            Stroke::new(1.0, theme::BORDER),
+            Stroke::new(1.0, theme::border()),
         );
         if self.draft != before {
             self.edited_at = Some(Instant::now());

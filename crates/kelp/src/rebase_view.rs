@@ -144,10 +144,10 @@ impl RebaseView {
                 RichText::new("Interactive rebase")
                     .size(18.0)
                     .family(theme::semibold())
-                    .color(theme::TEXT_STRONG),
+                    .color(theme::text_strong()),
             );
             ui.add_space(8.0);
-            ui.label(RichText::new(subtitle).color(theme::TEXT_FAINT));
+            ui.label(RichText::new(subtitle).color(theme::text_faint()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if widgets::close_button(ui, "Close (Esc)") {
                     event = Event::Close;
@@ -160,7 +160,7 @@ impl RebaseView {
                 _ => "Reading commits…",
             };
             ui.add_space(24.0);
-            ui.label(RichText::new(text).color(theme::TEXT_MUTED));
+            ui.label(RichText::new(text).color(theme::text_muted()));
             return event;
         };
         let merges = plan.has_merges();
@@ -171,7 +171,7 @@ impl RebaseView {
             "Oldest first, applied top to bottom. Drag to reorder. Squash and Fixup fold a commit \
              into the one above it; Squash keeps both messages. Edit stops there so you can amend."
         };
-        ui.label(RichText::new(help).size(12.0).color(theme::TEXT_FAINT));
+        ui.label(RichText::new(help).size(12.0).color(theme::text_faint()));
         list(ui, &mut plan.steps, &mut self.combined, merges);
         let problem = rebase::problem(&plan.steps);
         let changed = has_changes(&plan.steps, &self.original_order, &self.combined);
@@ -179,13 +179,13 @@ impl RebaseView {
         ui.horizontal(|ui| {
             match &problem {
                 Some(problem) => {
-                    ui.label(RichText::new(problem).size(12.0).color(theme::DELETED));
+                    ui.label(RichText::new(problem).size(12.0).color(theme::deleted()));
                 }
                 None => {
                     ui.label(
                         RichText::new(summary(&plan.steps, &self.original_order))
                             .size(12.0)
-                            .color(theme::TEXT_MUTED),
+                            .color(theme::text_muted()),
                     );
                 }
             }
@@ -196,9 +196,9 @@ impl RebaseView {
                         RichText::new("Start rebase")
                             .size(12.0)
                             .family(theme::semibold())
-                            .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+                            .color(theme::on_accent()),
                     )
-                    .fill(theme::ACCENT)
+                    .fill(theme::accent())
                     .corner_radius(5)
                     .min_size(vec2(0.0, 30.0)),
                 );
@@ -241,8 +241,8 @@ fn list(
     let mut new_action = None;
     let typing = ui.ctx().egui_wants_keyboard_input();
     egui::Frame::new()
-        .fill(theme::PANEL)
-        .stroke(Stroke::new(1.0, theme::BORDER))
+        .fill(theme::panel())
+        .stroke(Stroke::new(1.0, theme::border()))
         .corner_radius(8)
         .inner_margin(Margin::symmetric(0, 4))
         .show(ui, |ui| {
@@ -359,13 +359,13 @@ fn paint_row(ui: &Ui, rect: Rect, step: &Step, hovered: bool, grip: bool, now: i
     let folded = step.action.joins_previous();
     let inner = rect.shrink2(vec2(8.0, 3.0));
     if hovered {
-        painter.rect_filled(inner, 6.0, theme::CONTROL);
+        painter.rect_filled(inner, 6.0, theme::control());
     }
     let mut x = rect.left() + 22.0;
     if grip {
         for dy in [-5.0, 0.0, 5.0] {
             for dx in [0.0, 5.0] {
-                painter.circle_filled(pos2(x + dx, rect.center().y + dy), 1.3, theme::TEXT_FAINT);
+                painter.circle_filled(pos2(x + dx, rect.center().y + dy), 1.3, theme::text_faint());
             }
         }
     }
@@ -389,7 +389,7 @@ fn paint_row(ui: &Ui, rect: Rect, step: &Step, hovered: bool, grip: bool, now: i
     }
     let pill = pill_rect(rect, step.action);
     let color = if step.merge {
-        theme::TEXT_FAINT
+        theme::text_faint()
     } else {
         action_color(step.action)
     };
@@ -430,14 +430,14 @@ fn paint_row(ui: &Ui, rect: Rect, step: &Step, hovered: bool, grip: bool, now: i
         Align2::LEFT_CENTER,
         step.id.to_hex_with_len(7).to_string(),
         FontId::monospace(12.0),
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     let meta = format!(
         "{}  ·  {}",
         step.author,
         commit::relative_time(step.time, now)
     );
-    let meta_galley = painter.layout_no_wrap(meta, FontId::proportional(12.0), theme::TEXT_FAINT);
+    let meta_galley = painter.layout_no_wrap(meta, FontId::proportional(12.0), theme::text_faint());
     let meta_w = meta_galley.size().x;
     painter.galley(
         pos2(
@@ -445,7 +445,7 @@ fn paint_row(ui: &Ui, rect: Rect, step: &Step, hovered: bool, grip: bool, now: i
             rect.center().y - meta_galley.size().y / 2.0,
         ),
         meta_galley,
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     let dropped = step.action == Action::Drop;
     let title = if step.action == Action::Reword {
@@ -459,20 +459,20 @@ fn paint_row(ui: &Ui, rect: Rect, step: &Step, hovered: bool, grip: bool, now: i
         title.to_string(),
         FontId::proportional(13.5),
         if dropped {
-            theme::TEXT_FAINT
+            theme::text_faint()
         } else {
-            theme::TEXT_STRONG
+            theme::text_strong()
         },
     );
     job.wrap = egui::text::TextWrapping::truncate_at_width(max_w);
     if dropped && let Some(section) = job.sections.first_mut() {
-        section.format.strikethrough = Stroke::new(1.0, theme::TEXT_FAINT);
+        section.format.strikethrough = Stroke::new(1.0, theme::text_faint());
     }
     let galley = painter.layout_job(job);
     painter.galley(
         pos2(title_x, rect.center().y - galley.size().y / 2.0),
         galley,
-        theme::TEXT_STRONG,
+        theme::text_strong(),
     );
 }
 
@@ -491,7 +491,7 @@ fn pill_rect(row: Rect, action: Action) -> Rect {
 fn editor(ui: &mut Ui, id: egui::Id, text: &mut String, caption: &str) {
     ui.horizontal(|ui| {
         ui.add_space(EDITOR_INDENT);
-        ui.label(RichText::new(caption).size(11.0).color(theme::TEXT_FAINT));
+        ui.label(RichText::new(caption).size(11.0).color(theme::text_faint()));
     });
     ui.add_space(4.0);
     ui.horizontal_top(|ui| {
@@ -547,12 +547,12 @@ fn action_icon(action: Action) -> Icon {
 
 fn action_color(action: Action) -> Color32 {
     match action {
-        Action::Pick => theme::TEXT_MUTED,
+        Action::Pick => theme::text_muted(),
         Action::Reword => theme::lane(3),
         Action::Edit => theme::lane(5),
         Action::Squash => theme::lane(2),
         Action::Fixup => theme::lane(1),
-        Action::Drop => theme::DELETED,
+        Action::Drop => theme::deleted(),
     }
 }
 

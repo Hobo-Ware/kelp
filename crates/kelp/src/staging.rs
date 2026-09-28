@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use eframe::egui::{
-    self, Align2, Color32, FontId, Key, Margin, Modifiers, RichText, Sense, Stroke, Ui, pos2, vec2,
+    self, Align2, FontId, Key, Margin, Modifiers, RichText, Sense, Stroke, Ui, pos2, vec2,
 };
 use kelp_core::commit::{ChangeKind, FileChange};
 use kelp_core::ops::Op;
@@ -411,47 +411,49 @@ enum PromptOutcome {
 
 fn stash_prompt(ctx: &egui::Context, prompt: &mut StashPrompt) -> PromptOutcome {
     let mut outcome = PromptOutcome::Keep;
-    let modal = egui::Modal::new(egui::Id::new("stash-prompt")).show(ctx, |ui| {
-        ui.set_width(380.0);
-        ui.spacing_mut().item_spacing.y = 10.0;
-        ui.label(
-            RichText::new(prompt.title())
-                .size(16.0)
-                .family(theme::semibold())
-                .color(theme::TEXT_STRONG),
-        );
-        let field = ui.add(
-            egui::TextEdit::singleline(&mut prompt.message)
-                .hint_text("Message (optional)")
-                .desired_width(f32::INFINITY)
-                .margin(Margin::symmetric(10, 8)),
-        );
-        field.request_focus();
-        ui.label(
-            RichText::new(prompt.op().command_line())
-                .monospace()
-                .size(11.0)
-                .color(theme::TEXT_FAINT),
-        );
-        let enter = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-        ui.horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let stash = egui::Button::new(
-                    RichText::new("Stash")
-                        .family(theme::semibold())
-                        .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
-                )
-                .fill(theme::ACCENT)
-                .corner_radius(5);
-                if ui.add(stash).clicked() || enter {
-                    outcome = PromptOutcome::Stash(prompt.op());
-                }
-                if ui.button("Cancel").clicked() {
-                    outcome = PromptOutcome::Cancel;
-                }
+    let modal = egui::Modal::new(egui::Id::new("stash-prompt"))
+        .backdrop_color(theme::backdrop())
+        .show(ctx, |ui| {
+            ui.set_width(380.0);
+            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.label(
+                RichText::new(prompt.title())
+                    .size(16.0)
+                    .family(theme::semibold())
+                    .color(theme::text_strong()),
+            );
+            let field = ui.add(
+                egui::TextEdit::singleline(&mut prompt.message)
+                    .hint_text("Message (optional)")
+                    .desired_width(f32::INFINITY)
+                    .margin(Margin::symmetric(10, 8)),
+            );
+            field.request_focus();
+            ui.label(
+                RichText::new(prompt.op().command_line())
+                    .monospace()
+                    .size(11.0)
+                    .color(theme::text_faint()),
+            );
+            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let stash = egui::Button::new(
+                        RichText::new("Stash")
+                            .family(theme::semibold())
+                            .color(theme::on_accent()),
+                    )
+                    .fill(theme::accent())
+                    .corner_radius(5);
+                    if ui.add(stash).clicked() || enter {
+                        outcome = PromptOutcome::Stash(prompt.op());
+                    }
+                    if ui.button("Cancel").clicked() {
+                        outcome = PromptOutcome::Cancel;
+                    }
+                });
             });
         });
-    });
     if modal.should_close() && matches!(outcome, PromptOutcome::Keep) {
         outcome = PromptOutcome::Cancel;
     }
@@ -468,31 +470,31 @@ fn selection_bar(
     actions: &mut Vec<Action>,
 ) {
     egui::Frame::new()
-        .fill(theme::with_alpha(theme::ACCENT, 0x14))
+        .fill(theme::with_alpha(theme::accent(), 0x14))
         .inner_margin(Margin::symmetric(16, 6))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(format!("{} selected", chosen.len()))
                         .size(12.0)
-                        .color(theme::TEXT_STRONG),
+                        .color(theme::text_strong()),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 10.0;
                     let clear = egui::Button::new(
-                        RichText::new("Clear").size(11.5).color(theme::TEXT_MUTED),
+                        RichText::new("Clear").size(11.5).color(theme::text_muted()),
                     )
                     .frame(false);
                     if ui.add(clear).clicked() {
                         *picked = Picked::default();
                     }
                     if let Some(dialog) = discard {
-                        let label = RichText::new("Discard…").size(11.5).color(theme::DELETED);
+                        let label = RichText::new("Discard…").size(11.5).color(theme::deleted());
                         if ui.add(egui::Button::new(label).frame(false)).clicked() {
                             actions.push(Action::Confirm(dialog));
                         }
                     }
-                    let stash = RichText::new("Stash…").size(11.5).color(theme::TEXT);
+                    let stash = RichText::new("Stash…").size(11.5).color(theme::text());
                     if ui.add(egui::Button::new(stash).frame(false)).clicked() {
                         actions.push(Action::Stash(StashPrompt {
                             paths: chosen.to_vec(),
@@ -502,7 +504,7 @@ fn selection_bar(
                     }
                     let label = RichText::new(format!("{move_label} {}", chosen.len()))
                         .size(11.5)
-                        .color(theme::ACCENT);
+                        .color(theme::accent());
                     if ui.add(egui::Button::new(label).frame(false)).clicked() {
                         actions.push(Action::Run(move_op));
                     }
@@ -566,10 +568,10 @@ fn header(ui: &mut Ui, repo: &Repo) {
                 RichText::new("Uncommitted changes")
                     .size(17.0)
                     .family(theme::semibold())
-                    .color(theme::TEXT_STRONG),
+                    .color(theme::text_strong()),
             );
             let branch = repo.current_branch().unwrap_or("detached HEAD");
-            ui.label(RichText::new(format!("on {branch}")).color(theme::TEXT_MUTED));
+            ui.label(RichText::new(format!("on {branch}")).color(theme::text_muted()));
         });
 }
 
@@ -589,25 +591,26 @@ fn section(
                     RichText::new(title.to_uppercase())
                         .size(11.0)
                         .family(theme::semibold())
-                        .color(theme::TEXT_MUTED),
+                        .color(theme::text_muted()),
                 );
                 ui.label(
                     RichText::new(count.to_string())
                         .size(11.0)
-                        .color(theme::TEXT_FAINT),
+                        .color(theme::text_faint()),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Some((label, op)) = button {
-                        let b =
-                            egui::Button::new(RichText::new(label).size(11.0).color(theme::ACCENT))
-                                .frame(false);
+                        let b = egui::Button::new(
+                            RichText::new(label).size(11.0).color(theme::accent()),
+                        )
+                        .frame(false);
                         if ui.add(b).clicked() {
                             actions.push(Action::Run(op));
                         }
                     }
                     if let Some((label, prompt)) = stash {
                         let b =
-                            egui::Button::new(RichText::new(label).size(11.0).color(theme::TEXT))
+                            egui::Button::new(RichText::new(label).size(11.0).color(theme::text()))
                                 .frame(false);
                         if ui
                             .add(b)
@@ -626,7 +629,7 @@ fn empty_note(ui: &mut Ui, text: &str) {
     egui::Frame::new()
         .inner_margin(Margin::symmetric(16, 4))
         .show(ui, |ui| {
-            ui.label(RichText::new(text).size(12.0).color(theme::TEXT_FAINT));
+            ui.label(RichText::new(text).size(12.0).color(theme::text_faint()));
         });
 }
 
@@ -653,18 +656,18 @@ fn file_row(
     let painter = ui.painter_at(rect);
     let hovered = response.hovered() || ui.rect_contains_pointer(rect);
     if picked {
-        painter.rect_filled(rect, 0.0, theme::with_alpha(theme::ACCENT, 0x24));
+        painter.rect_filled(rect, 0.0, theme::with_alpha(theme::accent(), 0x24));
     } else if active {
-        painter.rect_filled(rect, 0.0, theme::SIDEBAR_SELECTED);
+        painter.rect_filled(rect, 0.0, theme::sidebar_selected());
     } else if hovered {
-        painter.rect_filled(rect, 0.0, theme::with_alpha(Color32::WHITE, 0x08));
+        painter.rect_filled(rect, 0.0, theme::overlay(0x08));
     }
     let y = rect.center().y;
     let (mark, color) = match change.kind {
-        ChangeKind::Added => ("A", theme::ADDED),
-        ChangeKind::Deleted => ("D", theme::DELETED),
-        ChangeKind::Modified => ("M", theme::MODIFIED),
-        ChangeKind::Renamed => ("R", theme::MODIFIED),
+        ChangeKind::Added => ("A", theme::added()),
+        ChangeKind::Deleted => ("D", theme::deleted()),
+        ChangeKind::Modified => ("M", theme::modified()),
+        ChangeKind::Renamed => ("R", theme::modified()),
     };
     let font = FontId::monospace(12.0);
     painter.text(
@@ -683,7 +686,7 @@ fn file_row(
         let g = painter.layout_no_wrap(
             label.to_string(),
             FontId::proportional(11.5),
-            theme::TEXT_STRONG,
+            theme::text_strong(),
         );
         let button_rect = egui::Rect::from_min_size(
             pos2(right - g.size().x - 16.0, y - 10.0),
@@ -691,14 +694,14 @@ fn file_row(
         );
         let b = ui.interact(button_rect, response.id.with("action"), Sense::click());
         let fill = if b.hovered() {
-            theme::ACCENT
+            theme::accent()
         } else {
-            Color32::from_rgb(0x2b, 0x32, 0x40)
+            theme::card_hover()
         };
         let ink = if b.hovered() {
-            Color32::from_rgb(0x10, 0x13, 0x1a)
+            theme::on_accent()
         } else {
-            theme::TEXT_STRONG
+            theme::text_strong()
         };
         painter.rect(
             button_rect,
@@ -720,12 +723,12 @@ fn file_row(
         let g = painter.layout_no_wrap(
             note.to_string(),
             FontId::proportional(11.0),
-            theme::TEXT_FAINT,
+            theme::text_faint(),
         );
         painter.galley(
             pos2(right - g.size().x, y - g.size().y / 2.0),
             g.clone(),
-            theme::TEXT_FAINT,
+            theme::text_faint(),
         );
         right -= g.size().x + 8.0;
     }
@@ -738,7 +741,7 @@ fn file_row(
         &painter,
         name.to_string(),
         font.clone(),
-        theme::TEXT,
+        theme::text(),
         (right - left).max(0.0),
     );
     let name_w = name_galley.size().x;
@@ -749,16 +752,20 @@ fn file_row(
             &painter,
             format!("{dir}/"),
             font,
-            theme::TEXT_FAINT,
+            theme::text_faint(),
             dir_w,
         );
-        painter.galley(pos2(x, y - g.size().y / 2.0), g.clone(), theme::TEXT_FAINT);
+        painter.galley(
+            pos2(x, y - g.size().y / 2.0),
+            g.clone(),
+            theme::text_faint(),
+        );
         x += g.size().x;
     }
     painter.galley(
         pos2(x, y - name_galley.size().y / 2.0),
         name_galley,
-        theme::TEXT,
+        theme::text(),
     );
     crate::widgets::focus_ring(ui, &response, 0.0);
     crate::focus_areas::offer(
@@ -778,8 +785,8 @@ fn file_row(
 fn commit_box(ui: &mut Ui, repo: &mut Repo) {
     let staged = repo.status.staged.len();
     egui::Frame::new()
-        .fill(Color32::from_rgb(0x20, 0x25, 0x2e))
-        .stroke(Stroke::new(1.0, Color32::from_rgb(0x2c, 0x33, 0x40)))
+        .fill(theme::inset())
+        .stroke(Stroke::new(1.0, theme::card_active()))
         .corner_radius(10)
         .inner_margin(Margin::same(14))
         .outer_margin(Margin::same(12))
@@ -794,14 +801,14 @@ fn commit_box(ui: &mut Ui, repo: &mut Repo) {
                 ui.label(
                     RichText::new(title)
                         .family(theme::semibold())
-                        .color(theme::TEXT_STRONG),
+                        .color(theme::text_strong()),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let len = repo.commit_summary.chars().count();
                     let color = if len > SUMMARY_LIMIT {
-                        theme::MODIFIED
+                        theme::modified()
                     } else {
-                        theme::TEXT_FAINT
+                        theme::text_faint()
                     };
                     ui.label(
                         RichText::new(format!("{len}/{SUMMARY_LIMIT}"))
@@ -833,7 +840,7 @@ fn commit_box(ui: &mut Ui, repo: &mut Repo) {
                     &mut amend,
                     RichText::new("Amend previous commit")
                         .size(12.0)
-                        .color(theme::TEXT_MUTED),
+                        .color(theme::text_muted()),
                 )
                 .changed()
             {
@@ -848,16 +855,16 @@ fn commit_box(ui: &mut Ui, repo: &mut Repo) {
                 (false, n) => format!("Commit {n} files"),
             };
             let ink = if ready {
-                Color32::from_rgb(0x10, 0x13, 0x1a)
+                theme::on_accent()
             } else {
-                theme::TEXT_FAINT
+                theme::text_faint()
             };
             let button =
                 egui::Button::new(RichText::new(label).family(theme::semibold()).color(ink))
                     .fill(if ready {
-                        theme::ACCENT
+                        theme::accent()
                     } else {
-                        Color32::from_rgb(0x2b, 0x32, 0x40)
+                        theme::card_hover()
                     })
                     .corner_radius(6)
                     .min_size(vec2(ui.available_width() - 36.0, 34.0));

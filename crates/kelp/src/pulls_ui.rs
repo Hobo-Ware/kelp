@@ -12,18 +12,18 @@ const PAD: f32 = 5.0;
 
 pub fn state_color(state: State) -> Color32 {
     match state {
-        State::Open => theme::ACCENT,
-        State::Draft => theme::TEXT_MUTED,
-        State::Merged => theme::LANES[2],
-        State::Closed => theme::DELETED,
+        State::Open => theme::accent(),
+        State::Draft => theme::text_muted(),
+        State::Merged => theme::lanes()[2],
+        State::Closed => theme::deleted(),
     }
 }
 
 fn checks_color(checks: Checks) -> Color32 {
     match checks {
-        Checks::Passing => theme::ADDED,
-        Checks::Failing => theme::DELETED,
-        Checks::Pending => theme::MODIFIED,
+        Checks::Passing => theme::added(),
+        Checks::Failing => theme::deleted(),
+        Checks::Pending => theme::modified(),
     }
 }
 
@@ -68,7 +68,7 @@ pub fn tooltip(ui: &mut Ui, pull: &Pull) {
     ui.label(
         RichText::new(format!("#{} {}", pull.number, pull.title))
             .family(theme::semibold())
-            .color(theme::TEXT_STRONG),
+            .color(theme::text_strong()),
     );
     let mut facts = vec![pull.state.label()];
     facts.extend(pull.review_text());
@@ -81,7 +81,7 @@ pub fn tooltip(ui: &mut Ui, pull: &Pull) {
     ui.label(
         RichText::new("Click to open on GitHub")
             .size(11.0)
-            .color(theme::TEXT_FAINT),
+            .color(theme::text_faint()),
     );
 }
 

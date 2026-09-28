@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Key, Margin, RichText, Stroke, Ui};
+use eframe::egui::{self, Key, Margin, RichText, Stroke, Ui};
 use kelp_core::ops::Op;
 
 use crate::commands::Command;
@@ -306,10 +306,11 @@ pub enum Outcome {
 pub fn show(ctx: &egui::Context, dialog: &mut Dialog) -> Outcome {
     let mut outcome = Outcome::Keep;
     let modal = egui::Modal::new(egui::Id::new("kelp-dialog"))
+        .backdrop_color(theme::backdrop())
         .frame(
             egui::Frame::new()
-                .fill(Color32::from_rgb(0x1f, 0x24, 0x2d))
-                .stroke(Stroke::new(1.0, Color32::from_rgb(0x3a, 0x42, 0x50)))
+                .fill(theme::modal())
+                .stroke(Stroke::new(1.0, theme::modal_border()))
                 .corner_radius(10)
                 .inner_margin(Margin::same(22)),
         )
@@ -364,16 +365,12 @@ fn title(ui: &mut Ui, text: &str) {
         RichText::new(text)
             .size(17.0)
             .family(theme::semibold())
-            .color(theme::TEXT_STRONG),
+            .color(theme::text_strong()),
     );
 }
 
 fn field(ui: &mut Ui, label: &str, value: &mut String, focus: bool) -> egui::Response {
-    ui.label(
-        RichText::new(label)
-            .size(12.0)
-            .color(egui::Color32::from_rgb(0xb4, 0xb9, 0xc2)),
-    );
+    ui.label(RichText::new(label).size(12.0).color(theme::text_body()));
     let response = ui.add(
         egui::TextEdit::singleline(value)
             .font(egui::FontId::monospace(13.0))
@@ -387,10 +384,10 @@ fn field(ui: &mut Ui, label: &str, value: &mut String, focus: bool) -> egui::Res
 }
 
 fn preview(ui: &mut Ui, op: &Op) {
-    ui.label(RichText::new("Runs").size(11.0).color(theme::TEXT_FAINT));
+    ui.label(RichText::new("Runs").size(11.0).color(theme::text_faint()));
     egui::Frame::new()
-        .fill(Color32::from_rgb(0x11, 0x13, 0x18))
-        .stroke(Stroke::new(1.0, theme::BORDER))
+        .fill(theme::field_deep())
+        .stroke(Stroke::new(1.0, theme::border()))
         .corner_radius(6)
         .inner_margin(Margin::symmetric(12, 9))
         .show(ui, |ui| {
@@ -399,7 +396,7 @@ fn preview(ui: &mut Ui, op: &Op) {
                 RichText::new(op.command_line())
                     .monospace()
                     .size(12.0)
-                    .color(egui::Color32::from_rgb(0xb4, 0xb9, 0xc2)),
+                    .color(theme::text_body()),
             );
         });
 }
@@ -411,14 +408,14 @@ fn buttons(ui: &mut Ui, confirm_label: &str, enabled: bool, danger: bool) -> Out
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let fill = if danger {
-                Color32::from_rgb(0xc2, 0x4a, 0x40)
+                theme::danger()
             } else {
-                theme::ACCENT
+                theme::accent()
             };
             let ink = if danger {
-                theme::TEXT_STRONG
+                theme::text_strong()
             } else {
-                Color32::from_rgb(0x10, 0x13, 0x1a)
+                theme::on_accent()
             };
             let confirm = egui::Button::new(
                 RichText::new(confirm_label)
@@ -483,7 +480,7 @@ fn text_dialog(ui: &mut Ui, state: &mut TextDialog) -> Outcome {
         state.value = parent.join(name).to_string_lossy().into_owned();
     }
     if let Some(note) = note {
-        ui.label(RichText::new(note).size(12.0).color(theme::TEXT_MUTED));
+        ui.label(RichText::new(note).size(12.0).color(theme::text_muted()));
     }
     let op = state.op();
     preview(ui, &op);
@@ -505,7 +502,7 @@ fn new_tag(
     ui.label(
         RichText::new(format!("On {commit_label}"))
             .size(12.0)
-            .color(theme::TEXT_MUTED),
+            .color(theme::text_muted()),
     );
     ui.checkbox(annotated, "Annotated, with a message");
     if *annotated {
@@ -553,7 +550,7 @@ fn new_branch(
     ui.label(
         RichText::new(format!("Starts from {start_label}"))
             .size(12.0)
-            .color(theme::TEXT_MUTED),
+            .color(theme::text_muted()),
     );
     ui.checkbox(switch, "Check it out");
     let op = Op::CreateBranch {
@@ -590,7 +587,7 @@ fn delete(
     delete_remote: &mut bool,
 ) -> Outcome {
     title(ui, &format!("Delete {name}?"));
-    ui.label(RichText::new("The branch is removed from this repository. Commits that are only on it can be lost if you force it.").color(theme::TEXT_MUTED));
+    ui.label(RichText::new("The branch is removed from this repository. Commits that are only on it can be lost if you force it.").color(theme::text_muted()));
     ui.checkbox(force, "Force, even if it is not merged");
     if let Some(remote) = remote {
         ui.checkbox(delete_remote, format!("Also delete {remote}/{name}"));
@@ -634,14 +631,10 @@ fn new_worktree(ui: &mut Ui, state: &mut NewWorktree) -> Outcome {
         ui.label(
             RichText::new(format!("Starts from {}", state.start))
                 .size(12.0)
-                .color(theme::TEXT_MUTED),
+                .color(theme::text_muted()),
         );
     } else {
-        ui.label(
-            RichText::new("Branch")
-                .size(12.0)
-                .color(egui::Color32::from_rgb(0xb4, 0xb9, 0xc2)),
-        );
+        ui.label(RichText::new("Branch").size(12.0).color(theme::text_body()));
         let before = state.existing.clone();
         egui::ComboBox::from_id_salt("worktree-branch")
             .width(ui.available_width())
@@ -685,7 +678,7 @@ fn new_worktree(ui: &mut Ui, state: &mut NewWorktree) -> Outcome {
 fn confirm(ui: &mut Ui, title_text: &str, body: &str, op: &Op, danger: bool) -> Outcome {
     title(ui, title_text);
     if !body.is_empty() {
-        ui.label(RichText::new(body).color(theme::TEXT_MUTED));
+        ui.label(RichText::new(body).color(theme::text_muted()));
     }
     preview(ui, op);
     let op = op.clone();
@@ -704,13 +697,9 @@ fn push_to(ui: &mut Ui, branch: &str, remote: &mut String, remotes: &[String]) -
     title(ui, &format!("Push {branch}"));
     ui.label(
         RichText::new("This branch has no upstream yet. Pick the remote to push to and track.")
-            .color(theme::TEXT_MUTED),
+            .color(theme::text_muted()),
     );
-    ui.label(
-        RichText::new("Remote")
-            .size(12.0)
-            .color(egui::Color32::from_rgb(0xb4, 0xb9, 0xc2)),
-    );
+    ui.label(RichText::new("Remote").size(12.0).color(theme::text_body()));
     egui::ComboBox::from_id_salt("push-remote")
         .width(ui.available_width())
         .selected_text(remote.clone())

@@ -1,7 +1,7 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, Color32, RichText, ViewportCommand};
+use eframe::egui::{self, RichText, ViewportCommand};
 use kelp_core::update::{self, Release};
 
 use crate::theme;
@@ -134,9 +134,9 @@ impl Updater {
             RichText::new(label)
                 .size(12.0)
                 .family(theme::semibold())
-                .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+                .color(theme::on_accent()),
         )
-        .fill(theme::ACCENT)
+        .fill(theme::accent())
         .corner_radius(12);
         let response = ui.add(button);
         if response.clicked() {
@@ -159,7 +159,7 @@ impl Updater {
         ui.label(
             RichText::new("Updates")
                 .family(theme::semibold())
-                .color(theme::TEXT_STRONG),
+                .color(theme::text_strong()),
         );
         let status = match &self.status {
             Status::Idle => format!("Kelp {}", Self::current()),
@@ -174,7 +174,7 @@ impl Updater {
             Status::Ready(r) => format!("Kelp {} is installed. Restart to use it.", r.version),
             Status::Failed(e) => format!("Update check failed: {e}"),
         };
-        ui.label(RichText::new(status).size(12.0).color(theme::TEXT_MUTED));
+        ui.label(RichText::new(status).size(12.0).color(theme::text_muted()));
         ui.horizontal(|ui| {
             if ui.button("Check now").clicked() {
                 self.check_now();
@@ -183,13 +183,13 @@ impl Updater {
         });
         ui.checkbox(
             enabled,
-            RichText::new("Check for updates automatically").color(theme::TEXT_STRONG),
+            RichText::new("Check for updates automatically").color(theme::text_strong()),
         );
         let brew = Self::brew_install();
         ui.add_enabled_ui(brew, |ui| {
             ui.checkbox(
                 auto_install,
-                RichText::new("Install updates in the background").color(theme::TEXT_STRONG),
+                RichText::new("Install updates in the background").color(theme::text_strong()),
             );
         });
         let hint = if brew {
@@ -199,7 +199,7 @@ impl Updater {
         };
         ui.horizontal(|ui| {
             ui.add_space(24.0);
-            ui.label(RichText::new(hint).size(12.0).color(theme::TEXT_FAINT));
+            ui.label(RichText::new(hint).size(12.0).color(theme::text_faint()));
         });
     }
 }

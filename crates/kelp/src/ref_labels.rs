@@ -175,7 +175,7 @@ pub fn paint(
         );
         let w = galley.size().x + LABEL_PAD + pill_w;
         if !fits || right - w < left_edge {
-            let g = painter.layout_no_wrap(format!("+{remaining}"), font, theme::TEXT_MUTED);
+            let g = painter.layout_no_wrap(format!("+{remaining}"), font, theme::text_muted());
             let rect = Rect::from_min_size(
                 pos2(right - g.size().x - 12.0, mid - LABEL_H / 2.0),
                 vec2(g.size().x + 12.0, LABEL_H),
@@ -184,7 +184,7 @@ pub fn paint(
             painter.galley(
                 pos2(rect.left() + 6.0, mid - g.size().y / 2.0),
                 g,
-                theme::TEXT_MUTED,
+                theme::text_muted(),
             );
             placed.push(Placed {
                 rect,
@@ -249,14 +249,14 @@ pub fn paint_ghost(ctx: &egui::Context, label: &RefLabel, at: Pos2, lane: Color3
     painter.rect(
         rect.translate(vec2(0.0, 2.0)),
         CornerRadius::same(5),
-        Color32::from_black_alpha(90),
+        theme::backdrop(),
         Stroke::NONE,
         egui::StrokeKind::Inside,
     );
     painter.rect(
         rect,
         CornerRadius::same(5),
-        theme::POPUP.lerp_to_gamma(fill, 0.6),
+        theme::popup().lerp_to_gamma(fill, 0.6),
         stroke,
         egui::StrokeKind::Inside,
     );
@@ -350,7 +350,7 @@ fn ref_list(
         let (rect, response) = ui.allocate_exact_size(vec2(LIST_W, LIST_ROW_H), Sense::click());
         let painter = ui.painter_at(rect.expand(1.0));
         if response.hovered() {
-            painter.rect_filled(rect, 6.0, theme::MENU_HOVER);
+            painter.rect_filled(rect, 6.0, theme::menu_hover());
         }
         let dot = pos2(rect.left() + 16.0, rect.center().y);
         match label.kind {
@@ -364,7 +364,7 @@ fn ref_list(
                 painter.rect_stroke(
                     Rect::from_center_size(dot, vec2(8.0, 8.0)),
                     CornerRadius::same(2),
-                    Stroke::new(1.5, theme::TEXT_MUTED),
+                    Stroke::new(1.5, theme::text_muted()),
                     egui::StrokeKind::Inside,
                 );
             }
@@ -373,20 +373,20 @@ fn ref_list(
             &painter,
             label_text(label),
             FontId::proportional(13.0),
-            theme::TEXT,
+            theme::text(),
             LIST_W - 110.0,
         );
         painter.galley(
             pos2(rect.left() + 30.0, rect.center().y - name.size().y / 2.0),
             name,
-            theme::TEXT,
+            theme::text(),
         );
         let kind = painter.text(
             pos2(rect.right() - 26.0, rect.center().y),
             Align2::RIGHT_CENTER,
             kind_name(label),
             FontId::proportional(11.0),
-            theme::TEXT_FAINT,
+            theme::text_faint(),
         );
         if let Some(pull) = &label.pull {
             let w = crate::pulls_ui::pill_width(&painter, pull);
@@ -400,7 +400,7 @@ fn ref_list(
             crate::pulls_ui::paint_pill(&painter, pill, pull, false);
         }
         let chevron = pos2(rect.right() - 14.0, rect.center().y);
-        let ink = Stroke::new(1.3, theme::TEXT_MUTED);
+        let ink = Stroke::new(1.3, theme::text_muted());
         painter.line_segment([chevron + vec2(-2.0, -4.0), chevron + vec2(2.0, 0.0)], ink);
         painter.line_segment([chevron + vec2(2.0, 0.0), chevron + vec2(-2.0, 4.0)], ink);
         SubMenu::new().show(ui, &response, |ui| menu(ui, MenuFor::Ref(label)));
@@ -433,17 +433,17 @@ pub fn label_style(label: &RefLabel, lane: Color32) -> (Color32, Stroke, Color32
         RefKind::Local => (
             theme::with_alpha(lane, 0x26),
             Stroke::new(1.0, theme::with_alpha(lane, 0x99)),
-            theme::TEXT_STRONG,
+            theme::text_strong(),
         ),
         RefKind::Remote => (
             Color32::TRANSPARENT,
             Stroke::new(1.0, theme::with_alpha(lane, 0x99)),
-            theme::TEXT_STRONG,
+            theme::text_strong(),
         ),
         RefKind::Tag => (
-            Color32::from_rgb(0x1f, 0x23, 0x2b),
-            Stroke::new(1.0, Color32::from_rgb(0x4a, 0x51, 0x60)),
-            Color32::from_rgb(0xc9, 0xcc, 0xd2),
+            theme::tone(Color32::from_rgb(0x1f, 0x23, 0x2b)),
+            Stroke::new(1.0, theme::tone(Color32::from_rgb(0x4a, 0x51, 0x60))),
+            theme::text_label(),
         ),
     }
 }
@@ -600,7 +600,7 @@ mod tests {
             let placed = self.placed.clone();
             let mut seen = Vec::new();
             let _ = self.ctx.run_ui(input, |ui| {
-                let lane = theme::ACCENT;
+                let lane = theme::accent();
                 for event in interact(ui, 0, &labels, &placed, lane, false, &mut |_, _| {}) {
                     seen.push(match event {
                         LabelEvent::Select => "select",

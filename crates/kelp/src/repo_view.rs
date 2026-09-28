@@ -1477,9 +1477,9 @@ impl Repo {
             .exact_size(56.0)
             .frame(
                 egui::Frame::new()
-                    .fill(theme::PANEL)
+                    .fill(theme::panel())
                     .inner_margin(Margin::symmetric(16, 0))
-                    .stroke(Stroke::new(1.0, theme::BORDER)),
+                    .stroke(Stroke::new(1.0, theme::border())),
             )
             .show(ui, |ui| self.toolbar(ui, &mut commands));
 
@@ -1487,15 +1487,15 @@ impl Repo {
             .exact_size(26.0)
             .frame(
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(0x0f, 0x11, 0x15))
+                    .fill(theme::chrome())
                     .inner_margin(Margin::symmetric(14, 0)),
             )
             .show(ui, |ui| self.status_bar(ui, &mut commands));
 
         let mut panels = settings.panels;
         let panel_frame = egui::Frame::new()
-            .fill(theme::PANEL)
-            .stroke(Stroke::new(1.0, theme::BORDER));
+            .fill(theme::panel())
+            .stroke(Stroke::new(1.0, theme::border()));
         let sidebar = egui::Panel::left("sidebar")
             .default_size(panels.sidebar_width)
             .min_size(180.0)
@@ -1534,7 +1534,7 @@ impl Repo {
         if let Some(operation) = self.operation.clone() {
             let conflicted = self.status.conflicted.len();
             let job = egui::Panel::top("operation-banner")
-                .frame(egui::Frame::NONE)
+                .frame(egui::Frame::NONE.fill(theme::bg()))
                 .show(ui, |ui| self.banner.ui(ui, &operation, conflicted))
                 .inner;
             if let Some(job) = job {
@@ -1544,7 +1544,7 @@ impl Repo {
 
         let current_branch = self.current_branch().map(str::to_string);
         let central = egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::BG))
+            .frame(egui::Frame::new().fill(theme::bg()))
             .show(ui, |ui| match &mut self.center {
                 Center::Diff(view) => {
                     let event = view.ui(ui, &mut self.review, &self.author, &mut self.avatars);
@@ -1835,8 +1835,8 @@ impl Repo {
             .order(egui::Order::Foreground)
             .show(ui.ctx(), |ui| {
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(0x23, 0x28, 0x33))
-                    .stroke(Stroke::new(1.0, Color32::from_rgb(0x3a, 0x42, 0x50)))
+                    .fill(theme::toast())
+                    .stroke(Stroke::new(1.0, theme::modal_border()))
                     .corner_radius(8)
                     .inner_margin(Margin::symmetric(10, 8))
                     .show(ui, |ui| {
@@ -1874,7 +1874,7 @@ impl Repo {
                             } else {
                                 format!("{} of {}", self.search.current + 1, self.search.rows.len())
                             };
-                            ui.label(RichText::new(status).size(12.0).color(theme::TEXT_MUTED));
+                            ui.label(RichText::new(status).size(12.0).color(theme::text_muted()));
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
@@ -2027,7 +2027,7 @@ impl Repo {
         ui.horizontal_centered(|ui| {
             ui.spacing_mut().item_spacing.x = 18.0;
             picker(ui, "repository", &self.name());
-            ui.label(RichText::new("›").color(Color32::from_rgb(0x4a, 0x50, 0x5c)));
+            ui.label(RichText::new("›").color(theme::tone(Color32::from_rgb(0x4a, 0x50, 0x5c))));
             picker(ui, "branch", branch.as_deref().unwrap_or("detached"));
             let left = ui.cursor().left();
             let right = ui.max_rect().right();
@@ -2168,9 +2168,9 @@ impl Repo {
             let branch = self.current_branch().unwrap_or("detached");
             let (dot, _) = ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
             ui.painter()
-                .circle_filled(dot.center(), 3.5, theme::LANES[0]);
+                .circle_filled(dot.center(), 3.5, theme::lanes()[0]);
             ui.add_space(-12.0);
-            ui.label(RichText::new(branch).size(11.0).color(theme::LANES[0]));
+            ui.label(RichText::new(branch).size(11.0).color(theme::lanes()[0]));
             if let Some(pull) = self.current_pull() {
                 ui.add_space(-10.0);
                 if crate::pulls_ui::clicked_pill(ui, pull) {
@@ -2187,12 +2187,12 @@ impl Repo {
                     (0, b) => format!("{b} behind"),
                     (a, b) => format!("{a} ahead, {b} behind"),
                 };
-                ui.label(RichText::new(sync).size(11.0).color(theme::TEXT_MUTED));
+                ui.label(RichText::new(sync).size(11.0).color(theme::text_muted()));
             }
             ui.label(
                 RichText::new(format!("{} commits", self.history.len()))
                     .size(11.0)
-                    .color(theme::TEXT_MUTED),
+                    .color(theme::text_muted()),
             );
             ui.label(
                 RichText::new(format!(
@@ -2200,7 +2200,7 @@ impl Repo {
                     self.workspace.worktrees.len().max(1)
                 ))
                 .size(11.0)
-                .color(theme::TEXT_MUTED),
+                .color(theme::text_muted()),
             );
             if let Some(text) = self.view_summary()
                 && status_chip(
@@ -2223,16 +2223,16 @@ impl Repo {
                 commands.push(Command::ClearFilter);
             }
             if let Some(hint) = self.compare_pick_hint() {
-                ui.label(RichText::new(hint).size(11.0).color(theme::ACCENT));
+                ui.label(RichText::new(hint).size(11.0).color(theme::accent()));
             }
             let time = ui.input(|i| i.time) as f32;
             let mut any_job = false;
             for job in self.jobs.running() {
                 any_job = true;
                 let (dot, _) = ui.allocate_exact_size(vec2(12.0, 14.0), Sense::hover());
-                crate::mascot::bubbles(ui.painter(), dot.center(), time, theme::ACCENT);
+                crate::mascot::bubbles(ui.painter(), dot.center(), time, theme::accent());
                 ui.add_space(-12.0);
-                ui.label(RichText::new(job).size(11.0).color(theme::ACCENT));
+                ui.label(RichText::new(job).size(11.0).color(theme::accent()));
             }
             if any_job {
                 ui.ctx().request_repaint_after(Duration::from_millis(33));
@@ -2254,7 +2254,7 @@ impl Repo {
                     self.load_time.as_millis()
                 ),
                 FontId::proportional(11.0),
-                theme::TEXT_FAINT,
+                theme::text_faint(),
             );
             let console = egui::Rect::from_center_size(
                 egui::pos2(version.left() - 18.0, rect.center().y),
@@ -2282,9 +2282,9 @@ impl Repo {
         ui.ctx()
             .request_repaint_after(Duration::from_secs_f32(life - age));
         let color = if toast.error {
-            theme::DELETED
+            theme::deleted()
         } else {
-            theme::ADDED
+            theme::added()
         };
         let entry = toast.console_entry;
         let mut open_entry = false;
@@ -2292,20 +2292,20 @@ impl Repo {
             .anchor(Align2::CENTER_BOTTOM, vec2(0.0, -40.0))
             .show(ui.ctx(), |ui| {
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(0x23, 0x28, 0x33))
+                    .fill(theme::toast())
                     .stroke(Stroke::new(1.0, theme::with_alpha(color, 0x99)))
                     .corner_radius(8)
                     .inner_margin(Margin::symmetric(14, 10))
                     .show(ui, |ui| {
                         ui.set_max_width(560.0);
-                        ui.label(RichText::new(&toast.text).color(theme::TEXT_STRONG));
+                        ui.label(RichText::new(&toast.text).color(theme::text_strong()));
                         if entry.is_some() {
                             open_entry = ui
                                 .add(
                                     egui::Label::new(
                                         RichText::new("Show in console")
                                             .size(12.0)
-                                            .color(theme::ACCENT),
+                                            .color(theme::accent()),
                                     )
                                     .selectable(false)
                                     .sense(Sense::click()),
@@ -2328,12 +2328,12 @@ fn picker(ui: &mut egui::Ui, caption: &str, value: &str) {
     ui.vertical(|ui| {
         ui.add_space(9.0);
         ui.spacing_mut().item_spacing.y = 0.0;
-        ui.label(RichText::new(caption).size(11.0).color(theme::TEXT_MUTED));
+        ui.label(RichText::new(caption).size(11.0).color(theme::text_muted()));
         ui.label(
             RichText::new(value)
                 .size(15.0)
                 .family(theme::semibold())
-                .color(theme::TEXT_STRONG),
+                .color(theme::text_strong()),
         );
     });
 }
@@ -2360,19 +2360,22 @@ fn tool_with_badge(
     );
     let painter = ui.painter_at(rect);
     if enabled && response.hovered() {
-        painter.rect_filled(rect, 6.0, theme::with_alpha(Color32::WHITE, 0x0c));
+        painter.rect_filled(rect, 6.0, theme::overlay(0x0c));
     }
     let color = if enabled {
-        Color32::from_rgb(0xc9, 0xcc, 0xd2)
+        theme::text_label()
     } else {
-        Color32::from_rgb(0x5b, 0x61, 0x6d)
+        theme::tone(Color32::from_rgb(0x5b, 0x61, 0x6d))
     };
     let icon_rect = icons::center_square(rect.translate(vec2(0.0, -7.0)), 18.0);
     icons::paint(&painter, icon_rect, icon, color);
     if let Some(text) = badge {
         let badge_painter = ui.painter();
-        let galley =
-            badge_painter.layout_no_wrap(text, FontId::new(10.0, theme::semibold()), theme::ACCENT);
+        let galley = badge_painter.layout_no_wrap(
+            text,
+            FontId::new(10.0, theme::semibold()),
+            theme::accent(),
+        );
         let size = vec2((galley.size().x + 8.0).max(15.0), 15.0);
         let pill = egui::Rect::from_min_size(
             egui::pos2(icon_rect.right() - 4.0, icon_rect.top() - 6.0),
@@ -2381,11 +2384,11 @@ fn tool_with_badge(
         badge_painter.rect(
             pill,
             7.5,
-            theme::with_alpha(theme::ACCENT, 0x30),
-            Stroke::new(1.0, theme::with_alpha(theme::ACCENT, 0x80)),
+            theme::with_alpha(theme::accent(), 0x30),
+            Stroke::new(1.0, theme::with_alpha(theme::accent(), 0x80)),
             egui::StrokeKind::Inside,
         );
-        badge_painter.galley(pill.center() - galley.size() / 2.0, galley, theme::ACCENT);
+        badge_painter.galley(pill.center() - galley.size() / 2.0, galley, theme::accent());
     }
     painter.text(
         rect.center_bottom() - vec2(0.0, 9.0),
@@ -2404,7 +2407,7 @@ fn divider(ui: &mut egui::Ui) {
     ui.painter().vline(
         rect.center().x,
         rect.y_range(),
-        Stroke::new(1.0, Color32::from_rgb(0x2c, 0x31, 0x3b)),
+        Stroke::new(1.0, theme::tone(Color32::from_rgb(0x2c, 0x31, 0x3b))),
     );
 }
 
@@ -2438,14 +2441,14 @@ fn status_chip(ui: &mut egui::Ui, text: &str, action: &str, hint: &str) -> bool 
     let label = format!("{text}  ·  {action}");
     let galley = ui
         .painter()
-        .layout_no_wrap(label, FontId::proportional(11.0), theme::ACCENT);
+        .layout_no_wrap(label, FontId::proportional(11.0), theme::accent());
     let size = galley.size() + vec2(16.0, 6.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let fill = if response.hovered() { 0x40 } else { 0x26 };
     ui.painter()
-        .rect_filled(rect, 9.0, theme::with_alpha(theme::ACCENT, fill));
+        .rect_filled(rect, 9.0, theme::with_alpha(theme::accent(), fill));
     ui.painter()
-        .galley(rect.center() - galley.size() / 2.0, galley, theme::ACCENT);
+        .galley(rect.center() - galley.size() / 2.0, galley, theme::accent());
     response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(hint)
@@ -2459,12 +2462,12 @@ fn console_button(ui: &egui::Ui, rect: egui::Rect) -> bool {
         .on_hover_text("Git console (⌘⌥L)");
     let painter = ui.painter();
     if response.hovered() {
-        painter.rect_filled(rect, 4.0, theme::with_alpha(Color32::WHITE, 0x10));
+        painter.rect_filled(rect, 4.0, theme::overlay(0x10));
     }
     let color = if response.hovered() {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_FAINT
+        theme::text_faint()
     };
     icons::paint(
         painter,
@@ -2492,12 +2495,12 @@ fn panel_toggle(ui: &egui::Ui, rect: egui::Rect, side: Side, open: bool) -> bool
     crate::widgets::describe_toggle(&response, label, open);
     let painter = ui.painter();
     if response.hovered() {
-        painter.rect_filled(rect, 4.0, theme::with_alpha(Color32::WHITE, 0x10));
+        painter.rect_filled(rect, 4.0, theme::overlay(0x10));
     }
     let color = if response.hovered() {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_FAINT
+        theme::text_faint()
     };
     let frame = egui::Rect::from_center_size(rect.center(), vec2(14.0, 11.0));
     painter.rect_stroke(

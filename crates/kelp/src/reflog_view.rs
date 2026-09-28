@@ -127,7 +127,7 @@ impl ReflogView {
         egui::Panel::left("reflog-entries")
             .default_size(LIST_W)
             .min_size(360.0)
-            .frame(egui::Frame::new().fill(theme::PANEL))
+            .frame(egui::Frame::new().fill(theme::panel()))
             .show(ui, |ui| picked = self.list(ui));
         if let Some(row) = picked {
             self.select(repo, row);
@@ -139,7 +139,7 @@ impl ReflogView {
                 Loaded::Ready(_) => "This reflog is empty.".to_string(),
             };
             ui.centered_and_justified(|ui| {
-                ui.label(RichText::new(text).color(theme::TEXT_MUTED));
+                ui.label(RichText::new(text).color(theme::text_muted()));
             });
             return event;
         };
@@ -169,7 +169,9 @@ impl ReflogView {
                             {
                                 Ok(view) => self.diff = Some(Box::new(view)),
                                 Err(e) => {
-                                    ui.label(RichText::new(format!("{e:#}")).color(theme::DELETED));
+                                    ui.label(
+                                        RichText::new(format!("{e:#}")).color(theme::deleted()),
+                                    );
                                 }
                             }
                         }
@@ -182,7 +184,7 @@ impl ReflogView {
         let mut close = false;
         let mut switch_to = None;
         egui::Frame::new()
-            .fill(theme::PANEL)
+            .fill(theme::panel())
             .inner_margin(Margin::symmetric(16, 10))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -190,7 +192,7 @@ impl ReflogView {
                         RichText::new("Reflog")
                             .size(15.0)
                             .family(theme::semibold())
-                            .color(theme::TEXT_STRONG),
+                            .color(theme::text_strong()),
                     );
                     egui::ComboBox::from_id_salt("reflog-ref")
                         .selected_text(&self.reference)
@@ -210,7 +212,7 @@ impl ReflogView {
                         "Every place HEAD or a branch pointed to, newest first. Commits marked lost are on no branch any more; restore them from here.",
                     )
                     .size(12.0)
-                    .color(theme::TEXT_MUTED),
+                    .color(theme::text_muted()),
                 );
             });
         if let Some(reference) = switch_to
@@ -256,7 +258,7 @@ impl ReflogView {
             RichText::new(&entry.title)
                 .size(16.0)
                 .family(theme::semibold())
-                .color(theme::TEXT_STRONG),
+                .color(theme::text_strong()),
         );
         ui.label(
             RichText::new(format!(
@@ -266,7 +268,7 @@ impl ReflogView {
                 entry.id.to_hex_with_len(7)
             ))
             .size(12.0)
-            .color(theme::TEXT_MUTED),
+            .color(theme::text_muted()),
         );
         let command = action_bar(ui, entry, current_branch, at_head);
         let Some(details) = self.details.as_ref() else {
@@ -278,10 +280,10 @@ impl ReflogView {
                 details.author,
                 commit::relative_time(details.time, now())
             ))
-            .color(theme::TEXT),
+            .color(theme::text()),
         );
         if !details.body.is_empty() {
-            ui.label(RichText::new(&details.body).color(theme::TEXT_MUTED));
+            ui.label(RichText::new(&details.body).color(theme::text_muted()));
         }
         ui.separator();
         let mut open = None;
@@ -292,7 +294,7 @@ impl ReflogView {
             }
         }
         if details.changes.is_empty() {
-            ui.label(RichText::new("No file changes").color(theme::TEXT_FAINT));
+            ui.label(RichText::new("No file changes").color(theme::text_faint()));
         }
         (open, command)
     }
@@ -345,9 +347,9 @@ pub fn action_bar(
                 egui::Button::new(
                     RichText::new(label)
                         .family(theme::semibold())
-                        .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+                        .color(theme::on_accent()),
                 )
-                .fill(theme::ACCENT),
+                .fill(theme::accent()),
             )
             .on_disabled_hover_text("Already here");
         if restore.clicked() {
@@ -376,12 +378,12 @@ pub fn action_bar(
 
 fn action_color(action: Action) -> Color32 {
     match action {
-        Action::Commit | Action::Amend => theme::ADDED,
-        Action::Checkout | Action::Branch | Action::Clone => theme::LANES[3],
-        Action::Rebase | Action::CherryPick | Action::Revert => theme::LANES[2],
-        Action::Reset => theme::DELETED,
-        Action::Merge | Action::Pull => theme::LANES[1],
-        Action::Other => theme::TEXT_MUTED,
+        Action::Commit | Action::Amend => theme::added(),
+        Action::Checkout | Action::Branch | Action::Clone => theme::lanes()[3],
+        Action::Rebase | Action::CherryPick | Action::Revert => theme::lanes()[2],
+        Action::Reset => theme::deleted(),
+        Action::Merge | Action::Pull => theme::lanes()[1],
+        Action::Other => theme::text_muted(),
     }
 }
 
@@ -390,9 +392,9 @@ fn entry_row(ui: &mut Ui, entry: &Entry, selected: bool, now: i64) -> bool {
         ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
     let painter = ui.painter_at(rect);
     if selected {
-        painter.rect_filled(rect, 0.0, theme::SELECTED_ROW);
+        painter.rect_filled(rect, 0.0, theme::selected_row());
     } else if response.hovered() {
-        painter.rect_filled(rect, 0.0, theme::with_alpha(Color32::WHITE, 0x06));
+        painter.rect_filled(rect, 0.0, theme::overlay(0x06));
     }
     let color = action_color(entry.action);
     let pill = Rect::from_min_size(
@@ -413,20 +415,20 @@ fn entry_row(ui: &mut Ui, entry: &Entry, selected: bool, now: i64) -> bool {
         Align2::LEFT_CENTER,
         entry.id.to_hex_with_len(7).to_string(),
         FontId::monospace(12.0),
-        theme::TEXT_MUTED,
+        theme::text_muted(),
     );
     let when = commit::relative_time(entry.time, now);
-    let when = painter.layout_no_wrap(when, FontId::proportional(11.5), theme::TEXT_FAINT);
+    let when = painter.layout_no_wrap(when, FontId::proportional(11.5), theme::text_faint());
     let when_x = rect.right() - 12.0 - when.size().x;
     painter.galley(
         pos2(when_x, rect.center().y - when.size().y / 2.0),
         when,
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     let mut title_right = when_x - 10.0;
     if !entry.reachable {
         let lost =
-            painter.layout_no_wrap("lost".into(), FontId::proportional(11.0), theme::DELETED);
+            painter.layout_no_wrap("lost".into(), FontId::proportional(11.0), theme::deleted());
         let badge = Rect::from_min_size(
             pos2(title_right - lost.size().x - 12.0, rect.center().y - 9.0),
             vec2(lost.size().x + 12.0, 18.0),
@@ -434,9 +436,9 @@ fn entry_row(ui: &mut Ui, entry: &Entry, selected: bool, now: i64) -> bool {
         painter.rect_filled(
             badge,
             CornerRadius::same(9),
-            theme::with_alpha(theme::DELETED, 0x26),
+            theme::with_alpha(theme::deleted(), 0x26),
         );
-        painter.galley(badge.center() - lost.size() / 2.0, lost, theme::DELETED);
+        painter.galley(badge.center() - lost.size() / 2.0, lost, theme::deleted());
         title_right = badge.left() - 8.0;
     }
     let title_x = hash_x + 70.0;
@@ -445,16 +447,16 @@ fn entry_row(ui: &mut Ui, entry: &Entry, selected: bool, now: i64) -> bool {
         entry.title.clone(),
         FontId::proportional(13.0),
         if entry.reachable {
-            theme::TEXT
+            theme::text()
         } else {
-            theme::TEXT_STRONG
+            theme::text_strong()
         },
         (title_right - title_x).max(0.0),
     );
     painter.galley(
         pos2(title_x, rect.center().y - title.size().y / 2.0),
         title,
-        theme::TEXT,
+        theme::text(),
     );
     response
         .on_hover_text(format!("{}: {}", entry.action.label(), entry.message))
@@ -466,8 +468,7 @@ fn file_row(ui: &mut Ui, change: &commit::FileChange) -> bool {
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), FILE_ROW_H), Sense::click());
     if response.hovered() {
-        ui.painter()
-            .rect_filled(rect, 4.0, theme::with_alpha(Color32::WHITE, 0x08));
+        ui.painter().rect_filled(rect, 4.0, theme::overlay(0x08));
     }
     let (letter, color) = crate::details::change_letter(change.kind);
     ui.painter().text(
@@ -482,7 +483,7 @@ fn file_row(ui: &mut Ui, change: &commit::FileChange) -> bool {
         Align2::LEFT_CENTER,
         &change.path,
         FontId::monospace(12.0),
-        theme::TEXT,
+        theme::text(),
     );
     response
         .on_hover_cursor(egui::CursorIcon::PointingHand)

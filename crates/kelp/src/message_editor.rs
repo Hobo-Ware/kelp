@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Key, Margin, Modifiers, RichText, Stroke, vec2};
+use eframe::egui::{self, Key, Margin, Modifiers, RichText, Stroke, vec2};
 
 use crate::theme;
 
@@ -52,10 +52,11 @@ impl MessageEditor {
     pub fn show(&mut self, ctx: &egui::Context) -> Event {
         let mut event = Event::None;
         let modal = egui::Modal::new(egui::Id::new("kelp-edit-message"))
+            .backdrop_color(theme::backdrop())
             .frame(
                 egui::Frame::new()
-                    .fill(theme::POPUP)
-                    .stroke(Stroke::new(1.0, theme::POPUP_BORDER))
+                    .fill(theme::popup())
+                    .stroke(Stroke::new(1.0, theme::popup_border()))
                     .corner_radius(10)
                     .inner_margin(Margin::same(22)),
             )
@@ -67,19 +68,19 @@ impl MessageEditor {
                         RichText::new("Edit commit message")
                             .size(16.0)
                             .family(theme::semibold())
-                            .color(theme::TEXT_STRONG),
+                            .color(theme::text_strong()),
                     );
                     ui.label(
                         RichText::new(&self.commit[..7.min(self.commit.len())])
                             .monospace()
-                            .color(theme::TEXT_FAINT),
+                            .color(theme::text_faint()),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let len = self.summary.chars().count();
                         let color = if len > SUMMARY_LIMIT {
-                            theme::MODIFIED
+                            theme::modified()
                         } else {
-                            theme::TEXT_FAINT
+                            theme::text_faint()
                         };
                         ui.label(
                             RichText::new(format!("{len}/{SUMMARY_LIMIT}"))
@@ -112,7 +113,7 @@ impl MessageEditor {
                 } else {
                     "Rewrites this commit and the ones after it. Cmd+Z undoes it."
                 };
-                ui.label(RichText::new(note).size(12.0).color(theme::TEXT_FAINT));
+                ui.label(RichText::new(note).size(12.0).color(theme::text_faint()));
                 let enter_in_summary =
                     summary.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
                 let command_enter = ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter));
@@ -124,9 +125,9 @@ impl MessageEditor {
                                 RichText::new("Save message")
                                     .size(12.0)
                                     .family(theme::semibold())
-                                    .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+                                    .color(theme::on_accent()),
                             )
-                            .fill(theme::ACCENT)
+                            .fill(theme::accent())
                             .corner_radius(5)
                             .min_size(vec2(0.0, 30.0)),
                         );

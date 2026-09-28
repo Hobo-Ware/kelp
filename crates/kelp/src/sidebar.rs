@@ -408,7 +408,7 @@ pub fn rename_field(ui: &mut Ui, branch: &str, error: Option<&str>, indent: f32)
     if let Some(error) = error {
         ui.horizontal(|ui| {
             ui.add_space(indent + 24.0);
-            ui.label(RichText::new(error).size(11.5).color(theme::DELETED));
+            ui.label(RichText::new(error).size(11.5).color(theme::deleted()));
         });
     }
     ui.add_space(2.0);
@@ -572,7 +572,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 name: &stash.message,
                                 highlight: &highlight,
                                 subtitle: Some(&stash.name),
-                                ..Row::new(theme::TEXT_FAINT)
+                                ..Row::new(theme::text_faint())
                             }
                             .show(ui);
                             crate::menus::context_menu(&response, |ui| {
@@ -635,7 +635,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                     ui.label(
                         RichText::new(format!("Nothing matches \"{query}\""))
                             .size(12.0)
-                            .color(theme::TEXT_FAINT),
+                            .color(theme::text_faint()),
                     );
                 });
             }
@@ -711,9 +711,9 @@ fn clear_button(ui: &mut Ui, field: egui::Rect) -> bool {
         .on_hover_text("Clear the filter (Esc)")
         .on_hover_cursor(egui::CursorIcon::PointingHand);
     let color = if response.hovered() {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_FAINT
+        theme::text_faint()
     };
     let c = rect.center();
     let stroke = egui::Stroke::new(1.3, color);
@@ -745,9 +745,9 @@ fn section_menu(
     } = *header;
     let (rect, response) = ui.allocate_exact_size(vec2(22.0, 18.0), Sense::click());
     let color = if response.hovered() {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_FAINT
+        theme::text_faint()
     };
     for dx in [-5.0, 0.0, 5.0] {
         ui.painter()
@@ -834,10 +834,10 @@ fn submodule_subtitle(module: &kelp_core::submodules::Submodule) -> String {
 fn submodule_color(state: kelp_core::submodules::State) -> Color32 {
     use kelp_core::submodules::State;
     match state {
-        State::Clean => theme::ACCENT,
-        State::Modified | State::NewCommits => theme::MODIFIED,
-        State::Conflict => theme::DELETED,
-        State::NotInitialized => theme::TEXT_FAINT,
+        State::Clean => theme::accent(),
+        State::Modified | State::NewCommits => theme::modified(),
+        State::Conflict => theme::deleted(),
+        State::NotInitialized => theme::text_faint(),
     }
 }
 
@@ -845,7 +845,7 @@ fn manage_button(ui: &mut Ui, manage: &mut bool) -> egui::Response {
     let galley = ui.painter().layout_no_wrap(
         "Manage".to_string(),
         FontId::proportional(11.0),
-        theme::ACCENT,
+        theme::accent(),
     );
     let size = vec2(galley.size().x + 14.0, 20.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
@@ -854,10 +854,10 @@ fn manage_button(ui: &mut Ui, manage: &mut bool) -> egui::Response {
         .on_hover_cursor(egui::CursorIcon::PointingHand);
     if response.hovered() {
         ui.painter()
-            .rect_filled(rect, 4.0, theme::with_alpha(theme::ACCENT, 0x22));
+            .rect_filled(rect, 4.0, theme::with_alpha(theme::accent(), 0x22));
     }
     ui.painter()
-        .galley(rect.center() - galley.size() / 2.0, galley, theme::ACCENT);
+        .galley(rect.center() - galley.size() / 2.0, galley, theme::accent());
     if response.clicked() {
         *manage = true;
     }
@@ -871,9 +871,9 @@ fn merged_note(ui: &mut Ui, count: usize, actions: &mut Vec<Action>) {
         if count == 1 { "branch" } else { "branches" }
     );
     let color = if response.hovered() {
-        theme::TEXT
+        theme::text()
     } else {
-        theme::TEXT_FAINT
+        theme::text_faint()
     };
     ui.painter().text(
         rect.left_center() + vec2(24.0, 0.0),
@@ -975,11 +975,11 @@ fn folder_row(
         ui.allocate_exact_size(vec2(ui.available_width(), FOLDER_H), Sense::click());
     let painter = ui.painter_at(rect);
     if response.hovered() {
-        painter.rect_filled(rect, 0.0, theme::with_alpha(Color32::WHITE, 0x08));
+        painter.rect_filled(rect, 0.0, theme::overlay(0x08));
     }
     let x = rect.left() + 12.0 + indent;
     let c = egui::pos2(x, rect.center().y);
-    let stroke = egui::Stroke::new(1.4, theme::TEXT_FAINT);
+    let stroke = egui::Stroke::new(1.4, theme::text_faint());
     let chevron = if open {
         [
             c + vec2(-3.5, -1.5),
@@ -995,14 +995,14 @@ fn folder_row(
     };
     painter.add(egui::Shape::line(chevron.to_vec(), stroke));
     let color = if has_head {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_MUTED
+        theme::text_muted()
     };
     let count_galley = painter.layout_no_wrap(
         count.to_string(),
         FontId::proportional(11.0),
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     let right = rect.right() - 12.0 - count_galley.size().x;
     let name = crate::graph_view::truncated(
@@ -1020,13 +1020,13 @@ fn folder_row(
     painter.galley(
         egui::pos2(right, rect.center().y - count_galley.size().y / 2.0),
         count_galley,
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     let marker = egui::pos2(right - 10.0, rect.center().y);
     if has_head {
-        painter.circle_filled(marker, 3.0, theme::ACCENT);
+        painter.circle_filled(marker, 3.0, theme::accent());
     } else if pending {
-        painter.circle_stroke(marker, 2.5, egui::Stroke::new(1.2, theme::ACCENT));
+        painter.circle_stroke(marker, 2.5, egui::Stroke::new(1.2, theme::accent()));
     }
     let hint = match (has_head, pending) {
         (true, _) => "Your current branch is in here",
@@ -1072,7 +1072,7 @@ impl RefRows<'_> {
             .row
             .filter(|_| !label.hidden)
             .map(|r| theme::lane(history.layout.node_color(r as usize)))
-            .unwrap_or(theme::TEXT_FAINT);
+            .unwrap_or(theme::text_faint());
         let badge = match self.repo.workspace.ahead_behind.get(&label.name) {
             Some((a, b)) if kind == RefKind::Local && (*a > 0 || *b > 0) => {
                 let mut s = String::new();
@@ -1193,7 +1193,7 @@ fn worktree_row(
         .find(|l| Some(&l.name) == wt.tree.branch.as_ref())
         .and_then(|l| l.row)
         .map(|r| theme::lane(repo.history.layout.node_color(r as usize)))
-        .unwrap_or(theme::TEXT_FAINT);
+        .unwrap_or(theme::text_faint());
     let name = wt.tree.name();
     let highlight = ref_tree::fuzzy(&name, query).unwrap_or_default();
     let response = Row {
@@ -1234,7 +1234,7 @@ fn section(
                     RichText::new(title)
                         .size(11.0)
                         .family(theme::semibold())
-                        .color(theme::TEXT_MUTED),
+                        .color(theme::text_muted()),
                 )
                 .selectable(false)
                 .sense(Sense::click()),
@@ -1246,7 +1246,7 @@ fn section(
             ui.label(
                 RichText::new(count.to_string())
                     .size(11.0)
-                    .color(theme::TEXT_MUTED),
+                    .color(theme::text_muted()),
             );
             header_right(ui);
         });
@@ -1274,15 +1274,15 @@ fn eye_toggle(ui: &mut Ui, row: &egui::Response, hidden: bool) -> bool {
     crate::widgets::describe_toggle(&response, "show in graph", !hidden);
     let painter = ui.painter();
     let backdrop = if response.hovered() {
-        theme::CONTROL_HOVER
+        theme::control_hover()
     } else {
-        theme::PANEL
+        theme::panel()
     };
     painter.rect_filled(rect.expand2(vec2(10.0, 0.0)), 4.0, backdrop);
     let color = if response.hovered() {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_MUTED
+        theme::text_muted()
     };
     let icon = if hidden { Icon::EyeOff } else { Icon::Eye };
     crate::icons::paint(
@@ -1331,9 +1331,9 @@ impl<'a> Row<'a> {
             ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
         let painter = ui.painter_at(rect);
         if self.selected {
-            painter.rect_filled(rect, 0.0, theme::SIDEBAR_SELECTED);
+            painter.rect_filled(rect, 0.0, theme::sidebar_selected());
         } else if response.hovered() {
-            painter.rect_filled(rect, 0.0, theme::with_alpha(Color32::WHITE, 0x08));
+            painter.rect_filled(rect, 0.0, theme::overlay(0x08));
         }
         let name_y = if self.subtitle.is_some() {
             rect.top() + 13.0
@@ -1343,11 +1343,11 @@ impl<'a> Row<'a> {
         let left = rect.left() + self.indent;
         painter.circle_filled(egui::pos2(left + 12.0, name_y), 4.0, self.dot);
         let color = if self.selected || self.strong {
-            theme::TEXT_STRONG
+            theme::text_strong()
         } else if self.dim {
-            theme::TEXT_FAINT
+            theme::text_faint()
         } else {
-            Color32::from_rgb(0xd5, 0xd7, 0xdc)
+            theme::text_control()
         };
         let font = FontId::proportional(if self.strong { 13.5 } else { 13.0 });
         let tag_galley = self
@@ -1385,13 +1385,13 @@ impl<'a> Row<'a> {
                 &painter,
                 sub.to_string(),
                 FontId::proportional(11.0),
-                theme::TEXT_FAINT,
+                theme::text_faint(),
                 rect.right() - left - 36.0,
             );
             painter.galley(
                 egui::pos2(left + 24.0, rect.top() + 22.0),
                 sub,
-                theme::TEXT_FAINT,
+                theme::text_faint(),
             );
         }
         let mut right = rect.right() - 12.0;
@@ -1399,7 +1399,7 @@ impl<'a> Row<'a> {
             let tag_color = if self.strong {
                 self.dot
             } else {
-                theme::TEXT_FAINT
+                theme::text_faint()
             };
             right -= g.size().x;
             painter.galley(egui::pos2(right, name_y - g.size().y / 2.0), g, tag_color);
@@ -1408,7 +1408,7 @@ impl<'a> Row<'a> {
         if self.pinned {
             let pin =
                 egui::Rect::from_center_size(egui::pos2(right - 7.0, name_y), vec2(12.0, 12.0));
-            crate::icons::paint(&painter, pin, Icon::Pin, theme::TEXT_FAINT);
+            crate::icons::paint(&painter, pin, Icon::Pin, theme::text_faint());
         }
         crate::widgets::focus_ring(ui, &response, 0.0);
         crate::focus_areas::offer(
@@ -1431,9 +1431,9 @@ fn highlighted(text: &str, ranges: &[Range<usize>], font: FontId, color: Color32
     let mut job = LayoutJob::default();
     let plain = egui::TextFormat::simple(font.clone(), color);
     let mark = egui::TextFormat {
-        color: theme::ACCENT,
-        background: theme::with_alpha(theme::ACCENT, 0x24),
-        ..egui::TextFormat::simple(font, theme::ACCENT)
+        color: theme::accent(),
+        background: theme::with_alpha(theme::accent(), 0x24),
+        ..egui::TextFormat::simple(font, theme::accent())
     };
     let mut at = 0;
     for range in ranges {
