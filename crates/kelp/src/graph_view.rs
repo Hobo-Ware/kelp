@@ -9,7 +9,7 @@ use eframe::egui::{
 };
 use kelp_core::avatar;
 use kelp_core::commit::{self, ChangeKind, FileChange, Summary};
-use kelp_core::graph::EdgeKind;
+use kelp_core::graph::{Edge, EdgeKind};
 use kelp_core::history::History;
 use kelp_core::refs::RefLabel;
 use kelp_core::workspace::Worktree;
@@ -316,7 +316,15 @@ impl GraphView {
                             counts: counts_label(wip.changes),
                             current: true,
                         };
-                        paint_wip_row(&painter, &geo, history, wip.head_row, &label, is_selected);
+                        paint_wip_row(
+                            &painter,
+                            &geo,
+                            history,
+                            lit,
+                            wip.head_row,
+                            &label,
+                            is_selected,
+                        );
                         if compare.work_tree {
                             let spot = pos2(geo.msg_left() - MARK_INSET, geo.mid());
                             crate::compare_view::paint_mark(
@@ -333,7 +341,7 @@ impl GraphView {
                             counts: format!("{} changed", other.changes),
                             current: false,
                         };
-                        paint_wip_row(&painter, &geo, history, other.head_row, &label, false);
+                        paint_wip_row(&painter, &geo, history, lit, other.head_row, &label, false);
                         let button = open_button_rect(&geo);
                         let hot = response.hover_pos().is_some_and(|p| button.contains(p));
                         paint_open_button(&painter, button, hot);
@@ -344,7 +352,7 @@ impl GraphView {
                         let style = RowStyle {
                             selected: is_selected,
                             dashed_top: map.has_wip_above(row),
-                            faded: lit.is_some_and(|l| !l.get(row).copied().unwrap_or(true)),
+                            faded: is_faded(lit, row),
                             descriptions,
                         };
                         let placed = paint_row(
@@ -359,6 +367,7 @@ impl GraphView {
                                 path: visible_path.as_ref(),
                                 on_path: on_path(row),
                                 checks: checks.get(&history.id(row)),
+                                lit,
                             },
                             now,
                         );
@@ -818,6 +827,22 @@ struct RowPaint<'a> {
     path: Option<&'a VisiblePath<'a>>,
     on_path: OnPath,
     checks: Option<&'a kelp_core::checks::Status>,
+    lit: Option<&'a [bool]>,
+}
+
+const FADED_OPACITY: f32 = 0.35;
+
+fn is_faded(lit: Option<&[bool]>, row: usize) -> bool {
+    lit.is_some_and(|l| !l.get(row).copied().unwrap_or(true))
+}
+
+fn edge_color(lit: Option<&[bool]>, edge: &Edge) -> Color32 {
+    let color = theme::lane(edge.color);
+    if is_faded(lit, edge.from as usize) {
+        color.gamma_multiply(FADED_OPACITY)
+    } else {
+        color
+    }
 }
 
 fn paint_row(
@@ -835,6 +860,7 @@ fn paint_row(
         path,
         on_path,
         checks,
+        lit,
     } = paint;
     let RowStyle {
         selected,
@@ -844,7 +870,7 @@ fn paint_row(
     } = style;
     let mut soft = painter.clone();
     if faded {
-        soft.multiply_opacity(0.35);
+        soft.multiply_opacity(FADED_OPACITY);
     }
     let layout = &history.layout;
     let node_lane = layout.node_lane(row);
@@ -853,7 +879,7 @@ fn paint_row(
     let graph = geo.graph_clip(painter);
     let mut graph_soft = graph.clone();
     if faded {
-        graph_soft.multiply_opacity(0.35);
+        graph_soft.multiply_opacity(FADED_OPACITY);
     }
     if on_path == OnPath::No {
         graph_soft.multiply_opacity(OFF_PATH_OPACITY + 0.3);
@@ -888,7 +914,7 @@ fn paint_row(
         if edge.kind == EdgeKind::Pass && !geo.lane_visible(edge.lane) {
             continue;
         }
-        let lane_color = theme::lane(edge.color);
+        let lane_color = edge_color(lit, edge);
         let stroke = match path.map(|p| p.carries(row, edge)) {
             None => Stroke::new(LINE_W, lane_color),
             Some(true) => Stroke::new(HOVER_LINE_W, lane_color),
@@ -931,6 +957,9 @@ fn paint_row(
     if node.x >= geo.graph_left() {
         let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
         placed = paint_labels(&soft, geo, &labels, node, color);
+    }
+    if faded {
+        graph.circle_filled(node, AVATAR_R + 1.0, theme::bg());
     }
     paint_avatar(&graph_soft, node, summary, avatar, color);
     let dot = paint_message(
@@ -1028,6 +1057,7 @@ fn paint_wip_row(
     painter: &egui::Painter,
     geo: &RowGeo,
     history: &History,
+    lit: Option<&[bool]>,
     head_row: usize,
     label: &WipLabel,
     selected: bool,
@@ -1063,7 +1093,7 @@ fn paint_wip_row(
             let x = geo.lane_x(edge.lane);
             graph.line_segment(
                 [pos2(x, geo.top), pos2(x, geo.bottom())],
-                Stroke::new(LINE_W, theme::lane(edge.color)),
+                Stroke::new(LINE_W, edge_color(lit, &edge)),
             );
         }
     }

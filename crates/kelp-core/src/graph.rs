@@ -19,6 +19,8 @@ pub struct Edge {
     pub kind: EdgeKind,
     pub lane: u16,
     pub color: u8,
+    /// Row of the commit this line comes down from.
+    pub from: u32,
 }
 
 #[derive(Debug, Default)]
@@ -76,6 +78,7 @@ impl Layout {
                     kind: EdgeKind::Pass,
                     lane: span.lane,
                     color: span.color,
+                    from: span.from,
                 }),
         );
         out[first_pass..].sort_unstable_by_key(|e| e.lane);
@@ -168,6 +171,7 @@ pub fn layout<'a>(rows: usize, parents: impl Fn(usize) -> &'a [u32], colors: u8)
                         kind: EdgeKind::Top,
                         lane: lane as u16,
                         color: s.color,
+                        from: s.since,
                     });
                 }
                 Some(_) => {
@@ -175,6 +179,7 @@ pub fn layout<'a>(rows: usize, parents: impl Fn(usize) -> &'a [u32], colors: u8)
                         kind: EdgeKind::JoinIn,
                         lane: lane as u16,
                         color: s.color,
+                        from: s.since,
                     });
                     *slot = None;
                 }
@@ -201,6 +206,7 @@ pub fn layout<'a>(rows: usize, parents: impl Fn(usize) -> &'a [u32], colors: u8)
                     kind: EdgeKind::Bottom,
                     lane: node_lane as u16,
                     color: node_color,
+                    from: row_id,
                 });
                 for &p in rest {
                     if p == first {
@@ -227,6 +233,7 @@ pub fn layout<'a>(rows: usize, parents: impl Fn(usize) -> &'a [u32], colors: u8)
                         kind: EdgeKind::MergeOut,
                         lane: lane as u16,
                         color,
+                        from: row_id,
                     });
                 }
             }
@@ -341,6 +348,7 @@ mod tests {
         struct Old {
             expects: u32,
             color: u8,
+            since: u32,
         }
         let mut out = Vec::new();
         let mut active: Vec<Option<Old>> = Vec::new();
@@ -376,6 +384,7 @@ mod tests {
                     kind,
                     lane: lane as u16,
                     color: s.color,
+                    from: s.since,
                 });
             }
             let (node_lane, node_color) = node.unwrap_or_else(|| (free(&mut active), take()));
@@ -387,6 +396,7 @@ mod tests {
                         kind: Pass,
                         lane: lane as u16,
                         color: s.color,
+                        from: s.since,
                     });
                 }
             }
@@ -396,11 +406,13 @@ mod tests {
                     active[node_lane] = Some(Old {
                         expects: first,
                         color: node_color,
+                        since: row as u32,
                     });
                     edges.push(Edge {
                         kind: Bottom,
                         lane: node_lane as u16,
                         color: node_color,
+                        from: row as u32,
                     });
                     for &p in rest {
                         if p == first {
@@ -418,6 +430,7 @@ mod tests {
                                 active[l] = Some(Old {
                                     expects: p,
                                     color: c,
+                                    since: row as u32,
                                 });
                                 (l, c)
                             }
@@ -426,6 +439,7 @@ mod tests {
                             kind: MergeOut,
                             lane: lane as u16,
                             color,
+                            from: row as u32,
                         });
                     }
                 }
