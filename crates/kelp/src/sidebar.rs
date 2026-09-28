@@ -757,7 +757,12 @@ fn section_menu(
                     }
                 }
             }
-            RefKind::Local => {}
+            RefKind::Local => {
+                menus::separator(ui);
+                if menus::row(ui, Some(Icon::Undo), "Show reflog", None, false) {
+                    commands.push(Command::ShowReflog("HEAD".into()));
+                }
+            }
         }
     });
 }

@@ -30,6 +30,7 @@ mod pulls_ui;
 mod rebase_view;
 mod recents;
 mod ref_labels;
+mod reflog_view;
 mod repo_view;
 mod settings;
 mod sidebar;

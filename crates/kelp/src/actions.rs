@@ -45,6 +45,7 @@ pub enum RepoAction {
     Search,
     ShowGraph,
     ShowWorktrees,
+    ShowReflog,
     ShowChanges,
     StageAll,
     UnstageAll,
@@ -147,6 +148,7 @@ pub static ACTIONS: &[Action] = &[
     repo("search", "Search commits", "find message author hash", Some("Cmd+F"), None, RepoAction::Search),
     repo("show-graph", "Go to the graph", "history back close", Some("Esc"), None, RepoAction::ShowGraph),
     repo("show-worktrees", "Manage worktrees", "worktree list", None, Some(Icon::Worktree), RepoAction::ShowWorktrees),
+    repo("show-reflog", "Show reflog", "history lost recover restore undo reset", None, Some(Icon::Undo), RepoAction::ShowReflog),
     repo("show-changes", "Show uncommitted changes", "wip staging working tree", None, None, RepoAction::ShowChanges),
     repo("stage-all", "Stage all changes", "add index", None, Some(Icon::Plus), RepoAction::StageAll),
     repo("unstage-all", "Unstage all changes", "reset index", None, Some(Icon::Minus), RepoAction::UnstageAll),
@@ -232,8 +234,8 @@ impl State {
             CreatePullRequest => self.github && self.branch && !self.pull,
             CheckoutCommit | CherryPick | Revert | InteractiveRebase | EditMessage
             | CopyCommitHash | CreateTag => self.commit_selected,
-            Fetch | NewBranch | Refresh | Search | ShowGraph | ShowWorktrees | RevealRepo
-            | PushTags | AddRemote => true,
+            Fetch | NewBranch | Refresh | Search | ShowGraph | ShowWorktrees | ShowReflog
+            | RevealRepo | PushTags | AddRemote => true,
         }
     }
 }
@@ -312,6 +314,7 @@ mod tests {
             "search",
             "show-graph",
             "show-worktrees",
+            "show-reflog",
             "show-changes",
             "stage-all",
             "unstage-all",

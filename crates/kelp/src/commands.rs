@@ -30,4 +30,5 @@ pub enum Command {
     CreatePullRequest(String),
     StartRename(String),
     ShowStash(String),
+    ShowReflog(String),
 }
