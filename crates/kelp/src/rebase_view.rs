@@ -296,7 +296,7 @@ fn list(
                     pill_response.on_hover_cursor(CursorIcon::PointingHand)
                 };
                 egui::Popup::menu(&pill_response).show(|ui| {
-                    ui.set_min_width(190.0);
+                    crate::menus::menu_width(ui, 190.0);
                     ui.spacing_mut().item_spacing.y = 0.0;
                     for action in Action::ALL
                         .into_iter()

@@ -718,7 +718,7 @@ fn section_menu(
     let popup = egui::Popup::menu(&response);
     let popup = if forced { popup.open(true) } else { popup };
     popup.show(|ui| {
-        ui.set_min_width(220.0);
+        crate::menus::menu_width(ui, 220.0);
         ui.spacing_mut().item_spacing.y = 0.0;
         let check = |on: bool| on.then_some(Icon::Check);
         if menus::row(ui, check(sort == Sort::Name), "Sort by name", None, false) {
@@ -870,7 +870,7 @@ fn show_nodes(
                 if is_remote {
                     let commands = &mut *rows.commands;
                     response.context_menu(|ui| {
-                        ui.set_min_width(230.0);
+                        crate::menus::menu_width(ui, 230.0);
                         ui.spacing_mut().item_spacing.y = 0.0;
                         menus::remote_items(ui, &folder.path, commands);
                     });

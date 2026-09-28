@@ -216,7 +216,7 @@ pub fn header(ui: &mut Ui, rect: Rect, columns: &mut GraphColumns) -> bool {
 }
 
 pub fn menu(ui: &mut Ui, columns: &mut GraphColumns) -> bool {
-    ui.set_min_width(180.0);
+    crate::menus::menu_width(ui, 180.0);
     ui.spacing_mut().item_spacing.y = 0.0;
     menus::heading(ui, "COLUMNS");
     let mut changed = false;
