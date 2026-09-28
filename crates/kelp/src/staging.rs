@@ -237,7 +237,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                     {
                         actions.push(Action::Open(change.path.clone(), false));
                     }
-                    row.context_menu(|ui| {
+                    crate::menus::context_menu(&row, |ui| {
                         crate::menus::menu_width(ui, 210.0);
                         ui.spacing_mut().item_spacing.y = 0.0;
                         if menus::row(ui, Some(Icon::Plus), "Stage", None, false) {
@@ -325,7 +325,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                     {
                         actions.push(Action::Open(change.path.clone(), true));
                     }
-                    row.context_menu(|ui| {
+                    crate::menus::context_menu(&row, |ui| {
                         crate::menus::menu_width(ui, 210.0);
                         ui.spacing_mut().item_spacing.y = 0.0;
                         if menus::row(ui, Some(Icon::Minus), "Unstage", None, false) {
@@ -754,6 +754,18 @@ fn file_row(
         pos2(x, y - name_galley.size().y / 2.0),
         name_galley,
         theme::TEXT,
+    );
+    crate::widgets::focus_ring(ui, &response, 0.0);
+    crate::focus_areas::offer(
+        ui.ctx(),
+        crate::focus_areas::Area::Details,
+        response.id,
+        active,
+    );
+    crate::widgets::describe_selected(
+        &response,
+        format!("changed file {}, {mark}", change.path),
+        active || picked,
     );
     (response.on_hover_text(&change.path), clicked)
 }

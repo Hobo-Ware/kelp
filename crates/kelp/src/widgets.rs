@@ -59,6 +59,8 @@ pub fn segmented<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, options: &[(T,
             .align_size_within_rect(galley.size(), segment)
             .min;
         painter.galley(pos, galley, color);
+        focus_ring(ui, &response, 4.0);
+        describe_selected(&response, options[i].1, active);
         if response.clicked() {
             *value = *option;
         }
@@ -79,6 +81,8 @@ pub fn icon_button(ui: &mut Ui, icon: crate::icons::Icon, hint: &str) -> bool {
     };
     let glyph = Rect::from_center_size(rect.center(), vec2(15.0, 15.0));
     crate::icons::paint(ui.painter(), glyph, icon, color);
+    focus_ring(ui, &response, 5.0);
+    describe(&response, egui::WidgetType::Button, hint);
     response.clicked()
 }
 
@@ -101,7 +105,94 @@ pub fn close_button(ui: &mut Ui, hint: &str) -> bool {
     let stroke = Stroke::new(1.5, color);
     painter.line_segment([c + vec2(-d, -d), c + vec2(d, d)], stroke);
     painter.line_segment([c + vec2(-d, d), c + vec2(d, -d)], stroke);
+    focus_ring(ui, &response, 5.0);
+    describe(&response, egui::WidgetType::Button, hint);
     response.clicked()
+}
+
+const KEYBOARD_MODE: &str = "kelp-keyboard-mode";
+const FOCUS_RING_W: f32 = 2.0;
+
+pub fn track_input_mode(ctx: &egui::Context) {
+    use egui::Key;
+    let (keyboard, pointer) = ctx.input(|i| {
+        let keyboard = i.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::Key {
+                    key: Key::Tab
+                        | Key::ArrowUp
+                        | Key::ArrowDown
+                        | Key::ArrowLeft
+                        | Key::ArrowRight
+                        | Key::F6
+                        | Key::F10
+                        | Key::Enter
+                        | Key::Space,
+                    pressed: true,
+                    ..
+                }
+            )
+        });
+        (keyboard, i.pointer.any_pressed())
+    });
+    if keyboard || pointer {
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(KEYBOARD_MODE), keyboard && !pointer));
+    }
+}
+
+pub fn enter_keyboard_mode(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(KEYBOARD_MODE), true));
+}
+
+pub fn keyboard_mode(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp(egui::Id::new(KEYBOARD_MODE)))
+        .unwrap_or(false)
+}
+
+pub fn focus_ring(ui: &Ui, response: &egui::Response, radius: f32) {
+    if response.has_focus() && keyboard_mode(ui.ctx()) {
+        ui.painter().rect_stroke(
+            response.rect.shrink(1.0),
+            radius,
+            Stroke::new(FOCUS_RING_W, theme::ACCENT),
+            egui::StrokeKind::Inside,
+        );
+    }
+}
+
+pub fn describe(response: &egui::Response, kind: egui::WidgetType, label: impl Into<String>) {
+    let label = label.into();
+    let enabled = response.enabled();
+    response.widget_info(|| egui::WidgetInfo::labeled(kind, enabled, label.clone()));
+}
+
+pub fn describe_selected(response: &egui::Response, label: impl Into<String>, selected: bool) {
+    let label = label.into();
+    let enabled = response.enabled();
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::SelectableLabel,
+            enabled,
+            selected,
+            label.clone(),
+        )
+    });
+    response
+        .ctx
+        .accesskit_node_builder(response.id, |node| node.set_selected(selected));
+}
+
+pub fn describe_toggle(response: &egui::Response, label: impl Into<String>, on: bool) {
+    let label = label.into();
+    let enabled = response.enabled();
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, on, label.clone())
+    });
+}
+
+pub fn enter_pressed(response: &egui::Response) -> bool {
+    response.has_focus() && response.ctx.input(|i| i.key_pressed(egui::Key::Enter))
 }
 
 #[cfg(test)]

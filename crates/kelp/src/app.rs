@@ -570,6 +570,17 @@ impl KelpApp {
                             );
                         }
                         paint_cross(&painter, x_rect.center(), 3.5, theme::TEXT_FAINT);
+                        crate::widgets::focus_ring(ui, &response, 6.0);
+                        crate::widgets::describe_selected(
+                            &response,
+                            format!("tab {title}"),
+                            active,
+                        );
+                        crate::widgets::describe(
+                            &x_response,
+                            egui::WidgetType::Button,
+                            format!("Close {title}"),
+                        );
                         if x_response.clicked() || response.middle_clicked() {
                             close = Some(i);
                         } else if response.clicked() {
@@ -589,7 +600,7 @@ impl KelpApp {
                                 .open(true)
                                 .show(&mut show_menu);
                         } else {
-                            response.context_menu(&mut show_menu);
+                            crate::menus::context_menu(&response, &mut show_menu);
                         }
                         response.on_hover_text(tab.path.display().to_string());
                     }
@@ -869,6 +880,8 @@ fn new_tab_button(ui: &mut egui::Ui) -> egui::Response {
         .line_segment([c + vec2(-5.0, 0.0), c + vec2(5.0, 0.0)], stroke);
     ui.painter()
         .line_segment([c + vec2(0.0, -5.0), c + vec2(0.0, 5.0)], stroke);
+    crate::widgets::focus_ring(ui, &response, 6.0);
+    crate::widgets::describe(&response, egui::WidgetType::Button, "New tab");
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -883,6 +896,7 @@ impl eframe::App for KelpApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        crate::widgets::track_input_mode(&ctx);
         if !self.titlebar_unified {
             crate::macos::unify_titlebar(frame);
             self.titlebar_unified = true;

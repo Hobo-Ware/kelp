@@ -16,6 +16,7 @@ mod dialogs;
 mod diff_view;
 mod file_history_view;
 mod filter_bar;
+mod focus_areas;
 mod fonts;
 mod graph_hover;
 mod graph_rows;

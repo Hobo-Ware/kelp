@@ -211,7 +211,7 @@ pub fn header(ui: &mut Ui, rect: Rect, columns: &mut GraphColumns) -> bool {
         }
     }
     let area = ui.interact(rect, ui.id().with("column-header"), Sense::click());
-    area.context_menu(|ui| changed |= menu(ui, columns));
+    crate::menus::context_menu(&area, |ui| changed |= menu(ui, columns));
     changed
 }
 

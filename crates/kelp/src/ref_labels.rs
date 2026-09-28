@@ -301,7 +301,7 @@ pub fn interact(
                 if response.drag_stopped() {
                     events.push(LabelEvent::DragStop);
                 }
-                response.context_menu(|ui| menu(ui, MenuFor::Ref(label)));
+                crate::menus::context_menu(&response, |ui| menu(ui, MenuFor::Ref(label)));
             }
             Slot::Pull(i) => {
                 let Some(pull) = &labels[i].pull else {

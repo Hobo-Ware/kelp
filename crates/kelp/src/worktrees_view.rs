@@ -172,7 +172,9 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 {
                                     commands.push(Command::OpenRepo(wt.tree.path.clone()));
                                 }
-                                response.context_menu(|ui| menus::worktree(ui, &wt.tree, commands));
+                                crate::menus::context_menu(&response, |ui| {
+                                    menus::worktree(ui, &wt.tree, commands)
+                                });
                             }
                         },
                     );
@@ -301,7 +303,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 {
                                     commands.push(Command::Reveal(Selection::Commit(r as usize)));
                                 }
-                                response.context_menu(|ui| {
+                                crate::menus::context_menu(&response, |ui| {
                                     menus::branch(ui, label, &menu_ctx, commands)
                                 });
                             }

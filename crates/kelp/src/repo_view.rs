@@ -25,6 +25,7 @@ use crate::dialogs::{self, Dialog, NewWorktree, Outcome, force_push_dialog};
 use crate::diff_view::{self, DiffSource, DiffView};
 use crate::file_history_view::{self, FileHistoryView};
 use crate::filter_bar::FilterBar;
+use crate::focus_areas::{self, Area};
 use crate::graph_view::{self, GraphView};
 use crate::icons::{self, Icon};
 use crate::jobs::Jobs;
@@ -1361,6 +1362,9 @@ impl Repo {
         let ctx = ui.ctx().clone();
         let mut commands = Vec::new();
         self.panels = settings.panels;
+        focus_areas::begin_frame(&ctx);
+        focus_areas::handle_keys(&ctx);
+        focus_areas::apply_dev_focus(&ctx);
         self.handle_keys(ui);
 
         egui::Panel::top("toolbar")
@@ -1399,6 +1403,12 @@ impl Repo {
             .frame(panel_frame)
             .show_collapsible(ui, &mut panels.details_open, |ui| details::ui(ui, self));
         let settled = !ui.ctx().input(|i| i.pointer.any_down());
+        if let Some(shown) = sidebar.as_ref().filter(|_| panels.sidebar_open) {
+            focus_areas::mark_panel(ui.ctx(), Area::Sidebar, shown.response.rect);
+        }
+        if let Some(shown) = details.as_ref().filter(|_| panels.details_open) {
+            focus_areas::mark_panel(ui.ctx(), Area::Details, shown.response.rect);
+        }
         if let Some(width) = sidebar.filter(|_| panels.sidebar_open && settled) {
             panels.sidebar_width = width.response.rect.width().round();
         }
@@ -1562,6 +1572,7 @@ impl Repo {
                 }
                 Center::Graph => self.graph_center(ui, &mut commands, settings),
             });
+        focus_areas::mark_panel(ui.ctx(), Area::Graph, central.response.rect);
         let mid_x = central.response.rect.center().x;
         if self.center_mid_x != Some(mid_x) {
             self.center_mid_x = Some(mid_x);
@@ -1816,8 +1827,16 @@ impl Repo {
             ui.ctx().memory_mut(|m| m.stop_text_input());
             return;
         }
-        if ui.ctx().egui_wants_keyboard_input() || self.dialog.is_some() || self.history.is_empty()
+        let focused = ui.ctx().memory(|m| m.focused());
+        let graph_focused = focused.is_some() && focused == self.graph.focus_id;
+        if (ui.ctx().egui_wants_keyboard_input() && !graph_focused)
+            || self.dialog.is_some()
+            || self.history.is_empty()
         {
+            return;
+        }
+        if graph_focused && ui.input(|i| i.key_pressed(Key::Enter)) {
+            focus_areas::focus(ui.ctx(), Area::Details);
             return;
         }
         if matches!(self.center, Center::Graph)
@@ -2224,6 +2243,8 @@ fn tool_with_badge(
         FontId::proportional(11.0),
         color,
     );
+    crate::widgets::focus_ring(ui, &response, 6.0);
+    crate::widgets::describe(&response, egui::WidgetType::Button, label);
     enabled && response.on_hover_text(hint).clicked()
 }
 
@@ -2281,14 +2302,20 @@ fn status_chip(ui: &mut egui::Ui, text: &str, action: &str, hint: &str) -> bool 
 }
 
 fn panel_toggle(ui: &egui::Ui, rect: egui::Rect, side: Side, open: bool) -> bool {
-    let (hint, id) = match side {
-        Side::Sidebar => ("Toggle the sidebar (⌘⌥S)", "toggle-sidebar"),
-        Side::Details => ("Toggle the details panel (⌘⌥D)", "toggle-details"),
+    let (hint, id, label) = match side {
+        Side::Sidebar => ("Toggle the sidebar (⌘⌥S)", "toggle-sidebar", "sidebar"),
+        Side::Details => (
+            "Toggle the details panel (⌘⌥D)",
+            "toggle-details",
+            "details panel",
+        ),
     };
     let response = ui
         .interact(rect, egui::Id::new(id), Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(hint);
+    crate::widgets::focus_ring(ui, &response, 4.0);
+    crate::widgets::describe_toggle(&response, label, open);
     let painter = ui.painter();
     if response.hovered() {
         painter.rect_filled(rect, 4.0, theme::with_alpha(Color32::WHITE, 0x10));

@@ -575,7 +575,9 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 ..Row::new(theme::TEXT_FAINT)
                             }
                             .show(ui);
-                            response.context_menu(|ui| menus::stash(ui, stash, rows.commands));
+                            crate::menus::context_menu(&response, |ui| {
+                                menus::stash(ui, stash, rows.commands)
+                            });
                         }
                     },
                 );
@@ -605,13 +607,16 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 ..Row::new(submodule_color(module.state))
                             }
                             .show(ui);
-                            if response.double_clicked()
+                            if (response.double_clicked()
+                                || crate::widgets::enter_pressed(&response))
                                 && module.state != kelp_core::submodules::State::NotInitialized
                             {
                                 rows.commands
                                     .push(Command::OpenRepo(module.path.clone().into()));
                             }
-                            response.context_menu(|ui| menus::submodule(ui, module, rows.commands));
+                            crate::menus::context_menu(&response, |ui| {
+                                menus::submodule(ui, module, rows.commands)
+                            });
                         }
                     },
                 );
@@ -943,7 +948,7 @@ fn show_nodes(
                     && rows.menu_ctx.remotes.contains(&folder.path);
                 if is_remote {
                     let commands = &mut *rows.commands;
-                    response.context_menu(|ui| {
+                    crate::menus::context_menu(&response, |ui| {
                         crate::menus::menu_width(ui, 230.0);
                         ui.spacing_mut().item_spacing.y = 0.0;
                         menus::remote_items(ui, &folder.path, commands);
@@ -1028,6 +1033,19 @@ fn folder_row(
         (false, true) => "Some branches in here are ahead or behind",
         _ => "",
     };
+    crate::widgets::focus_ring(ui, &response, 0.0);
+    crate::focus_areas::offer(
+        ui.ctx(),
+        crate::focus_areas::Area::Sidebar,
+        response.id,
+        false,
+    );
+    let state = if open { "expanded" } else { "collapsed" };
+    crate::widgets::describe(
+        &response,
+        egui::WidgetType::CollapsingHeader,
+        format!("folder {label}, {count} branches, {state}"),
+    );
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     if hint.is_empty() {
         response
@@ -1114,7 +1132,9 @@ impl RefRows<'_> {
             self.commands
                 .push(Command::Reveal(Selection::Commit(r as usize)));
         }
-        if response.double_clicked() && kind != RefKind::Tag {
+        if (response.double_clicked() || crate::widgets::enter_pressed(&response))
+            && kind != RefKind::Tag
+        {
             if kind == RefKind::Local && !label.is_head {
                 self.commands
                     .push(Command::Run(kelp_core::ops::Op::Switch(label.name.clone())));
@@ -1147,7 +1167,7 @@ impl RefRows<'_> {
         if forced {
             egui::Popup::from_response(&response).open(true).show(menu);
         } else {
-            response.context_menu(menu);
+            crate::menus::context_menu(&response, menu);
         }
     }
 }
@@ -1184,12 +1204,12 @@ fn worktree_row(
         ..Row::new(dot)
     }
     .show(ui);
-    if response.double_clicked() && !current {
+    if (response.double_clicked() || crate::widgets::enter_pressed(&response)) && !current {
         commands.push(Command::OpenRepo(wt.tree.path.clone()));
     } else if response.clicked() {
         commands.push(Command::ShowWorktrees);
     }
-    response.context_menu(|ui| menus::worktree(ui, &wt.tree, commands));
+    crate::menus::context_menu(&response, |ui| menus::worktree(ui, &wt.tree, commands));
 }
 
 fn section(
@@ -1251,6 +1271,7 @@ fn eye_toggle(ui: &mut Ui, row: &egui::Response, hidden: bool) -> bool {
             "Hide from the graph"
         })
         .on_hover_cursor(egui::CursorIcon::PointingHand);
+    crate::widgets::describe_toggle(&response, "show in graph", !hidden);
     let painter = ui.painter();
     let backdrop = if response.hovered() {
         theme::CONTROL_HOVER
@@ -1389,6 +1410,19 @@ impl<'a> Row<'a> {
                 egui::Rect::from_center_size(egui::pos2(right - 7.0, name_y), vec2(12.0, 12.0));
             crate::icons::paint(&painter, pin, Icon::Pin, theme::TEXT_FAINT);
         }
+        crate::widgets::focus_ring(ui, &response, 0.0);
+        crate::focus_areas::offer(
+            ui.ctx(),
+            crate::focus_areas::Area::Sidebar,
+            response.id,
+            self.selected,
+        );
+        let mut spoken = self.name.to_string();
+        for extra in [self.subtitle, self.tag].into_iter().flatten() {
+            spoken.push_str(", ");
+            spoken.push_str(extra);
+        }
+        crate::widgets::describe_selected(&response, spoken, self.selected);
         response
     }
 }
@@ -1589,5 +1623,173 @@ mod tests {
             Some("Not a valid branch name")
         );
         assert_eq!(error("feat/ok"), None);
+    }
+
+    struct Nav {
+        ids: Vec<egui::Id>,
+        entered: Option<usize>,
+        picked: Option<&'static str>,
+        menu_open: bool,
+    }
+
+    fn nav_frame(
+        ctx: &egui::Context,
+        nav: &mut Nav,
+        events: Vec<Event>,
+        modifiers: egui::Modifiers,
+    ) -> egui::FullOutput {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(300.0, 300.0))),
+            events,
+            modifiers,
+            ..Default::default()
+        };
+        nav.ids.clear();
+        nav.entered = None;
+        ctx.run_ui(input, |ui| {
+            crate::widgets::track_input_mode(ui.ctx());
+            for (i, (name, tag)) in [("main", Some("HEAD")), ("feat/a", None), ("feat/b", None)]
+                .into_iter()
+                .enumerate()
+            {
+                let response = super::Row {
+                    name,
+                    tag,
+                    selected: i == 0,
+                    ..super::Row::new(egui::Color32::WHITE)
+                }
+                .show(ui);
+                if crate::widgets::enter_pressed(&response) {
+                    nav.entered = Some(i);
+                }
+                nav.ids.push(response.id);
+                let menu = crate::menus::context_menu(&response, |ui| {
+                    for label in ["Check out", "Rename"] {
+                        if crate::menus::row(ui, None, label, None, false) {
+                            nav.picked = Some(label);
+                        }
+                    }
+                });
+                if i == 0 {
+                    nav.menu_open = menu.is_some();
+                }
+            }
+        })
+    }
+
+    fn press(key: egui::Key, modifiers: egui::Modifiers) -> Vec<Event> {
+        [true, false]
+            .into_iter()
+            .map(|pressed| Event::Key {
+                key,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers,
+            })
+            .collect()
+    }
+
+    fn nav_setup() -> (egui::Context, Nav) {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut nav = Nav {
+            ids: Vec::new(),
+            entered: None,
+            picked: None,
+            menu_open: false,
+        };
+        nav_frame(&ctx, &mut nav, vec![], egui::Modifiers::NONE);
+        let first = nav.ids[0];
+        ctx.memory_mut(|m| m.request_focus(first));
+        nav_frame(&ctx, &mut nav, vec![], egui::Modifiers::NONE);
+        (ctx, nav)
+    }
+
+    fn focused(ctx: &egui::Context) -> Option<egui::Id> {
+        ctx.memory(|m| m.focused())
+    }
+
+    fn step(ctx: &egui::Context, nav: &mut Nav, key: egui::Key, modifiers: egui::Modifiers) {
+        nav_frame(ctx, nav, press(key, modifiers), modifiers);
+        nav_frame(ctx, nav, vec![], egui::Modifiers::NONE);
+    }
+
+    #[test]
+    fn arrows_move_between_rows_and_enter_activates_the_focused_one() {
+        let (ctx, mut nav) = nav_setup();
+        let none = egui::Modifiers::NONE;
+        assert_eq!(focused(&ctx), Some(nav.ids[0]));
+        step(&ctx, &mut nav, egui::Key::ArrowDown, none);
+        assert_eq!(focused(&ctx), Some(nav.ids[1]));
+        step(&ctx, &mut nav, egui::Key::ArrowDown, none);
+        assert_eq!(focused(&ctx), Some(nav.ids[2]));
+        step(&ctx, &mut nav, egui::Key::ArrowUp, none);
+        assert_eq!(focused(&ctx), Some(nav.ids[1]));
+        nav_frame(&ctx, &mut nav, press(egui::Key::Enter, none), none);
+        assert_eq!(nav.entered, Some(1));
+        assert!(crate::widgets::keyboard_mode(&ctx));
+    }
+
+    #[test]
+    fn shift_f10_opens_the_row_menu_which_arrows_enter_and_esc_drive() {
+        let none = egui::Modifiers::NONE;
+        let shift = egui::Modifiers::SHIFT;
+        let (ctx, mut nav) = nav_setup();
+        step(&ctx, &mut nav, egui::Key::F10, shift);
+        assert!(
+            nav.menu_open,
+            "Shift+F10 should open the focused row's menu"
+        );
+        let first_entry = focused(&ctx).expect("the first menu entry takes focus");
+        assert!(!nav.ids.contains(&first_entry));
+
+        step(&ctx, &mut nav, egui::Key::Escape, none);
+        nav_frame(&ctx, &mut nav, vec![], none);
+        assert!(!nav.menu_open, "Esc should close the menu");
+        assert_eq!(
+            focused(&ctx),
+            Some(nav.ids[0]),
+            "focus goes back to the row"
+        );
+
+        step(&ctx, &mut nav, egui::Key::F10, shift);
+        step(&ctx, &mut nav, egui::Key::ArrowDown, none);
+        let second_entry = focused(&ctx);
+        assert!(
+            second_entry != Some(first_entry)
+                && !nav.ids.iter().any(|id| Some(*id) == second_entry)
+        );
+        step(&ctx, &mut nav, egui::Key::ArrowDown, none);
+        assert_eq!(
+            focused(&ctx),
+            Some(first_entry),
+            "arrows wrap inside the menu"
+        );
+        step(&ctx, &mut nav, egui::Key::ArrowUp, none);
+        assert_eq!(focused(&ctx), second_entry);
+        nav_frame(&ctx, &mut nav, press(egui::Key::Enter, none), none);
+        assert_eq!(nav.picked, Some("Rename"));
+    }
+
+    #[test]
+    fn rows_are_spoken_with_their_tag_and_selection() {
+        let (ctx, mut nav) = nav_setup();
+        ctx.enable_accesskit();
+        let output = nav_frame(&ctx, &mut nav, vec![], egui::Modifiers::NONE);
+        let update = output
+            .platform_output
+            .accesskit_update
+            .expect("an AccessKit tree");
+        let spoken = |label: &str| {
+            update
+                .nodes
+                .iter()
+                .map(|(_, node)| node)
+                .find(|node| node.label() == Some(label))
+                .unwrap_or_else(|| panic!("no node labeled {label}"))
+        };
+        assert_eq!(spoken("main, HEAD").is_selected(), Some(true));
+        assert_eq!(spoken("feat/a").is_selected(), Some(false));
     }
 }

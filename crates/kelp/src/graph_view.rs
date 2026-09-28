@@ -52,6 +52,7 @@ pub struct GraphView {
     pub columns_changed: Option<GraphColumns>,
     pub filter_clicked: bool,
     pub visible_commits: Vec<usize>,
+    pub focus_id: Option<egui::Id>,
 }
 
 pub struct GraphInput<'a> {
@@ -116,6 +117,7 @@ impl GraphView {
             columns_changed: None,
             filter_clicked: false,
             visible_commits: Vec::new(),
+            focus_id: None,
         }
     }
 
@@ -189,6 +191,7 @@ impl GraphView {
         let hover = &mut self.hover;
         let visible_commits = &mut self.visible_commits;
         visible_commits.clear();
+        let focus_id = &mut self.focus_id;
         scroll.show_rows(ui, ROW_H, map.total(), |ui, rows| {
             for display in rows.clone() {
                 if let Row::Commit(row) = map.resolve(display) {
@@ -202,6 +205,25 @@ impl GraphView {
             }
             let size = vec2(ui.available_width(), ROW_H * rows.len() as f32);
             let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+            *focus_id = Some(response.id);
+            crate::widgets::describe(&response, egui::WidgetType::Other, "commit graph");
+            crate::focus_areas::offer(ui.ctx(), crate::focus_areas::Area::Graph, response.id, true);
+            if response.has_focus() {
+                ui.memory_mut(|m| {
+                    m.set_focus_lock_filter(
+                        response.id,
+                        egui::EventFilter {
+                            vertical_arrows: true,
+                            horizontal_arrows: true,
+                            ..Default::default()
+                        },
+                    )
+                });
+            }
+            let keyboard_menu = response.has_focus()
+                && ui.input(|i| i.modifiers.shift_only() && i.key_pressed(egui::Key::F10));
+            let selected_top = selected
+                .map(|s| rect.top() + (map.display_of(s) as f32 - rows.start as f32) * ROW_H);
             let graph_area =
                 Rect::from_x_y_ranges(rect.left() + LABELS_W..=rect.left() + msg_x, rect.y_range());
             if ui.rect_contains_pointer(graph_area) {
@@ -262,6 +284,19 @@ impl GraphView {
                 };
                 let is_selected = compared
                     || (row_kind.selection().is_some() && row_kind.selection() == selected);
+                let row_rect = Rect::from_x_y_ranges(geo.left..=geo.right, geo.top..=geo.bottom());
+                ui.ctx()
+                    .accesskit_node_builder(response.id.with(display), |node| {
+                        node.set_role(egui::accesskit::Role::ListItem);
+                        node.set_label(row_label(row_kind, history, summaries, now));
+                        node.set_selected(is_selected);
+                        node.set_bounds(egui::accesskit::Rect {
+                            x0: row_rect.min.x.into(),
+                            y0: row_rect.min.y.into(),
+                            x1: row_rect.max.x.into(),
+                            y1: row_rect.max.y.into(),
+                        });
+                    });
                 if let Row::Commit(row) = row_kind
                     && hover.as_ref().is_some_and(|(h, _)| *h == row)
                     && !is_selected
@@ -503,8 +538,30 @@ impl GraphView {
                     other_wips[i].tree.path.clone(),
                 )));
             }
+            if keyboard_menu && let Some(selection) = selected {
+                *context = Some(match selection {
+                    Selection::Commit(row) => Row::Commit(row),
+                    Selection::Wip => Row::CurrentWip,
+                });
+            }
+            if response.has_focus()
+                && crate::widgets::keyboard_mode(ui.ctx())
+                && let Some(top) = selected_top
+            {
+                let row_rect = egui::Rect::from_x_y_ranges(rect.x_range(), top..=top + ROW_H);
+                ui.painter().rect_stroke(
+                    row_rect.shrink(1.0),
+                    0.0,
+                    egui::Stroke::new(2.0, theme::ACCENT),
+                    egui::StrokeKind::Inside,
+                );
+            }
+            let menu_anchor = egui::pos2(
+                rect.left() + msg_x + 120.0,
+                selected_top.unwrap_or(rect.top()) + ROW_H,
+            );
             if let Some(row) = *context {
-                response.context_menu(|ui| match row {
+                crate::menus::context_menu_at(&response, menu_anchor, |ui| match row {
                     Row::Commit(commit) => {
                         let title = summaries
                             .get(&commit)
@@ -678,6 +735,25 @@ fn filter_button(ui: &Ui, painter: &egui::Painter, header: Rect, active: bool) -
         color,
     );
     response.clicked()
+}
+
+fn row_label(row: Row, history: &History, summaries: &HashMap<usize, Summary>, now: i64) -> String {
+    match row {
+        Row::Commit(r) => {
+            let short = history.id(r).to_hex_with_len(7).to_string();
+            match summaries.get(&r) {
+                Some(s) => format!(
+                    "commit {short}: {} by {}, {}",
+                    s.title,
+                    s.author,
+                    commit::relative_time(s.time, now)
+                ),
+                None => format!("commit {short}"),
+            }
+        }
+        Row::CurrentWip => "uncommitted changes".to_string(),
+        Row::OtherWip(_) => "uncommitted changes in another worktree".to_string(),
+    }
 }
 
 fn load_summary(repo: &gix::Repository, history: &History, row: usize) -> Summary {
@@ -1409,7 +1485,7 @@ mod tests {
             (harness, dir)
         }
 
-        fn frame_with(&mut self, events: Vec<Event>, modifiers: Modifiers) {
+        fn frame_with(&mut self, events: Vec<Event>, modifiers: Modifiers) -> egui::FullOutput {
             let input = RawInput {
                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 400.0))),
                 events,
@@ -1426,7 +1502,7 @@ mod tests {
                 action,
             } = self;
             let no_checks = std::collections::HashMap::new();
-            let _ = ctx.run_ui(input, |ui| {
+            ctx.run_ui(input, |ui| {
                 let graph = GraphInput {
                     repo,
                     history,
@@ -1445,7 +1521,7 @@ mod tests {
                 if let Some(done) = view.ui(ui, graph, avatars, |_, _| {}) {
                     *action = Some(done);
                 }
-            });
+            })
         }
 
         fn frame(&mut self, events: Vec<Event>) {
@@ -1512,6 +1588,74 @@ mod tests {
 
         h.frame(vec![Event::PointerGone]);
         assert!(h.view.hover.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn key(key: egui::Key, modifiers: Modifiers) -> Vec<Event> {
+        [true, false]
+            .into_iter()
+            .map(|pressed| Event::Key {
+                key,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn commit_rows_are_spoken_with_hash_title_author_and_age() {
+        let (mut h, dir) = Harness::new("accesskit");
+        h.selected = Some(Selection::Commit(1));
+        h.frame(vec![]);
+        h.ctx.enable_accesskit();
+        let update = h
+            .frame_with(vec![], Modifiers::NONE)
+            .platform_output
+            .accesskit_update
+            .expect("an AccessKit tree");
+        let labels: Vec<(&str, Option<bool>)> = update
+            .nodes
+            .iter()
+            .filter_map(|(_, n)| n.label().map(|l| (l, n.is_selected())))
+            .collect();
+        let short = h.history.id(1).to_hex_with_len(7).to_string();
+        let expected = format!("commit {short}: commit 1 by T, just now");
+        assert!(
+            labels.contains(&(expected.as_str(), Some(true))),
+            "{expected} missing from {labels:?}"
+        );
+        assert!(labels.iter().any(|(l, _)| *l == "commit graph"));
+        assert_eq!(
+            labels
+                .iter()
+                .filter(|(l, _)| l.starts_with("commit ") && l.contains(" by T"))
+                .count(),
+            3
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shift_f10_on_the_focused_graph_opens_the_selected_commit_menu() {
+        let (mut h, dir) = Harness::new("keyboard-menu");
+        h.selected = Some(Selection::Commit(2));
+        h.frame(vec![]);
+        let graph = h.view.focus_id.expect("the graph offers a focus target");
+        h.ctx.memory_mut(|m| m.request_focus(graph));
+        h.frame(vec![]);
+        h.frame_with(key(egui::Key::ArrowDown, Modifiers::NONE), Modifiers::NONE);
+        h.frame(vec![]);
+        assert_eq!(
+            h.ctx.memory(|m| m.focused()),
+            Some(graph),
+            "arrows stay with the graph so they move the selection"
+        );
+        h.frame_with(key(egui::Key::F10, Modifiers::SHIFT), Modifiers::SHIFT);
+        h.frame(vec![]);
+        assert!(matches!(h.view.context, Some(super::Row::Commit(2))));
+        assert!(egui::Popup::is_any_open(&h.ctx));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
