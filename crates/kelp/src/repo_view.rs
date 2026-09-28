@@ -144,6 +144,7 @@ pub enum Center {
     Rebase(Box<RebaseView>),
     Stash(Box<StashView>),
     Reflog(Box<crate::reflog_view::ReflogView>),
+    Console(Box<crate::console_view::ConsoleView>),
     FileHistory(Box<FileHistoryView>),
     Pulls(Box<crate::pulls_view::PullsView>),
 }
@@ -152,7 +153,23 @@ pub struct Toast {
     pub text: String,
     pub error: bool,
     pub shown_at: Instant,
+    pub console_entry: Option<u64>,
 }
+
+impl Toast {
+    pub fn new(text: impl Into<String>, error: bool) -> Self {
+        Self {
+            text: text.into(),
+            error,
+            shown_at: Instant::now(),
+            console_entry: error
+                .then(|| kelp_core::console::latest_failure_within(TOAST_CONSOLE_WINDOW))
+                .flatten(),
+        }
+    }
+}
+
+const TOAST_CONSOLE_WINDOW: Duration = Duration::from_secs(10);
 
 pub struct Repo {
     pub dir: PathBuf,
@@ -339,6 +356,14 @@ impl Repo {
                 reference
             };
             ready.execute(ctx, vec![Command::ShowReflog(reference)]);
+        }
+        if let Ok(mode) = std::env::var("KELP_OPEN_CONSOLE") {
+            ready.execute(ctx, vec![Command::ShowConsole(None)]);
+            if mode == "bg"
+                && let Center::Console(view) = std::mem::replace(&mut ready.center, Center::Graph)
+            {
+                ready.center = Center::Console(Box::new(view.show_background()));
+            }
         }
         if std::env::var_os("KELP_OPEN_PULLS").is_some() {
             ready.execute(ctx, vec![Command::ShowPulls]);
@@ -626,11 +651,7 @@ impl Repo {
     }
 
     pub fn notify(&mut self, text: impl Into<String>, error: bool) {
-        self.toast = Some(Toast {
-            text: text.into(),
-            error,
-            shown_at: Instant::now(),
-        });
+        self.toast = Some(Toast::new(text, error));
     }
 
     fn view_summary(&self) -> Option<String> {
@@ -787,6 +808,7 @@ impl Repo {
                         crate::reflog_view::ReflogView::open(ctx, self.dir.clone(), reference);
                     self.center = Center::Reflog(Box::new(view));
                 }
+                Command::ShowConsole(focus) => self.open_console(focus),
                 Command::FileHistory(path) => {
                     let view = FileHistoryView::open(ctx, self.dir.clone(), &path);
                     self.center = Center::FileHistory(Box::new(view));
@@ -1013,13 +1035,18 @@ impl Repo {
         let dir = self.dir.clone();
         let base = self.default_base();
         self.jobs.spawn("Opening pull request form", move || {
-            let via_gh = kelp_core::pulls::gh_available()
-                && std::process::Command::new("gh")
-                    .args(["pr", "create", "--web", "--head", &branch])
+            let via_gh = kelp_core::pulls::gh_available() && {
+                let args = ["pr", "create", "--web", "--head", branch.as_str()];
+                let log =
+                    kelp_core::console::as_action(|| kelp_core::console::start("gh", &args, &dir));
+                let status = std::process::Command::new("gh")
+                    .args(args)
                     .current_dir(&dir)
                     .env("GH_PROMPT_DISABLED", "1")
-                    .status()
-                    .is_ok_and(|s| s.success());
+                    .status();
+                log.finish(status.as_ref().ok().and_then(|s| s.code()), b"", b"");
+                status.is_ok_and(|s| s.success())
+            };
             let result = if via_gh {
                 Ok(())
             } else {
@@ -1156,11 +1183,7 @@ impl Repo {
                         && view.is_working()
                         && let Err(e) = view.reload(&self.repo, self.workdir.as_deref())
                     {
-                        self.toast = Some(Toast {
-                            text: format!("{e:#}"),
-                            error: true,
-                            shown_at: Instant::now(),
-                        });
+                        self.toast = Some(Toast::new(format!("{e:#}"), true));
                     }
                     if self.wip.is_empty() && self.selected == Some(Selection::Wip) {
                         self.selected = None;
@@ -1447,11 +1470,10 @@ impl Repo {
                         diff_view::Event::Close => self.center = Center::Graph,
                         diff_view::Event::Changed => {
                             if let Err(e) = self.review.save() {
-                                self.toast = Some(Toast {
-                                    text: format!("Could not save comment: {e:#}"),
-                                    error: true,
-                                    shown_at: Instant::now(),
-                                });
+                                self.toast = Some(Toast::new(
+                                    format!("Could not save comment: {e:#}"),
+                                    true,
+                                ));
                             }
                         }
                         diff_view::Event::Run(op) => commands.push(Command::Run(op)),
@@ -1535,6 +1557,10 @@ impl Repo {
                         crate::reflog_view::Event::Diff(_) | crate::reflog_view::Event::None => {}
                     }
                 }
+                Center::Console(view) => match view.ui(ui) {
+                    crate::console_view::Event::Close => self.center = Center::Graph,
+                    crate::console_view::Event::None => {}
+                },
                 Center::Pulls(view) => {
                     let local: Vec<String> = self
                         .history
@@ -1821,6 +1847,16 @@ impl Repo {
         if filter {
             self.filter.toggle();
             self.center = Center::Graph;
+        }
+        if ui.input(|i| i.modifiers.command && i.modifiers.alt && i.key_pressed(Key::L)) {
+            self.open_console(None);
+        }
+        if matches!(self.center, Center::Console(_))
+            && !ui.ctx().egui_wants_keyboard_input()
+            && ui.input(|i| i.key_pressed(Key::Escape))
+        {
+            self.center = Center::Graph;
+            return;
         }
         if self.filter.open && ui.input(|i| i.key_pressed(Key::Escape)) {
             self.filter.open = false;
@@ -2126,7 +2162,7 @@ impl Repo {
             if panel_toggle(ui, toggle, Side::Details, self.panels.details_open) {
                 commands.push(Command::TogglePanel(Side::Details));
             }
-            ui.painter().text(
+            let version = ui.painter().text(
                 egui::pos2(toggle.left() - 10.0, rect.center().y),
                 Align2::RIGHT_CENTER,
                 format!(
@@ -2137,7 +2173,19 @@ impl Repo {
                 FontId::proportional(11.0),
                 theme::TEXT_FAINT,
             );
+            let console = egui::Rect::from_center_size(
+                egui::pos2(version.left() - 18.0, rect.center().y),
+                vec2(22.0, 20.0),
+            );
+            if console_button(ui, console) {
+                commands.push(Command::ShowConsole(None));
+            }
         });
+    }
+
+    fn open_console(&mut self, focus: Option<u64>) {
+        let view = crate::console_view::ConsoleView::open(&self.dir, focus);
+        self.center = Center::Console(Box::new(view));
     }
 
     fn toast(&mut self, ui: &mut egui::Ui) {
@@ -2155,6 +2203,8 @@ impl Repo {
         } else {
             theme::ADDED
         };
+        let entry = toast.console_entry;
+        let mut open_entry = false;
         egui::Area::new(egui::Id::new("toast"))
             .anchor(Align2::CENTER_BOTTOM, vec2(0.0, -40.0))
             .show(ui.ctx(), |ui| {
@@ -2166,8 +2216,26 @@ impl Repo {
                     .show(ui, |ui| {
                         ui.set_max_width(560.0);
                         ui.label(RichText::new(&toast.text).color(theme::TEXT_STRONG));
+                        if entry.is_some() {
+                            open_entry = ui
+                                .add(
+                                    egui::Label::new(
+                                        RichText::new("Show in console")
+                                            .size(12.0)
+                                            .color(theme::ACCENT),
+                                    )
+                                    .selectable(false)
+                                    .sense(Sense::click()),
+                                )
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked();
+                        }
                     });
             });
+        if open_entry {
+            self.toast = None;
+            self.open_console(entry);
+        }
     }
 }
 
@@ -2299,6 +2367,29 @@ fn status_chip(ui: &mut egui::Ui, text: &str, action: &str, hint: &str) -> bool 
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(hint)
         .clicked()
+}
+
+fn console_button(ui: &egui::Ui, rect: egui::Rect) -> bool {
+    let response = ui
+        .interact(rect, egui::Id::new("open-console"), Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("Git console (⌘⌥L)");
+    let painter = ui.painter();
+    if response.hovered() {
+        painter.rect_filled(rect, 4.0, theme::with_alpha(Color32::WHITE, 0x10));
+    }
+    let color = if response.hovered() {
+        theme::TEXT_STRONG
+    } else {
+        theme::TEXT_FAINT
+    };
+    icons::paint(
+        painter,
+        icons::center_square(rect, 13.0),
+        Icon::Terminal,
+        color,
+    );
+    response.clicked()
 }
 
 fn panel_toggle(ui: &egui::Ui, rect: egui::Rect, side: Side, open: bool) -> bool {

@@ -48,6 +48,7 @@ pub enum RepoAction {
     ShowGraph,
     ShowWorktrees,
     ShowReflog,
+    ShowConsole,
     ShowChanges,
     StageAll,
     UnstageAll,
@@ -171,6 +172,7 @@ pub static ACTIONS: &[Action] = &[
     repo("show-graph", "Go to the graph", "history back close", Some("Esc"), None, RepoAction::ShowGraph),
     repo("show-worktrees", "Manage worktrees", "worktree list", None, Some(Icon::Worktree), RepoAction::ShowWorktrees),
     repo("show-reflog", "Show reflog", "history lost recover restore undo reset", None, Some(Icon::Undo), RepoAction::ShowReflog),
+    repo("git-console", "Git console", "log commands output errors debug", Some("Cmd+Opt+L"), Some(Icon::Terminal), RepoAction::ShowConsole),
     repo("show-changes", "Show uncommitted changes", "wip staging working tree commit", Some("Cmd+Shift+C"), None, RepoAction::ShowChanges),
     repo("stage-all", "Stage all changes", "add index", None, Some(Icon::Plus), RepoAction::StageAll),
     repo("unstage-all", "Unstage all changes", "reset index", None, Some(Icon::Minus), RepoAction::UnstageAll),
@@ -280,7 +282,7 @@ impl State {
             ShowLatestStash => self.stashes,
             StopCompare => self.comparing,
             Fetch | NewBranch | Refresh | Search | ShowGraph | ShowWorktrees | ShowReflog
-            | RevealRepo | PushTags | AddRemote | FilterCommits => true,
+            | ShowConsole | RevealRepo | PushTags | AddRemote | FilterCommits => true,
         }
     }
 }
@@ -329,6 +331,7 @@ pub static KEYS: &[KeyRow] = &[
     key("Cmd+Shift+C", "Show uncommitted changes", Group::Actions),
     key("Cmd+Z / Cmd+Shift+Z", "Undo / redo the last action", Group::Actions),
     key("Cmd+,", "Settings", Group::Actions),
+    key("Cmd+Opt+L", "Git console: every command Kelp ran, with its output", Group::Actions),
     key("Right-click", "Actions for commits, branches, tags, stashes, worktrees and tabs", Group::Actions),
     key("Double-click a branch", "Check it out", Group::Actions),
     key("Double-click a graph label", "Check out that branch", Group::Actions),
@@ -466,6 +469,7 @@ mod tests {
             "show-graph",
             "show-worktrees",
             "show-reflog",
+            "git-console",
             "show-changes",
             "stage-all",
             "unstage-all",
