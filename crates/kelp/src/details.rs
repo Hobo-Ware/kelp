@@ -11,6 +11,9 @@ use crate::repo_view::{Center, FileListMode, Repo, Selection};
 use crate::{menus, theme};
 
 const FILE_ROW_H: f32 = 28.0;
+const BODY_MAX_H: f32 = 170.0;
+const BODY_FADE_H: f32 = 36.0;
+const BODY_COLOR: Color32 = Color32::from_rgb(0xb4, 0xb9, 0xc2);
 const INDENT: f32 = 16.0;
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo) {
@@ -67,6 +70,86 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
     }
 }
 
+fn commit_body(ui: &mut Ui, details: &commit::Details) {
+    let width = ui.available_width();
+    let galley = ui.painter().layout(
+        details.body.clone(),
+        FontId::proportional(14.0),
+        BODY_COLOR,
+        width,
+    );
+    if galley.size().y <= BODY_MAX_H {
+        ui.label(RichText::new(&details.body).color(BODY_COLOR));
+        return;
+    }
+    let (rect, _) = ui.allocate_exact_size(vec2(width, BODY_MAX_H), Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.galley(rect.min, galley, BODY_COLOR);
+    let fade = egui::Rect::from_min_max(pos2(rect.left(), rect.bottom() - BODY_FADE_H), rect.max);
+    let mut mesh = egui::Mesh::default();
+    let clear = theme::with_alpha(theme::PANEL, 0);
+    mesh.colored_vertex(fade.left_top(), clear);
+    mesh.colored_vertex(fade.right_top(), clear);
+    mesh.colored_vertex(fade.right_bottom(), theme::PANEL);
+    mesh.colored_vertex(fade.left_bottom(), theme::PANEL);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(mesh);
+    let viewer = egui::Id::new(("full-message", details.id));
+    let link = ui
+        .add(
+            egui::Label::new(
+                RichText::new("Show full message")
+                    .size(12.0)
+                    .color(theme::ACCENT),
+            )
+            .selectable(false)
+            .sense(Sense::click()),
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    if link.clicked() || std::env::var_os("KELP_OPEN_MESSAGE").is_some() {
+        ui.data_mut(|d| d.insert_temp(viewer, true));
+    }
+    if ui.data(|d| d.get_temp::<bool>(viewer).unwrap_or(false)) && !message_viewer(ui, details) {
+        ui.data_mut(|d| d.remove::<bool>(viewer));
+    }
+}
+
+fn message_viewer(ui: &Ui, details: &commit::Details) -> bool {
+    let mut open = true;
+    let modal = egui::Modal::new(egui::Id::new("message-viewer")).show(ui.ctx(), |ui| {
+        let screen = ui.ctx().content_rect();
+        ui.set_width((screen.width() * 0.6).clamp(420.0, 860.0));
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(&details.title)
+                    .size(17.0)
+                    .family(theme::semibold())
+                    .color(theme::TEXT_STRONG),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::widgets::close_button(ui, "Close (Esc)") {
+                    open = false;
+                }
+                if ui.button("Copy").clicked() {
+                    ui.ctx()
+                        .copy_text(format!("{}\n\n{}", details.title, details.body));
+                }
+            });
+        });
+        ui.add_space(8.0);
+        egui::ScrollArea::vertical()
+            .max_height(screen.height() * 0.65)
+            .show(ui, |ui| {
+                ui.label(RichText::new(&details.body).color(BODY_COLOR));
+            });
+    });
+    if modal.should_close() {
+        open = false;
+    }
+    open
+}
+
 fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Option<usize> {
     let now = now();
     let lane = repo
@@ -96,7 +179,7 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
                     .color(theme::TEXT_STRONG),
             );
             if !details.body.is_empty() {
-                ui.label(RichText::new(&details.body).color(Color32::from_rgb(0xb4, 0xb9, 0xc2)));
+                commit_body(ui, details);
             }
             ui.separator();
             ui.horizontal(|ui| {
