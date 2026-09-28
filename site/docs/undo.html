@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What undo covers - Kelp</title>
+<meta name="description" content="Cmd+Z in Kelp undoes commits, checkouts, resets, merges, rebases, discards and more. Here is what it covers, what it refuses and why, and how the reflog finds anything that still looks lost.">
+<link rel="canonical" href="https://kelp.hoboware.dev/docs/undo.html">
+<meta name="theme-color" content="#15181e">
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta property="og:site_name" content="Kelp">
+<meta property="og:title" content="What undo covers - Kelp">
+<meta property="og:description" content="What Cmd+Z undoes in Kelp, what it refuses, and the reflog safety net.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://kelp.hoboware.dev/docs/undo.html">
+<meta property="og:image" content="https://kelp.hoboware.dev/kelp-og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="../index.html"><img src="../mascot.svg" alt="" width="30" height="30">Kelp</a>
+  <span class="version">v0.7.0</span>
+  <div class="navlinks">
+    <a href="getting-started.html">Docs</a>
+    <a href="shortcuts.html">Shortcuts</a>
+    <a href="faq.html">FAQ</a>
+    <a href="../changelog.html">Changelog</a>
+    <a class="gh" href="https://github.com/Hobo-Ware/kelp">GitHub</a>
+  </div>
+</div></nav>
+
+<main class="doc"><div class="wrap">
+  <p class="eyebrow">Docs</p>
+  <h1>What undo covers</h1>
+  <p class="lede"><kbd>Cmd+Z</kbd> takes back the last thing Kelp did to your repository, and <kbd>Cmd+Shift+Z</kbd> does it again. Undo would rather refuse than lose your work.</p>
+  <div class="toc"><a href="#covers">What it covers</a><a href="#how">How it works</a><a href="#refuses">What it refuses</a><a href="#reflog">The reflog safety net</a></div>
+
+  <h2 id="covers">What it covers</h2>
+  <p>Anything Kelp changes in your repository on your Mac can be undone:</p>
+  <ul>
+    <li>Commits and amends. Your changes come back, staged as they were.</li>
+    <li>Checkouts, and creating, renaming or deleting a branch or tag.</li>
+    <li>Merges, rebases, pulls, cherry-picks, reverts and resets, including a hard reset.</li>
+    <li>Interactive rebases and edits to any commit message.</li>
+    <li>Staging and unstaging.</li>
+    <li>Discarding files, hunks or lines, including new files that were never committed.</li>
+    <li>Stashing, applying, popping, dropping and renaming stashes.</li>
+    <li>Restoring a branch from the reflog.</li>
+  </ul>
+  <p>Hover the Undo button in the toolbar to see what it will undo before you press it.</p>
+
+  <h2 id="how">How it works</h2>
+  <p>Before each action, Kelp notes where your branches, tags and stashes point and saves a snapshot of your staged and unstaged files. Undo puts all of it back the way it was.</p>
+  <ul>
+    <li>Kelp keeps the last 50 actions for each open repository.</li>
+    <li>Snapshots are kept as hidden refs under <code>refs/kelp/undo</code> in the repository, so git never cleans them up while you might need them. Kelp removes them the next time it opens the repository, so the undo list starts fresh each time.</li>
+    <li>Undo only affects your own copy. Nothing is sent anywhere.</li>
+  </ul>
+
+  <h2 id="refuses">What it refuses, and why</h2>
+  <p>When an action can't be undone, hovering the Undo button tells you why. These are the cases:</p>
+  <table>
+    <thead><tr><th>Action</th><th>Why undo refuses</th></tr></thead>
+    <tbody>
+      <tr><td>The repository changed since, for example you committed from the terminal</td><td>Going back would throw away the newer change. Kelp says so and changes nothing.</td></tr>
+      <tr><td>Push, deleting or renaming a remote branch, pushing or deleting a remote tag</td><td>It changed the remote. Other people may already have what you pushed.</td></tr>
+      <tr><td>Fetch and prune</td><td>Fetching only updates remote branches, so there is nothing of yours to put back.</td></tr>
+      <tr><td>Adding, removing, moving or pruning a worktree</td><td>Worktree folders live outside the repository and are not tracked by undo.</td></tr>
+      <tr><td>Updating a submodule</td><td>Submodules are separate repositories.</td></tr>
+      <tr><td>Adding, renaming or removing a remote, or changing its URL</td><td>Remote settings are not tracked by undo.</td></tr>
+      <tr><td>Discarding more than 16 MB of new, never committed files at once</td><td>Kelp keeps a copy of new files so it can bring them back, and it will not hold that much in memory. It still asks before it discards.</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">If you need to take back a push, make a new commit that reverts it (right-click the commit, then Revert) and push that. It's the safe way to undo shared history.</div>
+
+  <h2 id="reflog">The reflog safety net</h2>
+  <p>Git remembers every place your branches and HEAD have pointed to, even after a reset or a rebase. This list is the reflog, and it is how you get back work that looks lost after undo can't help, for example after you quit Kelp.</p>
+  <ul>
+    <li>Open the reflog page from the Local section menu in the sidebar, from a branch menu, or by typing "reflog" in the command palette (<kbd>Cmd+K</kbd>).</li>
+    <li>Entries are newest first. Commits that are no longer on any branch are marked lost.</li>
+    <li>Restore the current branch to any entry with one click. Kelp uses <code>git reset --keep</code>, so it will not overwrite changes you haven't committed, and the restore itself can be undone.</li>
+    <li>You can also create a branch from an entry, check it out, or cherry-pick it.</li>
+  </ul>
+  <p>By default git keeps reflog entries for lost commits for 30 days, and 90 days for everything else, so a lost commit is usually still there weeks later.</p>
+</div></main>
+
+<footer><div class="wrap">
+  <span>Kelp is MIT licensed. Made by <a href="https://github.com/Hobo-Ware">Hoboware</a>.</span>
+  <span><a href="getting-started.html">Getting started</a> · <a href="shortcuts.html">Shortcuts</a> · <a href="undo.html">Undo</a> · <a href="faq.html">FAQ</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/Hobo-Ware/kelp">GitHub</a></span>
+</div></footer>
+</body>
+</html>

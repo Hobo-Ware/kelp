@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keyboard shortcuts - Kelp</title>
+<meta name="description" content="Every keyboard shortcut and mouse gesture in Kelp, the fast native git client for macOS: navigation, tabs, diffs, staging, committing and more.">
+<link rel="canonical" href="https://kelp.hoboware.dev/docs/shortcuts.html">
+<meta name="theme-color" content="#15181e">
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta property="og:site_name" content="Kelp">
+<meta property="og:title" content="Keyboard shortcuts - Kelp">
+<meta property="og:description" content="Every keyboard shortcut and mouse gesture in Kelp.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://kelp.hoboware.dev/docs/shortcuts.html">
+<meta property="og:image" content="https://kelp.hoboware.dev/kelp-og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="../index.html"><img src="../mascot.svg" alt="" width="30" height="30">Kelp</a>
+  <span class="version">v0.7.0</span>
+  <div class="navlinks">
+    <a href="getting-started.html">Docs</a>
+    <a href="shortcuts.html" aria-current="page">Shortcuts</a>
+    <a href="faq.html">FAQ</a>
+    <a href="../changelog.html">Changelog</a>
+    <a class="gh" href="https://github.com/Hobo-Ware/kelp">GitHub</a>
+  </div>
+</div></nav>
+
+<main class="doc"><div class="wrap">
+  <p class="eyebrow">Docs</p>
+  <h1>Keyboard shortcuts</h1>
+  <p class="lede">Everything in Kelp works from the keyboard. Press <kbd>Cmd+/</kbd> in the app to see this list, or <kbd>Cmd+K</kbd> to search every action by name.</p>
+  <div class="toc"><a href="#navigation">Navigation</a><a href="#tabs">Tabs</a><a href="#diff">Diff</a><a href="#actions">Actions</a></div>
+<div class="keys">
+  <h2 id="navigation">Navigation</h2>
+  <table>
+    <thead><tr><th>Keys</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>Cmd+K</kbd> / <kbd>Cmd+Shift+P</kbd></td><td>Command palette: actions, branches, commits, files and tabs</td></tr>
+      <tr><td><kbd>Cmd+/</kbd></td><td>Keyboard shortcuts</td></tr>
+      <tr><td><kbd>F6</kbd> / <kbd>Shift+F6</kbd></td><td>Move focus to the next / previous area: sidebar, graph, details</td></tr>
+      <tr><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td><td>Move focus to the next / previous control</td></tr>
+      <tr><td><kbd>Enter</kbd> / <kbd>Space</kbd></td><td>Activate the focused control; Enter on a branch checks it out</td></tr>
+      <tr><td><kbd>Shift+F10</kbd></td><td>Open the menu of the focused row or commit</td></tr>
+      <tr><td><kbd>Up</kbd> / <kbd>Down</kbd>, <kbd>J</kbd> / <kbd>K</kbd></td><td>Move through commits</td></tr>
+      <tr><td><kbd>Cmd+F</kbd></td><td>Search; Enter / Shift+Enter for next / previous</td></tr>
+      <tr><td><kbd>Cmd+Shift+F</kbd></td><td>Filter commits by author, path or date; Esc closes</td></tr>
+      <tr><td><kbd>Cmd+Opt+F</kbd></td><td>Filter the sidebar; Esc clears</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Back to the graph, close search or dialogs</td></tr>
+      <tr><td><kbd>Cmd+Opt+S</kbd> / <kbd>Cmd+Opt+D</kbd></td><td>Show or hide the sidebar / details panel</td></tr>
+      <tr><td><kbd>Cmd+Plus</kbd> / <kbd>Cmd+Minus</kbd> / <kbd>Cmd+0</kbd></td><td>Zoom in / out / reset</td></tr>
+    </tbody>
+  </table>
+  <h2 id="tabs">Tabs</h2>
+  <table>
+    <thead><tr><th>Keys</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>Cmd+T</kbd></td><td>New tab: recent repositories, open, clone or create one</td></tr>
+      <tr><td><kbd>Cmd+O</kbd></td><td>Open a folder in a new tab</td></tr>
+      <tr><td><kbd>Cmd+W</kbd></td><td>Close the tab</td></tr>
+      <tr><td><kbd>Cmd+1</kbd> ... <kbd>Cmd+9</kbd></td><td>Go to a tab (Cmd+9 is the last one)</td></tr>
+      <tr><td><kbd>Ctrl+Tab</kbd> / <kbd>Ctrl+Shift+Tab</kbd></td><td>Next / previous tab</td></tr>
+      <tr><td>Middle-click a tab</td><td>Close it</td></tr>
+      <tr><td>Drag a tab</td><td>Reorder tabs</td></tr>
+      <tr><td>Drop a folder on the window</td><td>Open it (a file opens the repository it is in)</td></tr>
+    </tbody>
+  </table>
+  <h2 id="diff">Diff</h2>
+  <table>
+    <thead><tr><th>Keys</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>Alt+Up</kbd> / <kbd>Alt+Down</kbd></td><td>Previous / next change in a diff</td></tr>
+      <tr><td><kbd>Cmd+Enter</kbd></td><td>Save a review comment or reply</td></tr>
+    </tbody>
+  </table>
+  <h2 id="actions">Actions</h2>
+  <table>
+    <thead><tr><th>Keys</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>F2</kbd></td><td>Rename the selected branch; Enter saves, Esc cancels</td></tr>
+      <tr><td><kbd>Cmd+Shift+Enter</kbd></td><td>Commit and push, from the commit box</td></tr>
+      <tr><td><kbd>Cmd+R</kbd></td><td>Refresh the graph, changes and worktrees</td></tr>
+      <tr><td><kbd>Cmd+Shift+R</kbd></td><td>Fetch</td></tr>
+      <tr><td><kbd>Cmd+Shift+L</kbd> / <kbd>Cmd+Shift+U</kbd></td><td>Pull / push</td></tr>
+      <tr><td><kbd>Cmd+Shift+B</kbd></td><td>New branch</td></tr>
+      <tr><td><kbd>Cmd+Shift+S</kbd></td><td>Stash all changes</td></tr>
+      <tr><td><kbd>Cmd+Shift+C</kbd></td><td>Show uncommitted changes</td></tr>
+      <tr><td><kbd>Cmd+Z</kbd> / <kbd>Cmd+Shift+Z</kbd></td><td>Undo / redo the last action</td></tr>
+      <tr><td><kbd>Cmd+,</kbd></td><td>Settings</td></tr>
+      <tr><td><kbd>Cmd+Opt+L</kbd></td><td>Git console: every command Kelp ran, with its output</td></tr>
+      <tr><td>Right-click</td><td>Actions for commits, branches, tags, stashes, worktrees and tabs</td></tr>
+      <tr><td>Double-click a branch</td><td>Check it out</td></tr>
+      <tr><td>Double-click a graph label</td><td>Check out that branch</td></tr>
+      <tr><td>Cmd-click a commit</td><td>Compare it with the selected commit; Esc stops comparing</td></tr>
+      <tr><td>Drag a graph label onto a commit</td><td>Merge, rebase or reset</td></tr>
+      <tr><td>Cmd-click / Shift-click a changed file</td><td>Pick several to stage, stash or discard</td></tr>
+      <tr><td><kbd>P</kbd> / <kbd>R</kbd> / <kbd>E</kbd> / <kbd>S</kbd> / <kbd>F</kbd> / <kbd>D</kbd></td><td>In interactive rebase: pick, reword, edit, squash, fixup or drop the hovered commit</td></tr>
+    </tbody>
+  </table>
+</div>
+</div></main>
+
+<footer><div class="wrap">
+  <span>Kelp is MIT licensed. Made by <a href="https://github.com/Hobo-Ware">Hoboware</a>.</span>
+  <span><a href="getting-started.html">Getting started</a> · <a href="shortcuts.html">Shortcuts</a> · <a href="undo.html">Undo</a> · <a href="faq.html">FAQ</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/Hobo-Ware/kelp">GitHub</a></span>
+</div></footer>
+</body>
+</html>

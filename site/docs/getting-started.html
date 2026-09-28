@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started - Kelp</title>
+<meta name="description" content="Install Kelp with Homebrew, open a repository from the app or the terminal, read the commit graph, stage changes and make your first commit.">
+<link rel="canonical" href="https://kelp.hoboware.dev/docs/getting-started.html">
+<meta name="theme-color" content="#15181e">
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta property="og:site_name" content="Kelp">
+<meta property="og:title" content="Getting started with Kelp">
+<meta property="og:description" content="Install Kelp, open a repository, read the graph, stage and commit.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://kelp.hoboware.dev/docs/getting-started.html">
+<meta property="og:image" content="https://kelp.hoboware.dev/kelp-og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="../index.html"><img src="../mascot.svg" alt="" width="30" height="30">Kelp</a>
+  <span class="version">v0.7.0</span>
+  <div class="navlinks">
+    <a href="getting-started.html" aria-current="page">Docs</a>
+    <a href="shortcuts.html">Shortcuts</a>
+    <a href="faq.html">FAQ</a>
+    <a href="../changelog.html">Changelog</a>
+    <a class="gh" href="https://github.com/Hobo-Ware/kelp">GitHub</a>
+  </div>
+</div></nav>
+
+<main class="doc"><div class="wrap">
+  <p class="eyebrow">Docs</p>
+  <h1>Getting started</h1>
+  <p class="lede">Install Kelp, open a repository and make your first commit. It takes about five minutes.</p>
+  <div class="toc"><a href="#install">Install</a><a href="#open">Open a repository</a><a href="#terminal">From the terminal</a><a href="#graph">Reading the graph</a><a href="#stage">Staging</a><a href="#commit">Committing</a><a href="#next">Next steps</a></div>
+
+  <h2 id="install">Install</h2>
+  <p>Kelp runs on macOS 12 or later. Install it with <a href="https://brew.sh">Homebrew</a>:</p>
+  <pre><span class="p">$</span> brew install hobo-ware/tap/kelp</pre>
+  <p>This puts Kelp.app in your Applications folder and the <code>kelp</code> command on your PATH. Kelp checks for new releases and installs them in the background; when one is ready you'll see a restart button. You can turn that off in Settings.</p>
+  <p>You need git installed. Kelp uses your own git for everything that changes a repository, so your hooks, signing and config work as usual.</p>
+
+  <h2 id="open">Open a repository</h2>
+  <p>The first time Kelp starts, it shows the new tab page. From there you can:</p>
+  <ul>
+    <li><b>Open folder</b> (<kbd>Cmd+O</kbd>) to pick a repository on your Mac.</li>
+    <li><b>Clone</b> to paste a URL and download a repository. Kelp opens it when the clone is done.</li>
+    <li><b>New repository</b> to create an empty one.</li>
+  </ul>
+  <p>You can also drop a folder onto the window. Every repository opens in its own tab, and Kelp reopens your tabs the next time it starts. <kbd>Cmd+T</kbd> opens a new tab with your recent repositories.</p>
+
+  <h2 id="terminal">From the terminal</h2>
+  <pre><span class="p">$</span> kelp ~/code/my-repo     <span class="p"># opens in the background, your prompt comes right back</span>
+<span class="p">$</span> kelp .                  <span class="p"># already running? the folder opens as a tab there</span>
+<span class="p">$</span> kelp -w ~/code/my-repo  <span class="p"># stay in the foreground until Kelp quits</span></pre>
+  <p>If the folder is already open, Kelp switches to its tab. <code>kelp --help</code> lists the options.</p>
+
+  <h2 id="graph">Reading the graph</h2>
+  <p>The middle of the window is the commit graph, newest commits at the top.</p>
+  <ul>
+    <li>Each branch gets its own colored lane. Where two lanes join, a branch was merged.</li>
+    <li>Labels on a row show the branches and tags that point at that commit. The one with a check mark is the branch you have checked out. A <b>+N</b> chip means there are more; click it to see them all.</li>
+    <li>Click a commit to see its message, author and changed files in the details panel on the right. Click a file to see its diff.</li>
+    <li>Hover a commit to trace its branch. Right-click it for actions like cherry-pick, revert, reset or creating a branch there.</li>
+    <li>The sidebar on the left lists your branches, remotes, tags, stashes and worktrees. Double-click a branch to check it out.</li>
+  </ul>
+  <p>Use <kbd>Cmd+F</kbd> to search commits and <kbd>Cmd+Shift+F</kbd> to filter by author, path or date. <kbd>Cmd+K</kbd> opens the command palette, which finds any action, branch, commit, file or tab.</p>
+
+  <h2 id="stage">Staging</h2>
+  <p>When you have changes, a row called <b>Uncommitted changes</b> sits at the top of the graph (<kbd>Cmd+Shift+C</kbd> jumps there). Select it to open the staging panel, which has two lists: files you changed but have not staged, and files that are staged for the next commit.</p>
+  <ul>
+    <li>Click a file to see its diff. Use the Stage and Unstage buttons on a file, or Stage all, to move whole files.</li>
+    <li>In the diff, stage or unstage a single hunk with its button, or select lines to stage only those.</li>
+    <li><kbd>Cmd</kbd>-click or <kbd>Shift</kbd>-click files to pick several and stage, stash or discard them together.</li>
+    <li>Discarding asks first, and <kbd>Cmd+Z</kbd> brings the changes back.</li>
+  </ul>
+
+  <h2 id="commit">Committing</h2>
+  <p>Type a message in the commit box under the staged files and press <kbd>Cmd+Enter</kbd>. The first line is the title; leave a blank line before a longer description.</p>
+  <ul>
+    <li>Tick <b>Amend previous commit</b> to change the last commit. Its message is filled in for you.</li>
+    <li><kbd>Cmd+Shift+Enter</kbd> commits and pushes in one go.</li>
+    <li>The commit box can add a Conventional Commit type and co-authors from people in your history.</li>
+    <li>Made a mistake? <kbd>Cmd+Z</kbd> undoes the commit and keeps your changes. See <a href="undo.html">what undo covers</a>.</li>
+  </ul>
+  <p>Push and pull from the toolbar, or with <kbd>Cmd+Shift+U</kbd> and <kbd>Cmd+Shift+L</kbd>. A branch without an upstream gets one on its first push.</p>
+
+  <h2 id="next">Next steps</h2>
+  <ul>
+    <li><a href="shortcuts.html">Keyboard shortcuts</a>, or press <kbd>Cmd+/</kbd> in the app.</li>
+    <li><a href="undo.html">What undo covers</a> and how the reflog saves you when it can't.</li>
+    <li><a href="faq.html">FAQ</a>: speed, privacy, network requests and where Kelp keeps its files.</li>
+    <li><a href="../changelog.html">Changelog</a>: what's new in each release.</li>
+  </ul>
+</div></main>
+
+<footer><div class="wrap">
+  <span>Kelp is MIT licensed. Made by <a href="https://github.com/Hobo-Ware">Hoboware</a>.</span>
+  <span><a href="getting-started.html">Getting started</a> · <a href="shortcuts.html">Shortcuts</a> · <a href="undo.html">Undo</a> · <a href="faq.html">FAQ</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/Hobo-Ware/kelp">GitHub</a></span>
+</div></footer>
+</body>
+</html>

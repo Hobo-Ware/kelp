@@ -98,4 +98,8 @@ magick -size 1200x630 radial-gradient:'#1e2a22'-'#15181e' \
   "$raw/og.png"
 compress "$raw/og.png" "$site/kelp-og.png" 256
 
+echo "== pages"
+python3 "$root/scripts/make-changelog-page.py"
+python3 "$root/scripts/check-site.py"
+
 echo "Done. Assets in $site"
