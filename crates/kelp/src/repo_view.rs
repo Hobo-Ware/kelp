@@ -769,6 +769,13 @@ impl Repo {
         let mut ran_op = false;
         for command in commands {
             match command {
+                Command::Run(Op::SwitchTrack(remote_branch)) => {
+                    let menu = self.menu_context();
+                    let op =
+                        ops::checkout_remote(&remote_branch, &menu.local_branches, &menu.upstreams);
+                    self.run_op(op);
+                    ran_op = true;
+                }
                 Command::Run(op) => {
                     self.run_op(op);
                     ran_op = true;
