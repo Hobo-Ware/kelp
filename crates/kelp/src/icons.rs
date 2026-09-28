@@ -25,6 +25,7 @@ pub enum Icon {
     Undo,
     Eye,
     EyeOff,
+    Pin,
 }
 
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -235,6 +236,18 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             if icon == Icon::EyeOff {
                 line(&[(4.0, 20.0), (20.0, 4.0)]);
             }
+        }
+        Icon::Pin => {
+            line(&[(9.0, 4.0), (15.0, 4.0)]);
+            line(&[
+                (10.0, 4.0),
+                (10.0, 10.0),
+                (7.0, 14.0),
+                (17.0, 14.0),
+                (14.0, 10.0),
+                (14.0, 4.0),
+            ]);
+            line(&[(12.0, 14.0), (12.0, 21.0)]);
         }
     }
 }

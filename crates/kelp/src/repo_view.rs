@@ -163,6 +163,7 @@ pub struct Repo {
     diff_layout: diff_view::Layout,
     center_mid_x: Option<f32>,
     pub view: ViewFilter,
+    pub sidebar: sidebar::State,
     pub columns_changed: Option<crate::columns::GraphColumns>,
     pub editor: String,
     _watcher: Option<Watcher>,
@@ -189,6 +190,7 @@ impl Repo {
             AvatarStore::new(ctx.clone(), kelp_core::avatar::GitHubRepo::from_repo(&repo));
         let review = Review::load(repo.common_dir());
         let view = ViewFilter::load(repo.common_dir());
+        let sidebar = sidebar::State::new(repo.common_dir());
         let stale_undo_dir = dir.clone();
         std::thread::spawn(move || undo::clear_saved(&stale_undo_dir));
         let author = review::author_name(&repo);
@@ -237,6 +239,7 @@ impl Repo {
             diff_layout: diff_view::Layout::default(),
             center_mid_x: None,
             view,
+            sidebar,
             columns_changed: None,
             editor: String::new(),
             _watcher: watcher,
@@ -1386,7 +1389,7 @@ impl Repo {
     }
 
     fn handle_keys(&mut self, ui: &egui::Ui) {
-        if ui.input(|i| i.modifiers.command && i.key_pressed(Key::F)) {
+        if ui.input(|i| i.modifiers.command && !i.modifiers.alt && i.key_pressed(Key::F)) {
             self.search.open = true;
             self.center = Center::Graph;
         }

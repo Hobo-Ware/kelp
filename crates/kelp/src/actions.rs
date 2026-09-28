@@ -220,6 +220,7 @@ pub static KEYS: &[KeyRow] = &[
     key("Cmd+/", "Keyboard shortcuts", Group::Navigation),
     key("Up / Down, J / K", "Move through commits", Group::Navigation),
     key("Cmd+F", "Search; Enter / Shift+Enter for next / previous", Group::Navigation),
+    key("Cmd+Opt+F", "Filter the sidebar; Esc clears", Group::Navigation),
     key("Esc", "Back to the graph, close search or dialogs", Group::Navigation),
     key("Cmd+T / Cmd+O", "Open a repository in a new tab", Group::Tabs),
     key("Cmd+W", "Close the tab", Group::Tabs),
