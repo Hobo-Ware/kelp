@@ -1096,6 +1096,9 @@ impl Repo {
                         Ok(history) => {
                             self.replace_history(*history);
                             self.refresh_workspace();
+                            if let Center::Reflog(view) = &mut self.center {
+                                view.reload(ctx);
+                            }
                         }
                         Err(e) => self.notify(format!("Reload failed: {e:#}"), true),
                     }
