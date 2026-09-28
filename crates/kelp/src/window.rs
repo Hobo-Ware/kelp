@@ -31,12 +31,12 @@ pub fn restore(saved: Option<[f32; 4]>) -> Placement {
     }
 }
 
-pub fn capture(outer: Rect, inner: Rect) -> [f32; 4] {
+pub fn capture(outer: Rect, inner: Rect, zoom: f32) -> [f32; 4] {
     [
-        outer.min.x.round(),
-        outer.min.y.round(),
-        inner.width().round(),
-        inner.height().round(),
+        (outer.min.x * zoom).round(),
+        (outer.min.y * zoom).round(),
+        (inner.width() * zoom).round(),
+        (inner.height() * zoom).round(),
     ]
 }
 
@@ -75,18 +75,26 @@ impl Tracker {
 }
 
 pub fn current(ctx: &egui::Context) -> Option<[f32; 4]> {
+    let zoom = ctx.zoom_factor();
     ctx.input(|i| {
         let viewport = i.viewport();
         if viewport.fullscreen.unwrap_or(false) || viewport.minimized.unwrap_or(false) {
             return None;
         }
-        Some(capture(viewport.outer_rect?, viewport.inner_rect?))
+        Some(capture(viewport.outer_rect?, viewport.inner_rect?, zoom))
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zoomed_geometry_is_saved_in_screen_points() {
+        let outer = Rect::from_min_size(egui::pos2(80.0, 40.0), egui::vec2(1152.0, 736.0));
+        let inner = Rect::from_min_size(egui::pos2(80.0, 40.0), egui::vec2(1152.0, 720.0));
+        assert_eq!(capture(outer, inner, 1.25), [100.0, 50.0, 1440.0, 900.0]);
+    }
 
     #[test]
     fn nothing_saved_uses_the_default_size() {
