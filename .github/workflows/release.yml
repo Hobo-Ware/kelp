@@ -55,6 +55,7 @@ jobs:
             target/x86_64-apple-darwin/release/kelp
           chmod +x "$APP/Contents/MacOS/kelp"
           cp crates/kelp/assets/Kelp.icns "$APP/Contents/Resources/Kelp.icns"
+          cp crates/kelp/assets/Assets.car "$APP/Contents/Resources/Assets.car"
           sed "s/__VERSION__/${VERSION}/g" packaging/Info.plist > "$APP/Contents/Info.plist"
 
       - name: Sign & notarize (optional)

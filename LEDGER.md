@@ -15,6 +15,15 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-09-28
 
+- **Liquid Glass app icon (macOS 26).** A layered `AppIcon.icon`
+  (stem, leaf, face, bladders over a dark fill, each glass with
+  translucency) compiled by Xcode's actool into `Assets.car`, shipped
+  next to `Kelp.icns` with `CFBundleIconName`. Inside the bundle Kelp
+  no longer sets a runtime Dock icon (it pinned the flat image and
+  blocked tinting). NSWorkspace renders Kelp tinted like Slack.
+  `scripts/make-icon.sh` rebuilds both; `Assets.car` is committed since
+  CI may not have Xcode 26.
+
 - **v0.5 "History tools", all items in (three parallel branches, merged
   on main).**
   - File history (follows renames, streamed: trakt-web `deno.lock` 250

@@ -65,7 +65,7 @@ fn main() -> eframe::Result {
     let placement = window::restore(saved.window.filter(|_| !settings::is_dev_run()));
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Kelp")
-        .with_icon(app_icon())
+        .with_icon(dock_icon())
         .with_fullsize_content_view(true)
         .with_titlebar_shown(false)
         .with_title_shown(false)
@@ -88,6 +88,17 @@ fn main() -> eframe::Result {
             Ok(Box::new(app::KelpApp::open(cc.egui_ctx.clone(), paths)))
         }),
     )
+}
+
+fn dock_icon() -> egui::IconData {
+    let in_bundle = std::env::current_exe()
+        .and_then(|exe| exe.canonicalize())
+        .is_ok_and(|exe| cli::app_bundle(&exe).is_some());
+    if in_bundle {
+        egui::IconData::default()
+    } else {
+        app_icon()
+    }
 }
 
 fn app_icon() -> egui::IconData {
