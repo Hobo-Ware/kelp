@@ -177,18 +177,6 @@ impl RebaseView {
         let changed = has_changes(&plan.steps, &self.original_order, &self.combined);
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            match &problem {
-                Some(problem) => {
-                    ui.label(RichText::new(problem).size(12.0).color(theme::deleted()));
-                }
-                None => {
-                    ui.label(
-                        RichText::new(summary(&plan.steps, &self.original_order))
-                            .size(12.0)
-                            .color(theme::text_muted()),
-                    );
-                }
-            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let start = ui.add_enabled(
                     problem.is_none() && changed,
@@ -214,6 +202,17 @@ impl RebaseView {
                 if ui.add(cancel).clicked() {
                     event = Event::Close;
                 }
+                ui.add_space(8.0);
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    let (text, color) = match &problem {
+                        Some(problem) => (problem.to_string(), theme::deleted()),
+                        None => (
+                            summary(&plan.steps, &self.original_order),
+                            theme::text_muted(),
+                        ),
+                    };
+                    ui.add(egui::Label::new(RichText::new(text).size(12.0).color(color)).wrap());
+                });
             });
         });
         event
