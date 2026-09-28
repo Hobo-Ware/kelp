@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.2.0 released. Next: v0.3 "Find anything".
+- **Current milestone:** v0.3 built on main, not released yet. Next: v0.4 "Edit anything".
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,28 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-28
+
+- **v0.3 "Find anything", all items in (three parallel branches, merged
+  on main).**
+  - Command palette (Cmd+K / Cmd+Shift+P): fuzzy over 45+ registered
+    actions, branches (Enter checks out, Cmd+Enter for branch actions),
+    commits by hash or title (background search, cancelled on typing),
+    files and tabs; `>` `@` `#` `/` modes; last 5 actions on top.
+    Shortcut sheet (Cmd+/) generated from the same registry, and a test
+    keeps the README Keys table identical to it.
+  - Sidebar: branches in nested `/` folders (single children folded),
+    remotes by remote then prefix, tags too; filter box (Cmd+Opt+F) with
+    highlighted matches; pinned group; hide merged (background
+    `git branch --merged`); sort by name or last commit; state in
+    `.git/kelp/sidebar.json`.
+  - New tab page: recent repos (20, deduped, branch read from HEAD),
+    Open, Clone (progress, cancel, auth hint) and New repository; Cmd+T
+    opens it. Collapsible sidebar and details (Cmd+Opt+S / Cmd+Opt+D),
+    widths remembered. Zoom 80 to 160% (Cmd+Plus / Minus / 0) with the
+    tab strip kept at native size so the window buttons stay centered.
+  - Window geometry is saved in screen points so zoom doesn't shrink it.
+    `Settings::save` is a no-op in dev runs.
+  - 216 tests pass; idle CPU 0.0%, 125 MB.
 
 - **v0.2 "A graph you can touch", all items in (three parallel branches
   plus the toolbar fix, merged on main).**
