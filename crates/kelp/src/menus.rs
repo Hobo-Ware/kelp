@@ -593,6 +593,13 @@ pub fn file(ui: &mut Ui, path: &str, out: &mut Vec<Command>) {
 }
 
 pub fn file_items(ui: &mut Ui, path: &str, out: &mut Vec<Command>) {
+    item(ui, Icon::Clock, "File history", out, || {
+        Command::FileHistory(path.to_string())
+    });
+    item(ui, Icon::Commit, "Blame", out, || {
+        Command::Blame(path.to_string())
+    });
+    separator(ui);
     item(ui, Icon::Pencil, "Open in editor", out, || {
         Command::OpenInEditor(path.to_string())
     });

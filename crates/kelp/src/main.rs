@@ -1,6 +1,7 @@
 mod actions;
 mod app;
 mod avatars;
+mod blame_view;
 mod cli;
 mod clone;
 mod columns;
@@ -11,6 +12,7 @@ mod dev_bench;
 mod dev_screenshot;
 mod dialogs;
 mod diff_view;
+mod file_history_view;
 mod fonts;
 mod graph_hover;
 mod graph_rows;

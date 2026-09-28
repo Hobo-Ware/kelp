@@ -31,4 +31,7 @@ pub enum Command {
     StartRename(String),
     ShowStash(String),
     ShowReflog(String),
+    FileHistory(String),
+    Blame(String),
+    ShowCommit(gix::ObjectId),
 }

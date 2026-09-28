@@ -22,6 +22,7 @@ use crate::conflict_view::{self, ConflictView};
 use crate::dev_bench::ScrollBench;
 use crate::dialogs::{self, Dialog, NewWorktree, Outcome, force_push_dialog};
 use crate::diff_view::{self, DiffSource, DiffView};
+use crate::file_history_view::{self, FileHistoryView};
 use crate::graph_view::{self, GraphView};
 use crate::icons::{self, Icon};
 use crate::jobs::Jobs;
@@ -130,6 +131,7 @@ pub enum Center {
     Rebase(Box<RebaseView>),
     Stash(Box<StashView>),
     Reflog(Box<crate::reflog_view::ReflogView>),
+    FileHistory(Box<FileHistoryView>),
 }
 
 pub struct Toast {
@@ -310,6 +312,12 @@ impl Repo {
                 reference
             };
             ready.execute(ctx, vec![Command::ShowReflog(reference)]);
+        }
+        if let Ok(path) = std::env::var("KELP_FILE_HISTORY") {
+            ready.execute(ctx, vec![Command::FileHistory(path)]);
+        }
+        if let Ok(path) = std::env::var("KELP_BLAME") {
+            ready.execute(ctx, vec![Command::Blame(path)]);
         }
         if let Ok(stash) = std::env::var("KELP_SHOW_STASH") {
             ready.execute(ctx, vec![Command::ShowStash(stash)]);
@@ -734,6 +742,17 @@ impl Repo {
                         crate::reflog_view::ReflogView::open(ctx, self.dir.clone(), reference);
                     self.center = Center::Reflog(Box::new(view));
                 }
+                Command::FileHistory(path) => {
+                    let view = FileHistoryView::open(ctx, self.dir.clone(), &path);
+                    self.center = Center::FileHistory(Box::new(view));
+                }
+                Command::Blame(path) => {
+                    self.open_diff(&path);
+                    if let Center::Diff(view) = &mut self.center {
+                        view.show_blame();
+                    }
+                }
+                Command::ShowCommit(id) => self.reveal_commit(id),
                 Command::ShowStash(name) => {
                     match StashView::open(&self.repo, self.workdir.as_deref(), &name) {
                         Ok(view) => self.center = Center::Stash(Box::new(view)),
@@ -1323,7 +1342,7 @@ impl Repo {
             .frame(egui::Frame::new().fill(theme::BG))
             .show(ui, |ui| match &mut self.center {
                 Center::Diff(view) => {
-                    let event = view.ui(ui, &mut self.review, &self.author);
+                    let event = view.ui(ui, &mut self.review, &self.author, &mut self.avatars);
                     self.diff_layout = view.layout();
                     match event {
                         diff_view::Event::Close => self.center = Center::Graph,
@@ -1341,9 +1360,34 @@ impl Repo {
                         diff_view::Event::OpenInEditor => {
                             commands.push(Command::OpenInEditor(view.path().to_string()))
                         }
+                        diff_view::Event::FileHistory => {
+                            commands.push(Command::FileHistory(view.path().to_string()))
+                        }
+                        diff_view::Event::Reveal(id) => commands.push(Command::ShowCommit(id)),
                         diff_view::Event::None => {}
                     }
                 }
+                Center::FileHistory(view) => match view.ui(
+                    ui,
+                    &self.repo,
+                    self.workdir.as_deref(),
+                    &mut self.review,
+                    &self.author,
+                    &mut self.avatars,
+                ) {
+                    file_history_view::Event::Close => self.center = Center::Graph,
+                    file_history_view::Event::Reveal(id) => commands.push(Command::ShowCommit(id)),
+                    file_history_view::Event::Diff(diff_view::Event::Run(op)) => {
+                        commands.push(Command::Run(op))
+                    }
+                    file_history_view::Event::Diff(diff_view::Event::Changed) => {
+                        let _ = self.review.save();
+                    }
+                    file_history_view::Event::Diff(diff_view::Event::OpenInEditor) => {
+                        commands.push(Command::OpenInEditor(view.path.clone()))
+                    }
+                    file_history_view::Event::Diff(_) | file_history_view::Event::None => {}
+                },
                 Center::Conflict(view) => match view.ui(ui) {
                     conflict_view::Event::Close => self.center = Center::Graph,
                     conflict_view::Event::Run(job) => self.run_conflict_job(job),
@@ -1362,6 +1406,7 @@ impl Repo {
                         self.workdir.as_deref(),
                         &mut self.review,
                         &self.author,
+                        &mut self.avatars,
                     ) {
                         stash_view::Event::Close => self.center = Center::Graph,
                         stash_view::Event::Diff(diff_view::Event::Run(op)) => {
@@ -1380,6 +1425,7 @@ impl Repo {
                         self.workdir.as_deref(),
                         &mut self.review,
                         &self.author,
+                        &mut self.avatars,
                         current_branch.as_deref(),
                     ) {
                         crate::reflog_view::Event::Close => self.center = Center::Graph,

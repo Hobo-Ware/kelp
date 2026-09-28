@@ -310,6 +310,7 @@ fn open_diff_path(repo: &Repo) -> Option<String> {
     match &repo.center {
         Center::Diff(view) => Some(view.path().to_string()),
         Center::Conflict(view) => Some(view.path.clone()),
+        Center::FileHistory(view) => Some(view.path.clone()),
         Center::Graph
         | Center::Worktrees
         | Center::Rebase(_)

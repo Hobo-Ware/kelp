@@ -1,6 +1,6 @@
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use eframe::egui::{
     self, Align2, Color32, CursorIcon, FontId, Key, Margin, Modifiers, Rect, RichText, Sense,
@@ -11,6 +11,8 @@ use kelp_core::diff::{self, Body, FileDiff, Line, LineKind};
 use kelp_core::ops::Op;
 use kelp_core::review::{Anchor, Comment, Review, Side, Thread};
 
+use crate::avatars::AvatarStore;
+use crate::blame_view::{self, BlameView};
 use crate::dialogs::Dialog;
 use crate::preview_view::Preview;
 use crate::{theme, widgets};
@@ -52,6 +54,7 @@ enum Mode {
     Diff,
     File,
     Preview,
+    Blame,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -100,6 +103,8 @@ pub struct DiffView {
     select_anchor: Option<usize>,
     scroll_y: f32,
     jump: Option<Jump>,
+    blame_from: Option<(PathBuf, Option<ObjectId>)>,
+    blame: Option<BlameView>,
 }
 
 pub enum Event {
@@ -109,6 +114,8 @@ pub enum Event {
     Run(Op),
     Ask(Dialog),
     OpenInEditor,
+    FileHistory,
+    Reveal(ObjectId),
 }
 
 impl DiffView {
@@ -157,6 +164,17 @@ impl DiffView {
             .as_ref()
             .map(|sides| Preview::new(sides, path, &read));
         let file_change_starts = change_starts(&lines);
+        let has_lines = diff.new_text.as_deref().is_some_and(|t| !t.is_empty());
+        let blame_from = match (source, workdir) {
+            (DiffSource::Commit(id) | DiffSource::File(id), _) if has_lines => Some((
+                workdir.map_or_else(|| repo.path().to_path_buf(), Path::to_path_buf),
+                Some(id),
+            )),
+            (DiffSource::Unstaged, Some(workdir)) if has_lines => {
+                Some((workdir.to_path_buf(), None))
+            }
+            _ => None,
+        };
         let text_body = matches!(diff.body, Body::Text(_));
         let mode = match (preview.is_some(), source) {
             (true, _) if !text_body => Mode::Preview,
@@ -186,6 +204,8 @@ impl DiffView {
             select_anchor: None,
             scroll_y: 0.0,
             jump: None,
+            blame_from,
+            blame: None,
         })
     }
 
@@ -212,6 +232,12 @@ impl DiffView {
         self.expanded = kept.expanded;
         self.header_squeeze = kept.header_squeeze;
         self.scroll_y = kept.scroll_y;
+        self.blame = kept.blame;
+        if self.is_working()
+            && let Some(blame) = &mut self.blame
+        {
+            blame.restart();
+        }
         if same_lines(&kept.lines, &self.lines) {
             self.selected_lines = kept.selected_lines;
             self.select_anchor = kept.select_anchor;
@@ -246,7 +272,7 @@ impl DiffView {
         match self.mode {
             Mode::Diff => !self.hunks.is_empty(),
             Mode::File => !self.file_change_starts.is_empty(),
-            Mode::Preview => false,
+            Mode::Preview | Mode::Blame => false,
         }
     }
 
@@ -337,7 +363,19 @@ impl DiffView {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, review: &mut Review, author: &str) -> Event {
+    pub fn show_blame(&mut self) {
+        if self.blame_from.is_some() {
+            self.mode = Mode::Blame;
+        }
+    }
+
+    pub fn ui(
+        &mut self,
+        ui: &mut Ui,
+        review: &mut Review,
+        author: &str,
+        avatars: &mut AvatarStore,
+    ) -> Event {
         if let Some(text) = &self.diff.new_text {
             crate::fonts::ensure_fallback(ui.ctx(), text);
         }
@@ -354,6 +392,18 @@ impl DiffView {
             && let Some(preview) = &mut self.preview
         {
             preview.ui(ui);
+            return event;
+        }
+        if self.mode == Mode::Blame
+            && let Some((dir, rev)) = &self.blame_from
+        {
+            let path = self.diff.path.clone();
+            let blame = self
+                .blame
+                .get_or_insert_with(|| BlameView::new(ui.ctx(), dir.clone(), *rev, &path));
+            if let blame_view::Event::Reveal(id) = blame.ui(ui, avatars) {
+                event = Event::Reveal(id);
+            }
             return event;
         }
         match &self.diff.body {
@@ -402,6 +452,9 @@ impl DiffView {
                             ) {
                                 event = Event::OpenInEditor;
                             }
+                            if widgets::icon_button(ui, crate::icons::Icon::Clock, "File history") {
+                                event = Event::FileHistory;
+                            }
                             ui.add_space(4.0);
                             if self.mode == Mode::Diff && self.header_squeeze < 2 {
                                 widgets::segmented(
@@ -418,6 +471,9 @@ impl DiffView {
                                 modes.push((Mode::File, "File"));
                                 if !matches!(self.source, DiffSource::File(_)) {
                                     modes.push((Mode::Diff, "Diff"));
+                                }
+                                if self.blame_from.is_some() {
+                                    modes.push((Mode::Blame, "Blame"));
                                 }
                             }
                             if modes.len() > 1 {
@@ -607,7 +663,7 @@ impl DiffView {
         };
         let mut shown = Vec::new();
         match self.mode {
-            Mode::Preview => {}
+            Mode::Preview | Mode::Blame => {}
             Mode::File => {
                 for i in 0..self.new_lines.len() {
                     items.push(Item::FileLine(i));
@@ -1503,8 +1559,10 @@ mod tests {
             ..Default::default()
         };
         let mut review = Review::default();
+        let mut avatars = crate::avatars::AvatarStore::new(ctx.clone(), None);
+        avatars.enabled = false;
         let _ = ctx.run_ui(input, |ui| {
-            view.ui(ui, &mut review, "T");
+            view.ui(ui, &mut review, "T", &mut avatars);
         });
     }
 
