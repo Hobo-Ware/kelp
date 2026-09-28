@@ -129,6 +129,7 @@ mod tests {
             kind,
             lane,
             color: 0,
+            from: 0,
         };
         assert!(visible.carries(0, &edge(EdgeKind::Bottom, 1)));
         assert!(visible.carries(1, &edge(EdgeKind::Pass, 1)));
