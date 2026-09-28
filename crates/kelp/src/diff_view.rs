@@ -96,6 +96,7 @@ pub struct DiffView {
     expanded: HashMap<u64, bool>,
     pending: Option<Op>,
     header_squeeze: u8,
+    embedded: bool,
     ask: Option<Dialog>,
     preview: Option<Preview>,
     file_change_starts: Vec<u32>,
@@ -197,6 +198,7 @@ impl DiffView {
             expanded: HashMap::new(),
             pending: None,
             header_squeeze: 0,
+            embedded: false,
             ask: None,
             preview,
             file_change_starts,
@@ -231,6 +233,7 @@ impl DiffView {
         self.replies = kept.replies;
         self.expanded = kept.expanded;
         self.header_squeeze = kept.header_squeeze;
+        self.embedded = kept.embedded;
         self.scroll_y = kept.scroll_y;
         self.blame = kept.blame;
         if self.is_working()
@@ -346,6 +349,11 @@ impl DiffView {
         self.layout
     }
 
+    pub fn embedded(mut self) -> Self {
+        self.embedded = true;
+        self
+    }
+
     pub fn show_preview(&mut self) {
         if self.preview.is_some() {
             self.mode = Mode::Preview;
@@ -442,7 +450,7 @@ impl DiffView {
                             .layout(egui::Layout::right_to_left(egui::Align::Center)),
                         |ui| {
                             ui.spacing_mut().item_spacing.x = 12.0;
-                            if widgets::close_button(ui, "Close (Esc)") {
+                            if !self.embedded && widgets::close_button(ui, "Close (Esc)") {
                                 event = Event::Close;
                             }
                             if widgets::icon_button(
@@ -452,7 +460,13 @@ impl DiffView {
                             ) {
                                 event = Event::OpenInEditor;
                             }
-                            if widgets::icon_button(ui, crate::icons::Icon::Clock, "File history") {
+                            if !self.embedded
+                                && widgets::icon_button(
+                                    ui,
+                                    crate::icons::Icon::Clock,
+                                    "File history",
+                                )
+                            {
                                 event = Event::FileHistory;
                             }
                             ui.add_space(4.0);

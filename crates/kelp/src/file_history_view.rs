@@ -75,7 +75,7 @@ impl FileHistoryView {
             return;
         };
         if let Ok(diff) = DiffView::load(repo, workdir, DiffSource::Commit(entry.id), &entry.path) {
-            self.open = Some((index, Box::new(diff)));
+            self.open = Some((index, Box::new(diff.embedded())));
         }
     }
 
