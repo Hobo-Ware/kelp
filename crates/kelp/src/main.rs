@@ -1,6 +1,7 @@
 mod actions;
 mod app;
 mod avatars;
+mod cli;
 mod clone;
 mod columns;
 mod commands;
@@ -15,6 +16,7 @@ mod graph_hover;
 mod graph_rows;
 mod graph_view;
 mod icons;
+mod instance;
 mod jobs;
 mod macos;
 mod mascot;
@@ -43,8 +45,16 @@ use std::path::PathBuf;
 use eframe::egui;
 
 fn main() -> eframe::Result {
+    let args = match cli::start() {
+        Ok(cli::Start::Here(paths)) => paths,
+        Ok(cli::Start::Done) => return Ok(()),
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+    };
     let saved = settings::Settings::load();
-    let paths = startup_paths(&saved);
+    let paths = startup_paths(args, &saved);
     let placement = window::restore(saved.window.filter(|_| !settings::is_dev_run()));
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Kelp")
@@ -84,13 +94,7 @@ fn app_icon() -> egui::IconData {
     }
 }
 
-fn startup_paths(saved: &settings::Settings) -> Vec<PathBuf> {
-    let canonical = |p: PathBuf| std::fs::canonicalize(&p).unwrap_or(p);
-    let args: Vec<PathBuf> = std::env::args()
-        .skip(1)
-        .map(PathBuf::from)
-        .map(canonical)
-        .collect();
+fn startup_paths(args: Vec<PathBuf>, saved: &settings::Settings) -> Vec<PathBuf> {
     if !args.is_empty() {
         return args;
     }

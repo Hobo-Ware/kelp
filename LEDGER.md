@@ -15,6 +15,17 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-09-28
 
+- **`kelp <dir>` from the terminal (issue #1).** From a terminal the
+  command hands the folders to a running Kelp over a per-user Unix socket
+  (`~/Library/Caches/kelp/instance.sock`, mode 0600) and exits; the app
+  opens or focuses the tab and comes to the front. With no Kelp running
+  it launches `Kelp.app` with `open -n -a` (or itself in a new process
+  group from source) and returns. `-w/--wait`, non-terminal and dev runs
+  stay in the foreground; `--help`, `--version`, unknown flags and
+  missing folders are handled. Checked end to end through the real
+  bundle via a Homebrew-style symlink: launch returns in 0.7 s, handoff
+  in 10 ms, one process, no duplicate tab.
+
 - **Pull requests inline, plus user-reported polish (after v0.3.0).**
   - PR pills (#N, colored by open/draft/merged/closed, CI dot) on graph
     labels, the `+N` list, sidebar rows, the details panel and the status
