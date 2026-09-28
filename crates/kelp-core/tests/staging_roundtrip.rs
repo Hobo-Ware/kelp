@@ -282,6 +282,134 @@ fn line_staging_handles_a_missing_final_newline() {
     assert!(repo.git(&["diff", "--", "n.txt"]).is_empty());
 }
 
+fn discard_lines(repo: &Scratch, path: &str, picks: &[(LineKind, &str)]) {
+    let diff = diff::unstaged_file(&kelp_repo(repo), repo.path(), path).unwrap();
+    let selected: BTreeSet<usize> = picks
+        .iter()
+        .map(|(kind, text)| line_index(&diff, *kind, text))
+        .collect();
+    let patch = diff::discard_lines_patch(&diff, &selected).unwrap();
+    Op::DiscardPatch(patch).run(repo.path()).unwrap();
+}
+
+fn worktree_content(repo: &Scratch, path: &str) -> String {
+    std::fs::read_to_string(repo.path().join(path)).unwrap()
+}
+
+#[test]
+fn discard_one_hunk_of_two() {
+    let repo = Scratch::new("discard-hunk");
+    repo.commit("f.txt", &numbered(30), "thirty lines");
+    let edited = numbered(30)
+        .replace("line 2\n", "line two\n")
+        .replace("line 27\n", "line twenty-seven\n");
+    std::fs::write(repo.path().join("f.txt"), &edited).unwrap();
+
+    let unstaged = diff::unstaged_file(&kelp_repo(&repo), repo.path(), "f.txt").unwrap();
+    let patch = diff::hunk_patch(&unstaged, 0).unwrap();
+    Op::DiscardPatch(patch).run(repo.path()).unwrap();
+    assert_eq!(
+        worktree_content(&repo, "f.txt"),
+        numbered(30).replace("line 27\n", "line twenty-seven\n")
+    );
+    assert!(repo.git(&["diff", "--cached"]).is_empty());
+}
+
+#[test]
+fn discard_one_of_three_added_lines() {
+    let repo = Scratch::new("discard-add");
+    repo.commit("f.txt", "a\nb\n", "two lines");
+    std::fs::write(repo.path().join("f.txt"), "a\nx\ny\nz\nb\n").unwrap();
+    discard_lines(&repo, "f.txt", &[(LineKind::Added, "y")]);
+    assert_eq!(worktree_content(&repo, "f.txt"), "a\nx\nz\nb\n");
+    assert_eq!(index_content(&repo, "f.txt"), "a\nb\n");
+}
+
+#[test]
+fn discard_a_single_removal_restores_the_line() {
+    let repo = Scratch::new("discard-remove");
+    repo.commit("f.txt", "a\nb\nc\nd\n", "four lines");
+    std::fs::write(repo.path().join("f.txt"), "a\nd\n").unwrap();
+    discard_lines(&repo, "f.txt", &[(LineKind::Removed, "c")]);
+    assert_eq!(worktree_content(&repo, "f.txt"), "a\nc\nd\n");
+}
+
+#[test]
+fn discarding_lines_keeps_crlf_and_a_missing_final_newline() {
+    let repo = Scratch::new("discard-eol");
+    repo.commit("w.txt", "one\r\ntwo\r\nthree\r\n", "crlf");
+    repo.commit("n.txt", "a\nb", "no trailing newline");
+    std::fs::write(repo.path().join("w.txt"), "one\r\n2\r\nthree\r\nfour\r\n").unwrap();
+    std::fs::write(repo.path().join("n.txt"), "a\nc").unwrap();
+
+    discard_lines(&repo, "w.txt", &[(LineKind::Added, "four")]);
+    assert_eq!(worktree_content(&repo, "w.txt"), "one\r\n2\r\nthree\r\n");
+
+    discard_lines(
+        &repo,
+        "n.txt",
+        &[(LineKind::Removed, "b"), (LineKind::Added, "c")],
+    );
+    assert_eq!(worktree_content(&repo, "n.txt"), "a\nb");
+    assert!(repo.git(&["diff", "--", "n.txt"]).is_empty());
+}
+
+#[test]
+fn undo_restores_discarded_lines() {
+    let repo = Scratch::new("discard-undo");
+    repo.commit("f.txt", "a\nb\n", "two lines");
+    std::fs::write(repo.path().join("f.txt"), "a\nx\ny\nb\n").unwrap();
+    let diff = diff::unstaged_file(&kelp_repo(&repo), repo.path(), "f.txt").unwrap();
+    let selected = BTreeSet::from([line_index(&diff, LineKind::Added, "y")]);
+    let op = Op::DiscardPatch(diff::discard_lines_patch(&diff, &selected).unwrap());
+    let (result, outcome) = kelp_core::undo::run_recorded(&op, repo.path());
+    result.unwrap();
+    assert_eq!(worktree_content(&repo, "f.txt"), "a\nx\nb\n");
+    let kelp_core::undo::Outcome::Recorded(record) = outcome else {
+        panic!("discarding lines should be undoable");
+    };
+    kelp_core::undo::undo(repo.path(), &record).unwrap();
+    assert_eq!(worktree_content(&repo, "f.txt"), "a\nx\ny\nb\n");
+}
+
+#[test]
+fn stash_one_of_three_files_keeps_the_others_dirty() {
+    let repo = Scratch::new("stash-files");
+    repo.commit("a.txt", "a\n", "a");
+    repo.commit("b.txt", "b\n", "b");
+    std::fs::write(repo.path().join("a.txt"), "a2\n").unwrap();
+    std::fs::write(repo.path().join("b.txt"), "b2\n").unwrap();
+    std::fs::write(repo.path().join("new.txt"), "new\n").unwrap();
+    Op::StashFiles {
+        paths: vec!["b.txt".into(), "new.txt".into()],
+        message: "just b".into(),
+    }
+    .run(repo.path())
+    .unwrap();
+    assert_eq!(worktree_content(&repo, "a.txt"), "a2\n");
+    assert_eq!(worktree_content(&repo, "b.txt"), "b\n");
+    assert!(!repo.path().join("new.txt").exists());
+    assert!(repo.git(&["stash", "list"]).contains("just b"));
+}
+
+#[test]
+fn stash_staged_only() {
+    let repo = Scratch::new("stash-staged");
+    repo.commit("a.txt", "a\n", "a");
+    repo.commit("b.txt", "b\n", "b");
+    std::fs::write(repo.path().join("a.txt"), "a2\n").unwrap();
+    std::fs::write(repo.path().join("b.txt"), "b2\n").unwrap();
+    repo.git(&["add", "a.txt"]);
+    Op::StashStaged {
+        message: String::new(),
+    }
+    .run(repo.path())
+    .unwrap();
+    assert_eq!(worktree_content(&repo, "a.txt"), "a\n");
+    assert_eq!(worktree_content(&repo, "b.txt"), "b2\n");
+    assert!(repo.git(&["diff", "--cached"]).is_empty());
+}
+
 fn kelp_repo(repo: &Scratch) -> gix::Repository {
     gix::discover(repo.path()).unwrap()
 }
