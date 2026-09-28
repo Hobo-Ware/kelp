@@ -5,6 +5,7 @@ use gix::ObjectId;
 use kelp_core::commit::{self, ChangeKind, FileChange};
 use kelp_core::review::Review;
 
+use crate::avatars::AvatarStore;
 use crate::diff_view::{self, DiffSource, DiffView};
 use crate::{theme, widgets};
 
@@ -92,6 +93,7 @@ impl StashView {
         workdir: Option<&Path>,
         review: &mut Review,
         author: &str,
+        avatars: &mut AvatarStore,
     ) -> Event {
         let mut event = Event::None;
         egui::Frame::new()
@@ -138,7 +140,7 @@ impl StashView {
             self.select(repo, workdir, i);
         }
         if let Some((_, diff)) = &mut self.open {
-            match diff.ui(ui, review, author) {
+            match diff.ui(ui, review, author, avatars) {
                 diff_view::Event::Close => event = Event::Close,
                 diff_view::Event::None => {}
                 other => event = Event::Diff(other),

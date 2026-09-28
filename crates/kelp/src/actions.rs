@@ -65,6 +65,8 @@ pub enum RepoAction {
     CreateTag,
     PushTags,
     AddRemote,
+    FileHistory,
+    Blame,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -168,6 +170,8 @@ pub static ACTIONS: &[Action] = &[
     repo("create-tag", "Create a tag on the selected commit…", "tag release version", None, Some(Icon::Tag), RepoAction::CreateTag),
     repo("push-tags", "Push all tags", "tag release upload", None, Some(Icon::Push), RepoAction::PushTags),
     repo("add-remote", "Add a remote…", "remote origin upstream fork url", None, Some(Icon::Plus), RepoAction::AddRemote),
+    repo("file-history", "File history of the open file", "log commits changes over time", None, Some(Icon::Clock), RepoAction::FileHistory),
+    repo("blame", "Blame the open file", "annotate who wrote line author", None, Some(Icon::Commit), RepoAction::Blame),
     app("new-tab", "New tab", "recent repositories welcome home", Some("Cmd+T"), None, AppAction::NewTab),
     app("open-repo", "Open a folder…", "repository open folder", Some("Cmd+O"), Some(Icon::Folder), AppAction::OpenRepo),
     app("clone", "Clone a repository…", "download url remote", None, None, AppAction::Clone),
@@ -206,6 +210,7 @@ pub struct State {
     pub tabs: usize,
     pub pull: bool,
     pub github: bool,
+    pub file_open: bool,
 }
 
 impl State {
@@ -231,6 +236,7 @@ impl State {
             Redo => self.can_redo,
             ShowAllBranches => self.filtering,
             OpenPullRequest => self.pull,
+            FileHistory | Blame => self.file_open,
             CreatePullRequest => self.github && self.branch && !self.pull,
             CheckoutCommit | CherryPick | Revert | InteractiveRebase | EditMessage
             | CopyCommitHash | CreateTag => self.commit_selected,
@@ -334,6 +340,8 @@ mod tests {
             "create-tag",
             "push-tags",
             "add-remote",
+            "file-history",
+            "blame",
             "new-tab",
             "open-repo",
             "clone",

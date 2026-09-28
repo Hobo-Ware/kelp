@@ -27,6 +27,8 @@ pub enum Icon {
     EyeOff,
     Pin,
     Tag,
+    Clock,
+    Commit,
 }
 
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -237,6 +239,15 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             if icon == Icon::EyeOff {
                 line(&[(4.0, 20.0), (20.0, 4.0)]);
             }
+        }
+        Icon::Commit => {
+            circle(12.0, 12.0, 3.5);
+            line(&[(3.0, 12.0), (8.5, 12.0)]);
+            line(&[(15.5, 12.0), (21.0, 12.0)]);
+        }
+        Icon::Clock => {
+            circle(12.0, 12.0, 8.0);
+            line(&[(12.0, 7.5), (12.0, 12.0), (15.5, 14.0)]);
         }
         Icon::Tag => {
             line(&[

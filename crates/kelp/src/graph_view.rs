@@ -466,9 +466,20 @@ impl GraphView {
                 && !response.context_menu_opened()
             {
                 let id = history.id(*row);
-                response
-                    .clone()
-                    .on_hover_ui_at_pointer(|ui| commit_tooltip(ui, summary, id, now));
+                response.clone().on_hover_ui_at_pointer(|ui| {
+                    commit_tooltip(
+                        ui,
+                        &TooltipCommit {
+                            title: &summary.title,
+                            body: &summary.body_preview,
+                            author: &summary.author,
+                            email: &summary.email,
+                            time: summary.time,
+                            id,
+                        },
+                        now,
+                    )
+                });
             }
             if std::env::var("KELP_OPEN_MENU").as_deref() == Ok("commit")
                 && let Some(selection) = selected
@@ -904,16 +915,25 @@ fn trace_hover(history: &History, row: usize) -> HoverPath {
     )
 }
 
-fn commit_tooltip(ui: &mut Ui, summary: &Summary, id: gix::ObjectId, now: i64) {
+pub struct TooltipCommit<'a> {
+    pub title: &'a str,
+    pub body: &'a str,
+    pub author: &'a str,
+    pub email: &'a str,
+    pub time: i64,
+    pub id: gix::ObjectId,
+}
+
+pub fn commit_tooltip(ui: &mut Ui, commit: &TooltipCommit<'_>, now: i64) {
     ui.set_max_width(420.0);
     ui.spacing_mut().item_spacing.y = 4.0;
     ui.label(
-        egui::RichText::new(&summary.title)
+        egui::RichText::new(commit.title)
             .family(theme::semibold())
             .color(theme::TEXT_STRONG),
     );
-    let body: Vec<&str> = summary
-        .body_preview
+    let body: Vec<&str> = commit
+        .body
         .lines()
         .filter(|l| !l.trim().is_empty())
         .take(3)
@@ -922,21 +942,21 @@ fn commit_tooltip(ui: &mut Ui, summary: &Summary, id: gix::ObjectId, now: i64) {
         ui.label(egui::RichText::new(body.join("\n")).color(theme::TEXT_MUTED));
     }
     ui.label(
-        egui::RichText::new(format!("{} <{}>", summary.author, summary.email))
+        egui::RichText::new(format!("{} <{}>", commit.author, commit.email))
             .size(12.0)
             .color(theme::TEXT),
     );
     ui.label(
         egui::RichText::new(format!(
             "{} · {}",
-            commit::calendar_time(summary.time),
-            commit::relative_time(summary.time, now)
+            commit::calendar_time(commit.time),
+            commit::relative_time(commit.time, now)
         ))
         .size(12.0)
         .color(theme::TEXT_FAINT),
     );
     ui.label(
-        egui::RichText::new(id.to_string())
+        egui::RichText::new(commit.id.to_string())
             .monospace()
             .size(11.0)
             .color(theme::TEXT_FAINT),

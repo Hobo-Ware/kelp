@@ -107,6 +107,7 @@ impl ReflogView {
         self.details = commit::details(repo, id).ok();
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn ui(
         &mut self,
         ui: &mut Ui,
@@ -114,6 +115,7 @@ impl ReflogView {
         workdir: Option<&Path>,
         review: &mut Review,
         author: &str,
+        avatars: &mut crate::avatars::AvatarStore,
         current_branch: Option<&str>,
     ) -> Event {
         self.poll(repo);
@@ -142,7 +144,7 @@ impl ReflogView {
             return event;
         };
         if let Some(diff) = &mut self.diff {
-            match diff.ui(ui, review, author) {
+            match diff.ui(ui, review, author, avatars) {
                 diff_view::Event::Close => self.diff = None,
                 diff_view::Event::None => {}
                 other => event = Event::Diff(other),

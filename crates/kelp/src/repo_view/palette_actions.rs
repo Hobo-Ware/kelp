@@ -28,6 +28,7 @@ impl Repo {
             pull: self.current_pull().is_some(),
             github: self.github.is_some(),
             filtering: self.view.is_filtering(),
+            file_open: self.open_file().is_some(),
             tabs: 0,
         }
     }
@@ -86,6 +87,14 @@ impl Repo {
         match self.history.row(&id) {
             Some(row) => self.reveal(Selection::Commit(row)),
             None => self.notify("That commit is no longer in the graph", true),
+        }
+    }
+
+    fn open_file(&self) -> Option<String> {
+        match &self.center {
+            Center::Diff(view) => Some(view.path().to_string()),
+            Center::FileHistory(view) => Some(view.path.clone()),
+            _ => None,
         }
     }
 
@@ -165,6 +174,8 @@ impl Repo {
             RepoAction::InteractiveRebase => self
                 .selected_commit()
                 .map(|(id, _)| Command::OpenRebase(id)),
+            RepoAction::FileHistory => self.open_file().map(Command::FileHistory),
+            RepoAction::Blame => self.open_file().map(Command::Blame),
             RepoAction::EditMessage => self
                 .selected_commit()
                 .map(|(id, _)| Command::EditMessage(id)),
