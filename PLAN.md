@@ -226,7 +226,7 @@ milestone is a release; each item ends with a check we can run.
 | Rebase view gets Edit (stop at a commit, then continue) and handles merge commits (`--rebase-merges`) | Round trips with a stop and with a merge in range. |
 | Discard lines and hunks (not just stage them); stash selected files | Round trips like the staging ones. |
 
-### v0.5 "History tools"
+### v0.5 "History tools" (done 2026-09-28)
 
 | Item | Done when |
 |---|---|
