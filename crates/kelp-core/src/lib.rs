@@ -2,6 +2,7 @@ pub mod avatar;
 pub mod blame;
 pub mod checks;
 pub mod commit;
+pub mod commit_message;
 pub mod compare;
 pub mod conflict;
 pub mod console;
