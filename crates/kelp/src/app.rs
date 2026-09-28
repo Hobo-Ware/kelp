@@ -38,6 +38,7 @@ pub struct KelpApp {
     updater: crate::updater::Updater,
     palette: Palette,
     shortcuts_open: bool,
+    instance: Option<crate::instance::Listener>,
 }
 
 struct Tab {
@@ -125,6 +126,11 @@ impl KelpApp {
             updater: crate::updater::Updater::new(ctx.clone()),
             palette,
             shortcuts_open: std::env::var_os("KELP_OPEN_SHORTCUTS").is_some(),
+            instance: (!crate::settings::is_dev_run())
+                .then(|| {
+                    crate::instance::Listener::start(&crate::instance::socket_path(), ctx.clone())
+                })
+                .flatten(),
             ctx: ctx.clone(),
         }
     }
@@ -409,6 +415,21 @@ impl KelpApp {
         if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
             paint_drop_hint(ctx);
         }
+    }
+
+    fn take_handoffs(&mut self, ctx: &egui::Context) {
+        let Some(instance) = &self.instance else {
+            return;
+        };
+        let requests = instance.take();
+        if requests.is_empty() {
+            return;
+        }
+        for path in requests.into_iter().flatten() {
+            self.open_tab(ctx, path);
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
 
     fn open_tab(&mut self, ctx: &egui::Context, path: PathBuf) {
@@ -827,6 +848,7 @@ impl eframe::App for KelpApp {
             crate::macos::unify_titlebar(frame);
             self.titlebar_unified = true;
         }
+        self.take_handoffs(&ctx);
         let mut loaded = Vec::new();
         for tab in &mut self.tabs {
             if let State::Loading(rx) = &tab.state

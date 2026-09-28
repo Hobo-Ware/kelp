@@ -16,6 +16,17 @@ brew install hobo-ware/tap/kelp
 
 Kelp updates itself in the background when installed with Homebrew.
 
+## From the terminal
+
+```sh
+kelp ~/path/to/repo        # opens in the background, the prompt comes right back
+kelp .                     # already running? the folder opens as a tab there
+kelp -w ~/path/to/repo     # stay in the foreground until Kelp quits
+```
+
+If the folder is already open, Kelp switches to its tab and comes to the
+front. `kelp --help` lists the options.
+
 ## Run from source
 
 ```sh
