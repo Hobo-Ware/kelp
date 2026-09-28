@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.4 built on main (plus the `kelp <dir>` fix for #1), not released yet. Next: v0.5 "History tools".
+- **Current milestone:** v0.4.0 released (with the `kelp <dir>` fix for #1). Next: v0.5 "History tools".
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
