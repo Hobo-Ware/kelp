@@ -399,6 +399,43 @@ impl KelpApp {
         if open {
             self.pick_folder();
         }
+        self.run_global_shortcuts(ctx);
+    }
+
+    fn run_global_shortcuts(&mut self, ctx: &egui::Context) {
+        if self.palette.open || self.home || self.show_settings {
+            return;
+        }
+        let pressed: Vec<crate::actions::RepoAction> = ctx.input_mut(|i| {
+            crate::actions::GLOBAL_SHORTCUTS
+                .iter()
+                .filter_map(|id| crate::actions::ACTIONS.iter().find(|a| a.id == *id))
+                .filter_map(|action| {
+                    let shortcut = crate::actions::parse_shortcut(action.shortcut?)?;
+                    match action.run {
+                        crate::actions::Run::Repo(repo) if i.consume_shortcut(&shortcut) => {
+                            Some(repo)
+                        }
+                        _ => None,
+                    }
+                })
+                .collect()
+        });
+        let Some(Tab {
+            state: State::Ready(repo),
+            ..
+        }) = self.tabs.get_mut(self.active)
+        else {
+            return;
+        };
+        for action in pressed {
+            let allowed = repo
+                .action_state()
+                .allows(crate::actions::Run::Repo(action));
+            if allowed && repo.dialog.is_none() {
+                repo.run_action(ctx, action);
+            }
+        }
     }
 
     fn handle_drops(&mut self, ctx: &egui::Context) {

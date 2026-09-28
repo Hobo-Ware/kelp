@@ -2,7 +2,7 @@ use std::path::Path;
 
 use eframe::egui;
 use gix::ObjectId;
-use kelp_core::ops::Op;
+use kelp_core::ops::{Op, ResetMode};
 use kelp_core::refs::RefKind;
 
 use super::{Center, Repo, Selection, reveal_in_finder};
@@ -217,6 +217,30 @@ impl Repo {
                 self.stop_compare();
                 None
             }
+            RepoAction::ResetSoft | RepoAction::ResetMixed => {
+                let mode = if action == RepoAction::ResetSoft {
+                    ResetMode::Soft
+                } else {
+                    ResetMode::Mixed
+                };
+                self.selected_commit()
+                    .map(|(commit, _)| Command::Run(Op::Reset { commit, mode }))
+            }
+            RepoAction::ResetHard => self.selected_commit().map(|(id, _)| Command::ResetHard(id)),
+            RepoAction::NextChange | RepoAction::PreviousChange => {
+                if let Center::Diff(view) = &mut self.center {
+                    view.jump_to_change(action == RepoAction::NextChange);
+                }
+                None
+            }
+            RepoAction::OpenFileInEditor => self.open_file().map(Command::OpenInEditor),
+            RepoAction::RevealFile => self.open_file().map(Command::RevealFile),
+            RepoAction::CopyFilePath => self.open_file().map(Command::Copy),
+            RepoAction::ShowLatestStash => self
+                .workspace
+                .stashes
+                .first()
+                .map(|s| Command::ShowStash(s.name.clone())),
             RepoAction::OpenTerminal => self.workdir.clone().map(Command::OpenTerminal),
             RepoAction::ShowPulls => Some(Command::ShowPulls),
             RepoAction::OpenPullRequest => {
