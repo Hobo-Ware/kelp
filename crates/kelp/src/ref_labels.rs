@@ -415,6 +415,7 @@ mod tests {
             is_head,
             has_remote: false,
             hidden: false,
+            pull: None,
         }
     }
 

@@ -20,6 +20,7 @@ pub struct RefLabel {
     pub is_head: bool,
     pub has_remote: bool,
     pub hidden: bool,
+    pub pull: Option<crate::pulls::Pull>,
 }
 
 impl RefLabel {
@@ -71,6 +72,7 @@ impl Refs {
                 row: None,
                 has_remote: false,
                 hidden: false,
+                pull: None,
             });
         }
         mark_tracked_remotes(&mut labels);
@@ -104,6 +106,16 @@ impl Refs {
         tips.sort_unstable();
         tips.dedup();
         tips
+    }
+
+    pub fn attach_pulls(&mut self, pulls: &crate::pulls::Pulls) {
+        for label in &mut self.labels {
+            label.pull = match label.kind {
+                RefKind::Local => pulls.for_branch(&label.name).cloned(),
+                RefKind::Remote => pulls.for_remote_branch(&label.name).cloned(),
+                RefKind::Tag => None,
+            };
+        }
     }
 
     pub fn attach_rows(&mut self, rows_by_id: &HashMap<ObjectId, u32>) {
