@@ -68,6 +68,10 @@ pub enum Op {
         reverse: bool,
     },
     DiscardPatch(String),
+    DiscardFiles {
+        tracked: Vec<String>,
+        untracked: Vec<String>,
+    },
     StashFiles {
         paths: Vec<String>,
         message: String,
@@ -191,6 +195,10 @@ impl Op {
                 v(&["apply", "--cached", "--reverse", "--whitespace=nowarn", "-"])
             }
             Op::DiscardPatch(_) => v(&["apply", "--reverse", "--whitespace=nowarn", "-"]),
+            Op::DiscardFiles { tracked, .. } if !tracked.is_empty() => {
+                with_paths(&["restore", "--"], tracked)
+            }
+            Op::DiscardFiles { untracked, .. } => with_paths(&["clean", "-f", "--"], untracked),
             Op::StashFiles { paths, message } => {
                 let mut args = v(&["stash", "push", "--include-untracked"]);
                 if !message.trim().is_empty() {
@@ -256,6 +264,12 @@ impl Op {
             Op::ApplyToIndex { reverse: false, .. } => "Staging hunk".into(),
             Op::ApplyToIndex { reverse: true, .. } => "Unstaging hunk".into(),
             Op::DiscardPatch(_) => "Discarding lines".into(),
+            Op::DiscardFiles { tracked, untracked } => {
+                format!(
+                    "Discarding {}",
+                    count(&[tracked.clone(), untracked.clone()].concat())
+                )
+            }
             Op::StashFiles { paths, .. } => format!("Stashing {}", count(paths)),
             Op::StashStaged { .. } => "Stashing staged changes".into(),
             Op::Commit { amend: false, .. } => "Committing".into(),
@@ -274,6 +288,16 @@ impl Op {
                 Op::Merge(source.clone()).command_line()
             );
         }
+        if let Op::DiscardFiles { tracked, untracked } = self
+            && !tracked.is_empty()
+            && !untracked.is_empty()
+        {
+            return format!(
+                "{} && {}",
+                Op::DiscardChanges(tracked.clone()).command_line(),
+                Op::DeleteUntracked(untracked.clone()).command_line()
+            );
+        }
         let args = self.args();
         git_cli::command_line(&args.iter().map(String::as_str).collect::<Vec<_>>())
     }
@@ -288,6 +312,13 @@ impl Op {
             Op::CheckoutAndMerge { source, .. } => {
                 git_cli::run(dir, &args)?;
                 git_cli::run(dir, &["merge", source])?
+            }
+            Op::DiscardFiles { tracked, untracked }
+                if !tracked.is_empty() && !untracked.is_empty() =>
+            {
+                git_cli::run(dir, &args)?;
+                let clean = with_paths(&["clean", "-f", "--"], untracked);
+                git_cli::run(dir, &clean.iter().map(String::as_str).collect::<Vec<_>>())?
             }
             _ => git_cli::run(dir, &args)?,
         };

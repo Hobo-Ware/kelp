@@ -88,7 +88,10 @@ pub fn run_recorded(op: &Op, dir: &Path) -> (anyhow::Result<String>, Outcome) {
     }
     let before = capture(dir).ok();
     let untracked = match op {
-        Op::DeleteUntracked(paths) => read_untracked(dir, paths),
+        Op::DeleteUntracked(paths)
+        | Op::DiscardFiles {
+            untracked: paths, ..
+        } => read_untracked(dir, paths),
         _ => Some(Vec::new()),
     };
     let branch_config = match op {

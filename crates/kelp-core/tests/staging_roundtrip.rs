@@ -393,6 +393,35 @@ fn stash_one_of_three_files_keeps_the_others_dirty() {
 }
 
 #[test]
+fn discard_several_files_tracked_and_untracked_with_undo() {
+    let repo = Scratch::new("discard-files");
+    repo.commit("a.txt", "a\n", "a");
+    repo.commit("b.txt", "b\n", "b");
+    std::fs::write(repo.path().join("a.txt"), "a2\n").unwrap();
+    std::fs::write(repo.path().join("b.txt"), "b2\n").unwrap();
+    std::fs::write(repo.path().join("new.txt"), "new\n").unwrap();
+    let op = Op::DiscardFiles {
+        tracked: vec!["a.txt".into()],
+        untracked: vec!["new.txt".into()],
+    };
+    assert_eq!(
+        op.command_line(),
+        "git restore -- a.txt && git clean -f -- new.txt"
+    );
+    let (result, outcome) = kelp_core::undo::run_recorded(&op, repo.path());
+    result.unwrap();
+    assert_eq!(worktree_content(&repo, "a.txt"), "a\n");
+    assert_eq!(worktree_content(&repo, "b.txt"), "b2\n");
+    assert!(!repo.path().join("new.txt").exists());
+    let kelp_core::undo::Outcome::Recorded(record) = outcome else {
+        panic!("discarding files should be undoable");
+    };
+    kelp_core::undo::undo(repo.path(), &record).unwrap();
+    assert_eq!(worktree_content(&repo, "a.txt"), "a2\n");
+    assert_eq!(worktree_content(&repo, "new.txt"), "new\n");
+}
+
+#[test]
 fn stash_staged_only() {
     let repo = Scratch::new("stash-staged");
     repo.commit("a.txt", "a\n", "a");

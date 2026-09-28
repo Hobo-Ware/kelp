@@ -73,9 +73,39 @@ pub fn write_commit_graph(dir: &Path) -> anyhow::Result<()> {
     .map(|_| ())
 }
 
+pub fn supports_stash_staged() -> bool {
+    static SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SUPPORTED.get_or_init(|| {
+        Command::new("git")
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| version_at_least(&String::from_utf8_lossy(&o.stdout), (2, 35)))
+            .unwrap_or(false)
+    })
+}
+
+fn version_at_least(version_line: &str, wanted: (u32, u32)) -> Option<bool> {
+    let version = version_line.split_whitespace().nth(2)?;
+    let mut parts = version.split('.').map(|p| p.parse::<u32>().ok());
+    let found = (parts.next()??, parts.next()??);
+    Some(found >= wanted)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::command_line;
+    use super::{command_line, version_at_least};
+
+    #[test]
+    fn git_versions_compare_by_major_and_minor() {
+        assert_eq!(version_at_least("git version 2.55.0", (2, 35)), Some(true));
+        assert_eq!(
+            version_at_least("git version 2.34.1 (Apple Git-137)", (2, 35)),
+            Some(false)
+        );
+        assert_eq!(version_at_least("git version 3.0", (2, 35)), Some(true));
+        assert_eq!(version_at_least("nope", (2, 35)), None);
+    }
 
     #[test]
     fn command_line_quotes_arguments_with_spaces() {
