@@ -25,6 +25,7 @@ pub struct State {
     worktree_tree: Option<String>,
     snapshot: Option<String>,
     branches: BTreeMap<String, String>,
+    tags: BTreeMap<String, String>,
     stashes: Vec<Stash>,
 }
 
@@ -63,11 +64,23 @@ impl Record {
 
 pub fn not_undoable_reason(op: &Op) -> Option<&'static str> {
     match op {
-        Op::Push { .. } | Op::DeleteRemoteBranch { .. } => Some("it changed the remote"),
-        Op::Fetch => Some("fetching only updates remote branches"),
-        Op::WorktreeAdd { .. } | Op::WorktreeRemove { .. } | Op::WorktreePrune => {
-            Some("worktree folders are not tracked by undo")
+        Op::Push { .. }
+        | Op::DeleteRemoteBranch { .. }
+        | Op::RenameRemoteBranch { .. }
+        | Op::PushTag { .. }
+        | Op::PushTags(_)
+        | Op::DeleteRemoteTag { .. } => Some("it changed the remote"),
+        Op::Fetch | Op::FetchRemote(_) | Op::PruneRemote(_) => {
+            Some("fetching only updates remote branches")
         }
+        Op::WorktreeAdd { .. }
+        | Op::WorktreeRemove { .. }
+        | Op::WorktreePrune
+        | Op::WorktreeMove { .. } => Some("worktree folders are not tracked by undo"),
+        Op::AddRemote { .. }
+        | Op::RenameRemote { .. }
+        | Op::RemoveRemote(_)
+        | Op::SetRemoteUrl { .. } => Some("remote settings are not tracked by undo"),
         _ => None,
     }
 }
@@ -229,16 +242,16 @@ pub fn undo(dir: &Path, record: &Record) -> anyhow::Result<Vec<String>> {
         std::fs::write(&full, bytes)?;
         run.list.push(format!("restore {}", path.display()));
     }
-    for stash in &before.stashes {
-        if !after.stashes.contains(stash) {
-            run.git(&["stash", "store", "-m", &stash.subject, &stash.sha])?;
-        }
-    }
     for stash in &after.stashes {
         if !before.stashes.contains(stash)
             && let Some(position) = list_stashes(dir)?.iter().position(|s| s == stash)
         {
             run.git(&["stash", "drop", "-q", &format!("stash@{{{position}}}")])?;
+        }
+    }
+    for stash in &before.stashes {
+        if !after.stashes.contains(stash) {
+            run.git(&["stash", "store", "-m", &stash.subject, &stash.sha])?;
         }
     }
     let _ = git_cli::run(dir, &["update-index", "-q", "--refresh"]);
@@ -274,6 +287,15 @@ fn move_state(
             (Some(target), None) => run.git(&["update-ref", &full, target])?,
             (None, Some(current)) => run.git(&["update-ref", "-d", &full, current])?,
             _ => {}
+        }
+    }
+    for name in changed(&to.tags, &from.tags) {
+        let full = format!("refs/tags/{name}");
+        match (to.tags.get(name), from.tags.get(name)) {
+            (Some(target), Some(current)) => run.git(&["update-ref", &full, target, current])?,
+            (Some(target), None) => run.git(&["update-ref", &full, target])?,
+            (None, Some(current)) => run.git(&["update-ref", "-d", &full, current])?,
+            (None, None) => {}
         }
     }
     if to.worktree_tree != from.worktree_tree {
@@ -395,6 +417,9 @@ fn matches_state(current: &State, expected: &State, other: &State) -> bool {
             .into_iter()
             .filter(|n| expected.branches.get(*n) != other.branches.get(*n))
             .all(|n| current.branches.get(n) == expected.branches.get(n))
+        && changed(&expected.tags, &other.tags)
+            .into_iter()
+            .all(|n| current.tags.get(n) == expected.tags.get(n))
 }
 
 fn still_after(dir: &Path, record: &Record, current: &State) -> bool {
@@ -405,6 +430,19 @@ fn still_after(dir: &Path, record: &Record, current: &State) -> bool {
         .iter()
         .all(|(path, _)| !dir.join(path).exists());
     matches_state(current, after, before) && stashes_kept && untracked_free
+}
+
+fn changed<'a>(
+    before: &'a BTreeMap<String, String>,
+    after: &'a BTreeMap<String, String>,
+) -> Vec<&'a String> {
+    before
+        .keys()
+        .chain(after.keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|n| before.get(*n) != after.get(*n))
+        .collect()
 }
 
 fn branch_config(dir: &Path, name: &str) -> Vec<(String, String)> {
@@ -436,16 +474,20 @@ pub fn capture(dir: &Path) -> anyhow::Result<State> {
         (None, Some(head)) => quiet(&["rev-parse", &format!("{head}^{{tree}}")]),
         (None, None) => index_tree.clone(),
     };
-    let branches = quiet(&[
-        "for-each-ref",
-        "--format=%(refname:short) %(objectname)",
-        "refs/heads",
-    ])
-    .unwrap_or_default()
-    .lines()
-    .filter_map(|l| l.rsplit_once(' '))
-    .map(|(name, sha)| (name.to_string(), sha.to_string()))
-    .collect();
+    let refs_under = |prefix: &str| -> BTreeMap<String, String> {
+        quiet(&[
+            "for-each-ref",
+            "--format=%(refname:short) %(objectname)",
+            prefix,
+        ])
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| l.rsplit_once(' '))
+        .map(|(name, sha)| (name.to_string(), sha.to_string()))
+        .collect()
+    };
+    let branches = refs_under("refs/heads");
+    let tags = refs_under("refs/tags");
     Ok(State {
         head_ref,
         head,
@@ -453,6 +495,7 @@ pub fn capture(dir: &Path) -> anyhow::Result<State> {
         worktree_tree,
         snapshot,
         branches,
+        tags,
         stashes: list_stashes(dir)?,
     })
 }

@@ -280,3 +280,175 @@ fn push_sets_upstream_then_forces_with_lease_after_a_rewrite() {
     push(false, true).run(repo.path()).unwrap();
     assert_eq!(workspace::ahead_behind(repo.path(), "main"), Some((0, 0)));
 }
+
+fn with_bare_remote(repo: &Scratch, name: &str) -> Scratch {
+    let bare_dir = repo.path().with_file_name(format!(
+        "{}-{name}.git",
+        repo.path().file_name().unwrap().to_string_lossy()
+    ));
+    let _ = std::fs::remove_dir_all(&bare_dir);
+    run(
+        repo.path().parent().unwrap(),
+        &["init", "-q", "--bare", bare_dir.to_str().unwrap()],
+    )
+    .unwrap();
+    repo.git(&["remote", "add", name, bare_dir.to_str().unwrap()]);
+    Scratch(bare_dir)
+}
+
+#[test]
+fn renaming_a_remote_branch_moves_it_and_the_upstream() {
+    let repo = Scratch::new("rename-remote-branch");
+    let bare = with_bare_remote(&repo, "origin");
+    repo.git(&["switch", "-q", "-c", "feat/old"]);
+    repo.git(&["push", "-q", "-u", "origin", "feat/old"]);
+    let op = Op::RenameRemoteBranch {
+        remote: "origin".into(),
+        from: "feat/old".into(),
+        to: "feat/new".into(),
+        tracking: Some("feat/old".into()),
+    };
+    assert_eq!(
+        op.command_line(),
+        "git push origin refs/remotes/origin/feat/old:refs/heads/feat/new \
+         && git push origin --delete feat/old \
+         && git branch --set-upstream-to=origin/feat/new feat/old"
+    );
+    op.run(repo.path()).unwrap();
+    let remote_heads = run(bare.path(), &["branch", "--format=%(refname:short)"]).unwrap();
+    assert!(remote_heads.lines().any(|l| l == "feat/new"));
+    assert!(!remote_heads.lines().any(|l| l == "feat/old"));
+    assert_eq!(
+        repo.git(&["rev-parse", "--abbrev-ref", "feat/old@{upstream}"])
+            .trim(),
+        "origin/feat/new"
+    );
+}
+
+#[test]
+fn renaming_a_stash_keeps_its_changes() {
+    let repo = Scratch::new("stash-rename");
+    std::fs::write(repo.path().join("a.txt"), "draft").unwrap();
+    Op::StashPush.run(repo.path()).unwrap();
+    let sha = repo.git(&["rev-parse", "stash@{0}"]).trim().to_string();
+    Op::StashRename {
+        stash: "stash@{0}".into(),
+        message: "half-done export".into(),
+    }
+    .run(repo.path())
+    .unwrap();
+    let list = repo.git(&["stash", "list", "--format=%H %gs"]);
+    assert_eq!(list.trim(), format!("{sha} half-done export"));
+}
+
+#[test]
+fn moving_a_worktree() {
+    let repo = Scratch::new("worktree-move");
+    let name = repo
+        .path()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    let from = repo.path().with_file_name(format!("{name}-wt"));
+    let to = repo.path().with_file_name(format!("{name}-moved"));
+    let _ = std::fs::remove_dir_all(&to);
+    repo.git(&[
+        "worktree",
+        "add",
+        "-q",
+        "-b",
+        "side",
+        from.to_str().unwrap(),
+    ]);
+    Op::WorktreeMove {
+        from: from.to_string_lossy().into(),
+        to: to.to_string_lossy().into(),
+    }
+    .run(repo.path())
+    .unwrap();
+    assert!(to.join("a.txt").exists());
+    assert!(!from.exists());
+    let _ = std::fs::remove_dir_all(&to);
+}
+
+#[test]
+fn tags_are_created_pushed_and_deleted() {
+    let repo = Scratch::new("tags");
+    let bare = with_bare_remote(&repo, "origin");
+    Op::CreateTag {
+        name: "v1".into(),
+        commit: "HEAD".into(),
+        message: None,
+    }
+    .run(repo.path())
+    .unwrap();
+    Op::CreateTag {
+        name: "v2".into(),
+        commit: "HEAD~1".into(),
+        message: Some("Second \"release\"".into()),
+    }
+    .run(repo.path())
+    .unwrap();
+    assert_eq!(repo.git(&["cat-file", "-t", "v2"]).trim(), "tag");
+    assert_eq!(
+        repo.git(&["tag", "-l", "--format=%(contents:subject)", "v2"])
+            .trim(),
+        "Second \"release\""
+    );
+    Op::PushTag {
+        remote: "origin".into(),
+        name: "v1".into(),
+    }
+    .run(repo.path())
+    .unwrap();
+    assert_eq!(run(bare.path(), &["tag"]).unwrap().trim(), "v1");
+    Op::PushTags("origin".into()).run(repo.path()).unwrap();
+    assert_eq!(run(bare.path(), &["tag"]).unwrap().lines().count(), 2);
+    Op::DeleteRemoteTag {
+        remote: "origin".into(),
+        name: "v1".into(),
+    }
+    .run(repo.path())
+    .unwrap();
+    assert_eq!(run(bare.path(), &["tag"]).unwrap().trim(), "v2");
+    Op::DeleteTag("v2".into()).run(repo.path()).unwrap();
+    assert_eq!(repo.git(&["tag"]).trim(), "v1");
+}
+
+#[test]
+fn remotes_are_added_renamed_repointed_fetched_and_removed() {
+    let repo = Scratch::new("remotes");
+    let bare = with_bare_remote(&repo, "scratch");
+    repo.git(&["push", "-q", "scratch", "main"]);
+    repo.git(&["remote", "remove", "scratch"]);
+    let url = bare.path().to_string_lossy().to_string();
+    Op::AddRemote {
+        name: "upstream".into(),
+        url: url.clone(),
+    }
+    .run(repo.path())
+    .unwrap();
+    Op::FetchRemote("upstream".into()).run(repo.path()).unwrap();
+    assert!(repo.git(&["branch", "-r"]).contains("upstream/main"));
+    Op::RenameRemote {
+        from: "upstream".into(),
+        to: "mirror".into(),
+    }
+    .run(repo.path())
+    .unwrap();
+    assert!(repo.git(&["branch", "-r"]).contains("mirror/main"));
+    Op::SetRemoteUrl {
+        name: "mirror".into(),
+        url: format!("{url}/"),
+    }
+    .run(repo.path())
+    .unwrap();
+    assert_eq!(
+        repo.git(&["remote", "get-url", "mirror"]).trim(),
+        format!("{url}/")
+    );
+    Op::PruneRemote("mirror".into()).run(repo.path()).unwrap();
+    Op::RemoveRemote("mirror".into()).run(repo.path()).unwrap();
+    assert!(repo.git(&["remote"]).trim().is_empty());
+}
