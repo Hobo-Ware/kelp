@@ -1,5 +1,4 @@
-use eframe::egui::{self, Margin, RichText, Stroke};
-use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use eframe::egui::{self, FontId, Margin, RichText, Sense, Stroke, Ui, pos2, vec2};
 use kelp_core::update::is_newer;
 
 use crate::help::Page;
@@ -104,27 +103,14 @@ pub fn on_launch(settings: &mut Settings) -> Option<WhatsNew> {
 }
 
 pub struct WhatsNew {
-    markdown: String,
-    cache: CommonMarkCache,
+    sections: Vec<Section<'static>>,
 }
 
 impl WhatsNew {
     pub fn since(after: Option<&str>) -> Option<Self> {
-        let picked = between(CHANGELOG, after, CURRENT);
-        if picked.is_empty() {
-            return None;
-        }
-        let markdown = picked
-            .iter()
-            .map(|s| format!("## {}\n\n{}", s.heading, s.body))
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        Some(Self {
-            markdown,
-            cache: CommonMarkCache::default(),
-        })
+        let sections = between(CHANGELOG, after, CURRENT);
+        (!sections.is_empty()).then_some(Self { sections })
     }
-
     fn from_env() -> Option<Self> {
         std::env::var("KELP_WHATS_NEW")
             .ok()
@@ -160,7 +146,12 @@ impl WhatsNew {
                 egui::ScrollArea::vertical()
                     .max_height(max_height)
                     .show(ui, |ui| {
-                        CommonMarkViewer::new().show(ui, &mut self.cache, &self.markdown);
+                        for (n, section) in self.sections.iter().enumerate() {
+                            if n > 0 {
+                                ui.add_space(14.0);
+                            }
+                            show_section(ui, section);
+                        }
                     });
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
@@ -181,6 +172,54 @@ impl WhatsNew {
             });
         !(modal.should_close() || modal.inner)
     }
+}
+
+const NOTE_FONT: f32 = 14.0;
+const BULLET_INDENT: f32 = 18.0;
+
+fn show_section(ui: &mut Ui, section: &Section) {
+    ui.label(
+        RichText::new(section.heading)
+            .size(15.0)
+            .family(theme::semibold())
+            .color(theme::text_strong()),
+    );
+    ui.add_space(6.0);
+    for line in section.body.lines().filter(|l| !l.trim().is_empty()) {
+        match line.strip_prefix("- ") {
+            Some(item) => bullet(ui, item),
+            None => {
+                ui.label(RichText::new(line).size(NOTE_FONT).color(theme::text()));
+            }
+        }
+        ui.add_space(4.0);
+    }
+}
+
+fn bullet(ui: &mut Ui, text: &str) {
+    let wrap = (ui.available_width() - BULLET_INDENT).max(0.0);
+    let galley = ui.painter().layout(
+        text.to_owned(),
+        FontId::proportional(NOTE_FONT),
+        theme::text(),
+        wrap,
+    );
+    let (rect, _) =
+        ui.allocate_exact_size(vec2(ui.available_width(), galley.size().y), Sense::hover());
+    let first_line_mid = galley
+        .rows
+        .first()
+        .map_or(rect.height() / 2.0, |row| row.rect().center().y);
+    ui.painter().circle_filled(
+        pos2(rect.left() + 5.0, rect.top() + first_line_mid),
+        2.5,
+        theme::text_muted(),
+    );
+    ui.painter().galley(
+        pos2(rect.left() + BULLET_INDENT, rect.top()),
+        galley,
+        theme::text(),
+    );
 }
 
 #[cfg(test)]
