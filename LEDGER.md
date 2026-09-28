@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.5.0 released. Next: v0.6 "Remotes and GitHub".
+- **Current milestone:** v0.5.1 released (Liquid Glass icon). Next: v0.6 "Remotes and GitHub".
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
