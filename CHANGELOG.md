@@ -2,6 +2,12 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.0 - 2026-09-28
+
+- After an update, Kelp shows what's new since the version you last ran.
+- New help pages on the site: getting started, shortcuts, how undo works, and a FAQ. Settings and the palette link to them, and to a changelog page.
+- The uncommitted changes of the worktree you're in now stand out from other worktrees: a solid circle in the branch color instead of a grey dashed one.
+
 ## v0.7.0 - 2026-09-28
 
 - A light theme. Kelp follows your Mac's appearance by default, and Settings lets you pick Light or Dark instead.

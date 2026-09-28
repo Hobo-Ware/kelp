@@ -262,8 +262,8 @@ milestone is a release; each item ends with a check we can run.
 | Item | Done when |
 |---|---|
 | Signed and notarized app (Developer ID), no quarantine step in the cask | Gatekeeper accepts a fresh download. |
-| In-app "What's new" after each update; changelog page on the site | Shown once per version. |
-| Docs on the site: getting started, shortcuts, how undo works, FAQ | Linked from Settings and the palette. |
+| In-app "What's new" after each update; changelog page on the site | Shown once per version. Done 2026-09-28 (v0.8.0). |
+| Docs on the site: getting started, shortcuts, how undo works, FAQ | Linked from Settings and the palette. Done 2026-09-28 (v0.8.0). |
 | Bug bash and feature freeze: two weeks of daily use on work repos with no data-loss or crash reports | Zero open P0/P1 issues. |
 
 **1.0 means:** nothing Kelp does can lose work without a way back;
