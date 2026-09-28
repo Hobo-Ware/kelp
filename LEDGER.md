@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.3.0 released. Next: v0.4 "Edit anything".
+- **Current milestone:** v0.3.1 released (pull requests inline, polish). Next: v0.4 "Edit anything".
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
