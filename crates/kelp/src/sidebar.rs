@@ -580,12 +580,49 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                     },
                 );
             }
+            let modules: Vec<_> = view
+                .workspace
+                .submodules
+                .iter()
+                .filter(|m| ref_tree::fuzzy(&format!("{} {}", m.name, m.path), &query).is_some())
+                .collect();
+            if !modules.is_empty() {
+                section(
+                    ui,
+                    "SUBMODULES",
+                    modules.len(),
+                    true,
+                    |_| {},
+                    |ui| {
+                        for module in &modules {
+                            let highlight =
+                                ref_tree::fuzzy(&module.name, &query).unwrap_or_default();
+                            let subtitle = submodule_subtitle(module);
+                            let response = Row {
+                                name: &module.name,
+                                highlight: &highlight,
+                                subtitle: Some(&subtitle),
+                                ..Row::new(submodule_color(module.state))
+                            }
+                            .show(ui);
+                            if response.double_clicked()
+                                && module.state != kelp_core::submodules::State::NotInitialized
+                            {
+                                rows.commands
+                                    .push(Command::OpenRepo(module.path.clone().into()));
+                            }
+                            response.context_menu(|ui| menus::submodule(ui, module, rows.commands));
+                        }
+                    },
+                );
+            }
             if !query.is_empty()
                 && trees.local.labels.is_empty()
                 && trees.remote.labels.is_empty()
                 && trees.tag.labels.is_empty()
                 && worktrees.is_empty()
                 && stashes.is_empty()
+                && modules.is_empty()
             {
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
@@ -765,6 +802,34 @@ fn section_menu(
             }
         }
     });
+}
+
+fn submodule_subtitle(module: &kelp_core::submodules::Submodule) -> String {
+    let short = |id: Option<gix::ObjectId>| {
+        id.map_or_else(|| "-".to_string(), |id| id.to_hex_with_len(7).to_string())
+    };
+    let mut text = format!("{} · {}", module.path, module.state.label());
+    match (module.recorded, module.checked_out) {
+        (Some(recorded), Some(current)) if recorded != current => {
+            text.push_str(&format!(
+                " · {} → {}",
+                short(Some(recorded)),
+                short(Some(current))
+            ));
+        }
+        (recorded, _) => text.push_str(&format!(" · {}", short(recorded))),
+    }
+    text
+}
+
+fn submodule_color(state: kelp_core::submodules::State) -> Color32 {
+    use kelp_core::submodules::State;
+    match state {
+        State::Clean => theme::ACCENT,
+        State::Modified | State::NewCommits => theme::MODIFIED,
+        State::Conflict => theme::DELETED,
+        State::NotInitialized => theme::TEXT_FAINT,
+    }
 }
 
 fn manage_button(ui: &mut Ui, manage: &mut bool) -> egui::Response {

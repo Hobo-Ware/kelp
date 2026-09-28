@@ -94,6 +94,16 @@ folder if it is a repo.
 - **Stashes:** stash everything, chosen files or only the staged changes (with an
   optional message), pop, apply, drop, rename, and see a stash's changes file
   by file.
+- **Signed commits:** a Verified, Unverified or unknown-key badge on each
+  signed commit, with the signer and key on hover. Settings turns signing
+  on with GPG or SSH for this repository or all of them; Kelp signs through
+  git, so terminal commits sign the same way.
+- **Submodules:** a Submodules section with each one's state (not
+  initialized, clean, modified, new commits) and recorded commit, to
+  initialize, update or open in a tab. Submodule changes in diffs show the
+  old and new commit with their titles.
+- **Git LFS:** LFS files show their size and oid, and the real content when
+  the object is on disk, so images still preview.
 - **Reflog:** every place HEAD or a branch pointed to, newest first,
   with commits that are on no branch any more marked lost. Restore the
   current branch to any entry (reset --keep, undoable), branch from it,

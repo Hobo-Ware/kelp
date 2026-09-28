@@ -125,6 +125,8 @@ impl Settings {
         ctx: &egui::Context,
         open: &mut bool,
         updater: &mut crate::updater::Updater,
+        signing: &mut crate::signing_panel::SigningPanel,
+        repo: Option<&std::path::Path>,
     ) {
         let before = self.clone();
         let modal = egui::Modal::new(egui::Id::new("kelp-settings"))
@@ -144,6 +146,11 @@ impl Settings {
                         .family(theme::semibold())
                         .color(theme::TEXT_STRONG),
                 );
+                let max_height = ui.ctx().content_rect().height() * 0.72;
+                egui::ScrollArea::vertical()
+                    .max_height(max_height)
+                    .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 12.0;
                 option(
                     ui,
                     &mut self.show_descriptions,
@@ -204,7 +211,10 @@ impl Settings {
                     );
                 });
                 ui.separator();
+                signing.ui(ui, repo);
+                ui.separator();
                 updater.settings_section(ui, &mut self.auto_update, &mut self.check_updates);
+                    });
                 ui.add_space(4.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui

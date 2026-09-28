@@ -38,6 +38,7 @@ pub struct KelpApp {
     updater: crate::updater::Updater,
     palette: Palette,
     shortcuts_open: bool,
+    signing: crate::signing_panel::SigningPanel,
     instance: Option<crate::instance::Listener>,
 }
 
@@ -126,6 +127,7 @@ impl KelpApp {
             updater: crate::updater::Updater::new(ctx.clone()),
             palette,
             shortcuts_open: std::env::var_os("KELP_OPEN_SHORTCUTS").is_some(),
+            signing: crate::signing_panel::SigningPanel::default(),
             instance: (!crate::settings::is_dev_run())
                 .then(|| {
                     crate::instance::Listener::start(&crate::instance::socket_path(), ctx.clone())
@@ -959,8 +961,14 @@ impl eframe::App for KelpApp {
         self.save_when_settled(&ctx);
         self.paint_notice(&ctx);
         if self.show_settings {
-            self.settings
-                .window(&ctx, &mut self.show_settings, &mut self.updater);
+            let repo = self.tabs.get(self.active).map(|t| t.path.clone());
+            self.settings.window(
+                &ctx,
+                &mut self.show_settings,
+                &mut self.updater,
+                &mut self.signing,
+                repo.as_deref(),
+            );
         }
     }
 }

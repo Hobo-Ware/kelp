@@ -507,7 +507,10 @@ impl DiffView {
                                 event = Event::FileHistory;
                             }
                             ui.add_space(4.0);
-                            if self.mode == Mode::Diff && self.header_squeeze < 2 {
+                            if self.mode == Mode::Diff
+                                && self.header_squeeze < 2
+                                && matches!(self.diff.body, Body::Text(_))
+                            {
                                 widgets::segmented(
                                     ui,
                                     &mut self.layout,

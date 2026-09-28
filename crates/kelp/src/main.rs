@@ -38,6 +38,8 @@ mod reflog_view;
 mod repo_view;
 mod settings;
 mod sidebar;
+mod signatures;
+mod signing_panel;
 mod staging;
 mod stash_view;
 mod theme;
