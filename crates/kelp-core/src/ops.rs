@@ -67,6 +67,14 @@ pub enum Op {
         patch: String,
         reverse: bool,
     },
+    DiscardPatch(String),
+    StashFiles {
+        paths: Vec<String>,
+        message: String,
+    },
+    StashStaged {
+        message: String,
+    },
     Commit {
         message: String,
         amend: bool,
@@ -182,6 +190,23 @@ impl Op {
             Op::ApplyToIndex { reverse: true, .. } => {
                 v(&["apply", "--cached", "--reverse", "--whitespace=nowarn", "-"])
             }
+            Op::DiscardPatch(_) => v(&["apply", "--reverse", "--whitespace=nowarn", "-"]),
+            Op::StashFiles { paths, message } => {
+                let mut args = v(&["stash", "push", "--include-untracked"]);
+                if !message.trim().is_empty() {
+                    args.extend(["-m".to_string(), message.trim().to_string()]);
+                }
+                args.push("--".to_string());
+                args.extend(paths.iter().cloned());
+                args
+            }
+            Op::StashStaged { message } => {
+                let mut args = v(&["stash", "push", "--staged"]);
+                if !message.trim().is_empty() {
+                    args.extend(["-m".to_string(), message.trim().to_string()]);
+                }
+                args
+            }
             Op::Commit {
                 message,
                 amend: false,
@@ -230,6 +255,9 @@ impl Op {
             }
             Op::ApplyToIndex { reverse: false, .. } => "Staging hunk".into(),
             Op::ApplyToIndex { reverse: true, .. } => "Unstaging hunk".into(),
+            Op::DiscardPatch(_) => "Discarding lines".into(),
+            Op::StashFiles { paths, .. } => format!("Stashing {}", count(paths)),
+            Op::StashStaged { .. } => "Stashing staged changes".into(),
             Op::Commit { amend: false, .. } => "Committing".into(),
             Op::Commit { amend: true, .. } => "Amending".into(),
             Op::CherryPick { commit, .. } => format!("Cherry-picking {}", short(commit)),
@@ -254,7 +282,9 @@ impl Op {
         let args = self.args();
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let out = match self {
-            Op::ApplyToIndex { patch, .. } => git_cli::run_with_stdin(dir, &args, patch)?,
+            Op::ApplyToIndex { patch, .. } | Op::DiscardPatch(patch) => {
+                git_cli::run_with_stdin(dir, &args, patch)?
+            }
             Op::CheckoutAndMerge { source, .. } => {
                 git_cli::run(dir, &args)?;
                 git_cli::run(dir, &["merge", source])?

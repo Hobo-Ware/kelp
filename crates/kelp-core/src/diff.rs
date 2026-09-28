@@ -306,6 +306,15 @@ pub fn lines_patch(
     Some(format!("diff --git a/{path} b/{path}\n{body}"))
 }
 
+/// Applied with `git apply --reverse` to the work tree of an unstaged diff,
+/// takes back only the chosen changed lines.
+pub fn discard_lines_patch(
+    diff: &FileDiff,
+    indexes_across_hunks: &BTreeSet<usize>,
+) -> Option<String> {
+    lines_patch(diff, indexes_across_hunks, true)
+}
+
 fn push_line(target: &mut String, line: &str, eol: &str) {
     if !target.is_empty() && !target.ends_with('\n') {
         target.push_str(eol);
