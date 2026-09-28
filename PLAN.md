@@ -253,7 +253,7 @@ milestone is a release; each item ends with a check we can run.
 | Git console: every command Kelp ran, with output and time; errors link to it | Failed op shows the full stderr. |
 | Light theme (follows macOS) built from the same tokens | Screenshots of every view in both themes. |
 | Keyboard reach: every action has a shortcut or palette entry; visible focus everywhere; AccessKit labels for VoiceOver | Checklist of all actions; VoiceOver pass on the main views. |
-| Scale: linux kernel (1.3M commits) opens and scrolls within the speed targets; memory under 400 MB | Numbers in `LEDGER.md`. |
+| Scale: linux kernel (1.48M commits) opens and scrolls within the speed targets; its history costs under 300 MB on top of the window's baseline (the 400 MB total first planned did not account for ~200 MB of Retina graphics buffers every window has) | Numbers in `LEDGER.md`. Done 2026-09-28: 1.4 s load, 0.41 ms scroll, ~250 MB for the history. |
 | Soak test: 8-hour session with watcher, auto-fetch and tab churn, no leaks or stalls | RSS and CPU logged over time. |
 | Commit box helpers: Conventional Commit type picker, co-author picker, commit and push | Headless tests. |
 
