@@ -30,6 +30,7 @@ use crate::panels::{Panels, Side};
 use crate::rebase_view::{self, HeadReach, RebaseView};
 use crate::ref_labels::MenuFor;
 use crate::settings::Settings;
+use crate::stash_view::{self, StashView};
 use crate::{details, sidebar, theme, worktrees_view};
 
 mod palette_actions;
@@ -127,6 +128,7 @@ pub enum Center {
     Conflict(Box<ConflictView>),
     Worktrees,
     Rebase(Box<RebaseView>),
+    Stash(Box<StashView>),
 }
 
 pub struct Toast {
@@ -297,6 +299,12 @@ impl Repo {
         if let Ok(commit) = std::env::var("KELP_EDIT_MESSAGE") {
             ready.open_message_editor(&commit);
         }
+        if let Ok(branch) = std::env::var("KELP_RENAME") {
+            ready.sidebar.start_rename(ctx, &branch);
+        }
+        if let Ok(stash) = std::env::var("KELP_SHOW_STASH") {
+            ready.execute(ctx, vec![Command::ShowStash(stash)]);
+        }
         if let Ok(wanted) = std::env::var("KELP_OPEN_REBASE") {
             let (base, actions) = wanted.split_once(':').unwrap_or((&wanted, ""));
             let view = RebaseView::open(ctx, ready.dir.clone(), base.to_string());
@@ -384,6 +392,26 @@ impl Repo {
                     set_upstream: false,
                     force_with_lease: true,
                 }));
+            }
+            Ok("tag") => {
+                ready.dialog = Some(Dialog::NewTag {
+                    commit: "HEAD".into(),
+                    commit_label: "HEAD".into(),
+                    name: "v1.0.0".into(),
+                    annotated: true,
+                    message: "First stable release".into(),
+                });
+            }
+            Ok("add-remote") => ready.execute(ctx, vec![menus::add_remote()]),
+            Ok("rename-remote-branch") => {
+                ready.dialog = Some(dialogs::TextDialog::open(
+                    dialogs::TextAction::RenameRemoteBranch {
+                        remote: "origin".into(),
+                        from: branch.clone(),
+                        tracking: Some(branch.clone()),
+                    },
+                    format!("{branch}-renamed"),
+                ));
             }
             _ => {}
         }
@@ -576,6 +604,12 @@ impl Repo {
     }
 
     pub fn menu_context(&self) -> MenuContext {
+        let local_branches: Vec<String> = self
+            .history
+            .refs
+            .of_kind(RefKind::Local)
+            .map(|l| l.name.clone())
+            .collect();
         MenuContext {
             current_branch: self.current_branch().map(str::to_string),
             repo_dir_name: self
@@ -584,12 +618,14 @@ impl Repo {
                 .and_then(|n| n.to_str())
                 .unwrap_or("repo")
                 .to_string(),
-            local_branches: self
-                .history
-                .refs
-                .of_kind(RefKind::Local)
-                .map(|l| l.name.clone())
+            upstreams: workspace::upstreams(&self.repo, local_branches.iter().map(String::as_str)),
+            remotes: self
+                .repo
+                .remote_names()
+                .iter()
+                .map(|r| r.to_string())
                 .collect(),
+            local_branches,
             head: self.history.refs.head.map(|h| h.to_string()),
             on_github: self.github.is_some(),
         }
@@ -683,6 +719,13 @@ impl Repo {
                     }
                 }
                 Command::CreatePullRequest(branch) => self.create_pull_request(branch),
+                Command::StartRename(branch) => self.sidebar.start_rename(ctx, &branch),
+                Command::ShowStash(name) => {
+                    match StashView::open(&self.repo, self.workdir.as_deref(), &name) {
+                        Ok(view) => self.center = Center::Stash(Box::new(view)),
+                        Err(e) => self.notify(format!("Could not open {name}: {e:#}"), true),
+                    }
+                }
                 Command::OpenInEditor(rel) => match self.working_file(&rel) {
                     Some(path) => {
                         let setting = self.editor.clone();
@@ -1243,6 +1286,12 @@ impl Repo {
         if panels != settings.panels {
             self.panels_changed = Some(panels);
         }
+        if let Some(branch) = self.sidebar.take_rename_off_screen(ui.ctx()) {
+            self.dialog = Some(Dialog::RenameBranch {
+                from: branch.clone(),
+                to: branch,
+            });
+        }
 
         if let Some(operation) = self.operation.clone() {
             let conflicted = self.status.conflicted.len();
@@ -1291,6 +1340,24 @@ impl Repo {
                     rebase_view::Event::Start(start) => commands.push(Command::StartRebase(start)),
                     rebase_view::Event::None => {}
                 },
+                Center::Stash(view) => {
+                    match view.ui(
+                        ui,
+                        &self.repo,
+                        self.workdir.as_deref(),
+                        &mut self.review,
+                        &self.author,
+                    ) {
+                        stash_view::Event::Close => self.center = Center::Graph,
+                        stash_view::Event::Diff(diff_view::Event::Run(op)) => {
+                            commands.push(Command::Run(op))
+                        }
+                        stash_view::Event::Diff(diff_view::Event::Changed) => {
+                            let _ = self.review.save();
+                        }
+                        stash_view::Event::Diff(_) | stash_view::Event::None => {}
+                    }
+                }
                 Center::Graph => self.graph_center(ui, &mut commands, settings),
             });
         let mid_x = central.response.rect.center().x;

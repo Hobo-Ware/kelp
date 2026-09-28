@@ -60,6 +60,10 @@ pub enum RepoAction {
     RevealRepo,
     OpenPullRequest,
     CreatePullRequest,
+    RenameBranch,
+    CreateTag,
+    PushTags,
+    AddRemote,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -158,6 +162,10 @@ pub static ACTIONS: &[Action] = &[
     repo("create-pull-request", "Create a pull request", "pr github new", None, Some(Icon::Merge), RepoAction::CreatePullRequest),
     repo("open-terminal", "Open in Terminal", "shell console", None, Some(Icon::Terminal), RepoAction::OpenTerminal),
     repo("reveal-repo", "Reveal the repository in Finder", "folder show", None, Some(Icon::Folder), RepoAction::RevealRepo),
+    repo("rename-branch", "Rename the current branch…", "branch name move", None, Some(Icon::Pencil), RepoAction::RenameBranch),
+    repo("create-tag", "Create a tag on the selected commit…", "tag release version", None, Some(Icon::Tag), RepoAction::CreateTag),
+    repo("push-tags", "Push all tags", "tag release upload", None, Some(Icon::Push), RepoAction::PushTags),
+    repo("add-remote", "Add a remote…", "remote origin upstream fork url", None, Some(Icon::Plus), RepoAction::AddRemote),
     app("new-tab", "New tab", "recent repositories welcome home", Some("Cmd+T"), None, AppAction::NewTab),
     app("open-repo", "Open a folder…", "repository open folder", Some("Cmd+O"), Some(Icon::Folder), AppAction::OpenRepo),
     app("clone", "Clone a repository…", "download url remote", None, None, AppAction::Clone),
@@ -211,7 +219,7 @@ impl State {
     fn allows_repo(&self, action: RepoAction) -> bool {
         use RepoAction::*;
         match action {
-            Pull | Push | CopyBranchName => self.branch,
+            Pull | Push | CopyBranchName | RenameBranch => self.branch,
             NewWorktree | OpenTerminal => self.workdir,
             Stash | ShowChanges => self.changes,
             StageAll => self.unstaged,
@@ -223,8 +231,9 @@ impl State {
             OpenPullRequest => self.pull,
             CreatePullRequest => self.github && self.branch && !self.pull,
             CheckoutCommit | CherryPick | Revert | InteractiveRebase | EditMessage
-            | CopyCommitHash => self.commit_selected,
-            Fetch | NewBranch | Refresh | Search | ShowGraph | ShowWorktrees | RevealRepo => true,
+            | CopyCommitHash | CreateTag => self.commit_selected,
+            Fetch | NewBranch | Refresh | Search | ShowGraph | ShowWorktrees | RevealRepo
+            | PushTags | AddRemote => true,
         }
     }
 }
@@ -246,6 +255,7 @@ pub static KEYS: &[KeyRow] = &[
     key("Up / Down, J / K", "Move through commits", Group::Navigation),
     key("Cmd+F", "Search; Enter / Shift+Enter for next / previous", Group::Navigation),
     key("Cmd+Opt+F", "Filter the sidebar; Esc clears", Group::Navigation),
+    key("F2", "Rename the selected branch; Enter saves, Esc cancels", Group::Actions),
     key("Esc", "Back to the graph, close search or dialogs", Group::Navigation),
     key("Cmd+T", "New tab: recent repositories, open, clone or create one", Group::Tabs),
     key("Cmd+O", "Open a folder in a new tab", Group::Tabs),
@@ -317,6 +327,10 @@ mod tests {
             "create-pull-request",
             "open-terminal",
             "reveal-repo",
+            "rename-branch",
+            "create-tag",
+            "push-tags",
+            "add-remote",
             "new-tab",
             "open-repo",
             "clone",

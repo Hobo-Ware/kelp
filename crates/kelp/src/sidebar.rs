@@ -32,6 +32,20 @@ pub struct State {
     focus_filter: bool,
     trees: Option<(u64, Arc<Trees>)>,
     merged: Merged,
+    renaming: Option<Rename>,
+}
+
+pub struct Rename {
+    pub branch: String,
+    pub error: Option<String>,
+    started_frame: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RenameEvent {
+    Editing,
+    Apply(String),
+    Cancel,
 }
 
 #[derive(Default)]
@@ -61,6 +75,7 @@ enum Action {
     Sort(RefKind, Sort),
     HideMerged(bool),
     CollapseAll(RefKind),
+    Rename(RenameEvent),
 }
 
 impl State {
@@ -72,7 +87,65 @@ impl State {
             focus_filter: false,
             trees: None,
             merged: Merged::default(),
+            renaming: None,
         }
+    }
+
+    pub fn start_rename(&mut self, ctx: &egui::Context, branch: &str) {
+        let mut prefix = String::new();
+        for part in branch.split('/').take(branch.matches('/').count()) {
+            if !prefix.is_empty() {
+                prefix.push('/');
+            }
+            prefix.push_str(part);
+            self.prefs
+                .open_folders
+                .insert(folder_key(RefKind::Local, &prefix));
+        }
+        self.trees = None;
+        ctx.data_mut(|d| d.remove::<String>(rename_id(branch)));
+        self.renaming = Some(Rename {
+            branch: branch.to_string(),
+            error: None,
+            started_frame: ctx.cumulative_frame_nr(),
+        });
+    }
+
+    fn finish_rename(
+        &mut self,
+        event: RenameEvent,
+        dir: &std::path::Path,
+        taken: &[String],
+        commands: &mut Vec<Command>,
+    ) {
+        let Some(rename) = &mut self.renaming else {
+            return;
+        };
+        match event {
+            RenameEvent::Apply(to) if to == rename.branch => self.renaming = None,
+            RenameEvent::Apply(to) => match branch_name_error(dir, &to, taken) {
+                Some(error) => rename.error = Some(error),
+                None => {
+                    commands.push(Command::Run(kelp_core::ops::Op::RenameBranch {
+                        from: rename.branch.clone(),
+                        to,
+                    }));
+                    self.renaming = None;
+                }
+            },
+            RenameEvent::Cancel => self.renaming = None,
+            RenameEvent::Editing => {}
+        }
+    }
+
+    pub fn take_rename_off_screen(&mut self, ctx: &egui::Context) -> Option<String> {
+        let rename = self.renaming.as_ref()?;
+        let frame = ctx.cumulative_frame_nr();
+        let shown = ctx.data(|d| d.get_temp::<u64>(rename_shown_id())) == Some(frame);
+        if shown || frame <= rename.started_frame + 1 {
+            return None;
+        }
+        self.renaming.take().map(|r| r.branch)
     }
 
     fn apply(&mut self, actions: Vec<Action>) {
@@ -89,6 +162,7 @@ impl State {
                     let prefix = format!("{}:", section_key(kind));
                     self.prefs.open_folders.retain(|k| !k.starts_with(&prefix));
                 }
+                Action::Rename(_) => {}
             }
         }
         self.trees = None;
@@ -279,18 +353,97 @@ fn folder_key(kind: RefKind, path: &str) -> String {
     format!("{}:{path}", section_key(kind))
 }
 
+fn rename_id(branch: &str) -> egui::Id {
+    egui::Id::new(("rename-branch", branch))
+}
+
+fn rename_shown_id() -> egui::Id {
+    egui::Id::new("rename-branch-shown")
+}
+
+pub fn branch_name_error(dir: &std::path::Path, name: &str, taken: &[String]) -> Option<String> {
+    if name.is_empty() {
+        return Some("Type a name".into());
+    }
+    if taken.iter().any(|b| b == name) {
+        return Some(format!("{name} already exists"));
+    }
+    kelp_core::git_cli::run(dir, &["check-ref-format", "--branch", name])
+        .err()
+        .map(|_| "Not a valid branch name".into())
+}
+
+pub fn rename_field(ui: &mut Ui, branch: &str, error: Option<&str>, indent: f32) -> RenameEvent {
+    let id = rename_id(branch);
+    let mut draft = ui.data_mut(|d| {
+        d.get_temp::<String>(id)
+            .unwrap_or_else(|| branch.to_string())
+    });
+    let frame = ui.ctx().cumulative_frame_nr();
+    ui.data_mut(|d| d.insert_temp(rename_shown_id(), frame));
+    let mut event = RenameEvent::Editing;
+    ui.horizontal(|ui| {
+        ui.add_space(indent + 22.0);
+        let edit = ui.add(
+            egui::TextEdit::singleline(&mut draft)
+                .id(id.with("edit"))
+                .font(FontId::proportional(13.0))
+                .desired_width(ui.available_width() - 12.0)
+                .margin(egui::Margin::symmetric(6, 4)),
+        );
+        let first = ui.data(|d| d.get_temp::<bool>(id.with("focused")).is_none());
+        if first {
+            edit.request_focus();
+            ui.data_mut(|d| d.insert_temp(id.with("focused"), true));
+        }
+        let (enter, escape) = ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
+        if escape {
+            event = RenameEvent::Cancel;
+        } else if enter && (edit.has_focus() || edit.lost_focus()) {
+            event = RenameEvent::Apply(draft.trim().to_string());
+        } else if edit.lost_focus() && !first {
+            event = RenameEvent::Cancel;
+        }
+    });
+    if let Some(error) = error {
+        ui.horizontal(|ui| {
+            ui.add_space(indent + 24.0);
+            ui.label(RichText::new(error).size(11.5).color(theme::DELETED));
+        });
+    }
+    ui.add_space(2.0);
+    match event {
+        RenameEvent::Editing | RenameEvent::Apply(_) => {
+            ui.data_mut(|d| d.insert_temp(id, draft));
+        }
+        RenameEvent::Cancel => ui.data_mut(|d| {
+            d.remove::<String>(id);
+            d.remove::<bool>(id.with("focused"));
+        }),
+    }
+    event
+}
+
 struct RefRows<'a> {
     labels: &'a [RefLabel],
     repo: &'a Repo,
     menu_ctx: &'a MenuContext,
     filtering_view: bool,
     pinned: &'a std::collections::BTreeSet<String>,
+    renaming: Option<&'a Rename>,
     commands: &'a mut Vec<Command>,
     actions: &'a mut Vec<Action>,
 }
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
     let mut actions = Vec::new();
+    if repo.sidebar.renaming.is_none()
+        && !ui.ctx().egui_wants_keyboard_input()
+        && ui.input(|i| i.key_pressed(Key::F2))
+        && let Some(branch) = selected_local_branch(repo)
+    {
+        repo.sidebar.start_rename(ui.ctx(), &branch);
+    }
     filter_box(ui, &mut repo.sidebar);
     let refs_key = refs_key(&repo.history.refs.labels);
     let dir = repo.dir.clone();
@@ -314,6 +467,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                 menu_ctx: &menu_ctx,
                 filtering_view: view.view.is_filtering(),
                 pinned: &state.prefs.pinned,
+                renaming: state.renaming.as_ref(),
                 commands,
                 actions: &mut actions,
             };
@@ -373,12 +527,19 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                 let sort = state.sort(kind);
                 let hide_merged = state.prefs.hide_merged;
                 let header_actions = &mut Vec::new();
+                let header_commands = &mut Vec::new();
+                let header = SectionHeader {
+                    kind,
+                    sort,
+                    hide_merged,
+                    ctx: &menu_ctx,
+                };
                 section(
                     ui,
                     title,
                     tree.labels.len(),
                     kind != RefKind::Tag,
-                    |ui| section_menu(ui, kind, sort, hide_merged, header_actions),
+                    |ui| section_menu(ui, &header, header_actions, header_commands),
                     |ui| {
                         show_nodes(ui, &tree.nodes, 0, kind, tree, state, &mut rows);
                         if tree.merged_hidden > 0 {
@@ -387,6 +548,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                     },
                 );
                 rows.actions.append(header_actions);
+                rows.commands.append(header_commands);
             }
 
             let stashes: Vec<_> = view
@@ -436,7 +598,36 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                 });
             }
         });
+    let (renames, actions): (Vec<Action>, Vec<Action>) = actions
+        .into_iter()
+        .partition(|a| matches!(a, Action::Rename(_)));
+    let taken = menu_ctx.local_branches.clone();
+    for action in renames {
+        if let Action::Rename(event) = action {
+            repo.sidebar.finish_rename(event, &dir, &taken, commands);
+        }
+    }
     repo.sidebar.apply(actions);
+}
+
+fn selected_local_branch(repo: &Repo) -> Option<String> {
+    let Some(Selection::Commit(row)) = repo.selected else {
+        return None;
+    };
+    let mut at_row = repo
+        .history
+        .refs
+        .of_kind(RefKind::Local)
+        .filter(|l| l.row == Some(row as u32));
+    let first = at_row.next()?;
+    Some(
+        std::iter::once(first)
+            .chain(at_row)
+            .find(|l| l.is_head)
+            .unwrap_or(first)
+            .name
+            .clone(),
+    )
 }
 
 fn filter_box(ui: &mut Ui, state: &mut State) {
@@ -491,13 +682,25 @@ fn clear_button(ui: &mut Ui, field: egui::Rect) -> bool {
     response.clicked()
 }
 
-fn section_menu(
-    ui: &mut Ui,
+struct SectionHeader<'a> {
     kind: RefKind,
     sort: Sort,
     hide_merged: bool,
+    ctx: &'a MenuContext,
+}
+
+fn section_menu(
+    ui: &mut Ui,
+    header: &SectionHeader<'_>,
     actions: &mut Vec<Action>,
+    commands: &mut Vec<Command>,
 ) {
+    let SectionHeader {
+        kind,
+        sort,
+        hide_merged,
+        ctx,
+    } = *header;
     let (rect, response) = ui.allocate_exact_size(vec2(22.0, 18.0), Sense::click());
     let color = if response.hovered() {
         theme::TEXT_STRONG
@@ -538,6 +741,23 @@ fn section_menu(
         }
         if menus::row(ui, Some(Icon::Minus), "Collapse all folders", None, false) {
             actions.push(Action::CollapseAll(kind));
+        }
+        match kind {
+            RefKind::Remote => {
+                menus::separator(ui);
+                if menus::row(ui, Some(Icon::Plus), "Add remote…", None, false) {
+                    commands.push(menus::add_remote());
+                }
+            }
+            RefKind::Tag => {
+                if let Some(push) = menus::push_all_tags(ctx) {
+                    menus::separator(ui);
+                    if menus::row(ui, Some(Icon::Push), "Push all tags", None, false) {
+                        commands.push(push);
+                    }
+                }
+            }
+            RefKind::Local => {}
         }
     });
 }
@@ -631,7 +851,7 @@ fn show_nodes(
                             .get(&l.name)
                             .is_some_and(|(a, b)| *a > 0 || *b > 0)
                     });
-                if folder_row(
+                let response = folder_row(
                     ui,
                     &folder.label,
                     folder.count,
@@ -639,9 +859,21 @@ fn show_nodes(
                     open,
                     has_head,
                     pending,
-                ) {
+                );
+                if response.clicked() {
                     rows.actions
                         .push(Action::ToggleFolder(folder_key(kind, &folder.path)));
+                }
+                let is_remote = kind == RefKind::Remote
+                    && depth == 0
+                    && rows.menu_ctx.remotes.contains(&folder.path);
+                if is_remote {
+                    let commands = &mut *rows.commands;
+                    response.context_menu(|ui| {
+                        ui.set_min_width(230.0);
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        menus::remote_items(ui, &folder.path, commands);
+                    });
                 }
                 if open {
                     show_nodes(ui, &folder.children, depth + 1, kind, tree, state, rows);
@@ -659,7 +891,7 @@ fn folder_row(
     open: bool,
     has_head: bool,
     pending: bool,
-) -> bool {
+) -> egui::Response {
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), FOLDER_H), Sense::click());
     let painter = ui.painter_at(rect);
@@ -723,12 +955,11 @@ fn folder_row(
         _ => "",
     };
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
-    let response = if hint.is_empty() {
+    if hint.is_empty() {
         response
     } else {
         response.on_hover_text(hint)
-    };
-    response.clicked()
+    }
 }
 
 impl RefRows<'_> {
@@ -768,6 +999,16 @@ impl RefRows<'_> {
         } else {
             badge
         };
+        if kind == RefKind::Local
+            && !in_pinned
+            && let Some(rename) = self.renaming.filter(|r| r.branch == label.name)
+        {
+            let event = rename_field(ui, &label.name, rename.error.as_deref(), indent);
+            if event != RenameEvent::Editing {
+                self.actions.push(Action::Rename(event));
+            }
+            return;
+        }
         let full_name = label.full_name();
         let pinned = self.pinned.contains(&full_name);
         let mut pull_clicked = false;
@@ -1192,5 +1433,87 @@ mod tests {
             .map(|s| &job.text[s.byte_range.start.0..s.byte_range.end.0])
             .collect();
         assert_eq!(parts, ["feat/de", "light", "ers"]);
+    }
+
+    fn rename_frame(ctx: &egui::Context, events: Vec<Event>) -> super::RenameEvent {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(300.0, 120.0))),
+            events,
+            ..Default::default()
+        };
+        let mut event = super::RenameEvent::Editing;
+        let _ = ctx.run_ui(input, |ui| {
+            event = super::rename_field(ui, "feat/old", None, 0.0);
+        });
+        event
+    }
+
+    fn key(key: egui::Key) -> Vec<Event> {
+        [true, false]
+            .into_iter()
+            .map(|pressed| Event::Key {
+                key,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: Default::default(),
+            })
+            .collect()
+    }
+
+    fn select_all() -> Vec<Event> {
+        [true, false]
+            .into_iter()
+            .map(|pressed| Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::COMMAND,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn typing_a_name_and_enter_applies_it() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        rename_frame(&ctx, vec![]);
+        rename_frame(&ctx, select_all());
+        rename_frame(&ctx, vec![Event::Text("feat/new".into())]);
+        assert_eq!(
+            rename_frame(&ctx, key(egui::Key::Enter)),
+            super::RenameEvent::Apply("feat/new".into())
+        );
+    }
+
+    #[test]
+    fn escape_cancels_the_rename() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        rename_frame(&ctx, vec![]);
+        rename_frame(&ctx, vec![Event::Text("x".into())]);
+        assert_eq!(
+            rename_frame(&ctx, key(egui::Key::Escape)),
+            super::RenameEvent::Cancel
+        );
+    }
+
+    #[test]
+    fn bad_names_are_rejected_with_a_reason() {
+        let dir = std::env::temp_dir();
+        let taken = vec!["main".to_string()];
+        let error = |name: &str| super::branch_name_error(&dir, name, &taken);
+        assert_eq!(error("").as_deref(), Some("Type a name"));
+        assert_eq!(error("main").as_deref(), Some("main already exists"));
+        assert_eq!(
+            error("has space").as_deref(),
+            Some("Not a valid branch name")
+        );
+        assert_eq!(
+            error("feat/..x").as_deref(),
+            Some("Not a valid branch name")
+        );
+        assert_eq!(error("feat/ok"), None);
     }
 }

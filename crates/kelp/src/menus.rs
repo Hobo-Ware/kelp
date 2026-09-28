@@ -6,7 +6,7 @@ use kelp_core::refs::{RefKind, RefLabel};
 use kelp_core::workspace::{Stash, Worktree};
 
 use crate::commands::Command;
-use crate::dialogs::{Dialog, NewWorktree};
+use crate::dialogs::{Dialog, NewWorktree, TextAction, TextDialog};
 use crate::icons::{self, Icon};
 use crate::ref_labels::{self, DropChoice, DropPlan};
 use crate::theme;
@@ -17,6 +17,21 @@ pub struct MenuContext {
     pub local_branches: Vec<String>,
     pub head: Option<String>,
     pub on_github: bool,
+    pub remotes: Vec<String>,
+    pub upstreams: Vec<(String, String)>,
+}
+
+impl MenuContext {
+    pub fn tracking(&self, remote_branch: &str) -> Option<String> {
+        self.upstreams
+            .iter()
+            .find(|(_, upstream)| upstream == remote_branch)
+            .map(|(local, _)| local.clone())
+    }
+
+    pub fn push_remote(&self) -> Option<String> {
+        kelp_core::workspace::default_push_remote(&self.remotes)
+    }
 }
 
 const ROW_H: f32 = 30.0;
@@ -238,10 +253,7 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
                 new_branch(&name, &name)
             });
             sink.item(Icon::Pencil, "Rename…", &|| {
-                Command::Open(Dialog::RenameBranch {
-                    from: name.clone(),
-                    to: name.clone(),
-                })
+                Command::StartRename(name.clone())
             });
             sink.separator();
             if let Some(current) = current.filter(|c| *c != name) {
@@ -315,6 +327,16 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
             sink.separator();
             if let Some((remote, branch)) = name.split_once('/') {
                 let (remote, branch) = (remote.to_string(), branch.to_string());
+                sink.item(Icon::Pencil, "Rename on remote…", &|| {
+                    Command::Open(TextDialog::open(
+                        TextAction::RenameRemoteBranch {
+                            remote: remote.clone(),
+                            from: branch.clone(),
+                            tracking: ctx.tracking(&name),
+                        },
+                        branch.clone(),
+                    ))
+                });
                 sink.danger(Icon::Trash, "Delete remote branch…", &|| {
                     confirm(
                         format!("Delete {name} on {remote}?"),
@@ -336,6 +358,42 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
                 new_branch("", &name)
             });
             sink.item(Icon::Copy, "Copy tag name", &|| Command::Copy(name.clone()));
+            sink.separator();
+            for remote in &ctx.remotes {
+                let text = if ctx.remotes.len() == 1 {
+                    "Push tag".to_string()
+                } else {
+                    format!("Push tag to {remote}")
+                };
+                sink.item(Icon::Push, &text, &|| {
+                    Command::Run(Op::PushTag {
+                        remote: remote.clone(),
+                        name: name.clone(),
+                    })
+                });
+            }
+            sink.separator();
+            sink.danger(Icon::Trash, "Delete tag…", &|| {
+                confirm(
+                    format!("Delete tag {name}?"),
+                    "Only the local tag is removed. Undo brings it back.",
+                    Op::DeleteTag(name.clone()),
+                    true,
+                )
+            });
+            if let Some(remote) = ctx.push_remote() {
+                sink.danger(Icon::Trash, &format!("Delete tag on {remote}…"), &|| {
+                    confirm(
+                        format!("Delete tag {name} on {remote}?"),
+                        "This removes the tag for everyone using this remote.",
+                        Op::DeleteRemoteTag {
+                            remote: remote.clone(),
+                            name: name.clone(),
+                        },
+                        true,
+                    )
+                });
+            }
         }
     }
 }
@@ -365,6 +423,15 @@ pub fn commit(
             None,
             ctx.local_branches.clone(),
         )))
+    });
+    item(ui, Icon::Tag, "Create tag here…", out, || {
+        Command::Open(Dialog::NewTag {
+            commit: id.to_string(),
+            commit_label: short.to_string(),
+            name: String::new(),
+            annotated: false,
+            message: String::new(),
+        })
     });
     separator(ui);
     let merge = parents > 1;
@@ -544,6 +611,18 @@ pub fn wip(ui: &mut Ui, out: &mut Vec<Command>) {
 pub fn stash(ui: &mut Ui, stash: &Stash, out: &mut Vec<Command>) {
     menu_width(ui, 200.0);
     heading(ui, &stash.name);
+    item(ui, Icon::Eye, "Show changes", out, || {
+        Command::ShowStash(stash.name.clone())
+    });
+    item(ui, Icon::Pencil, "Rename…", out, || {
+        Command::Open(TextDialog::open(
+            TextAction::RenameStash {
+                stash: stash.name.clone(),
+            },
+            stash.message.clone(),
+        ))
+    });
+    separator(ui);
     item(ui, Icon::Pop, "Apply", out, || {
         Command::Run(Op::StashApply(stash.name.clone()))
     });
@@ -572,11 +651,65 @@ pub fn worktree(ui: &mut Ui, tree: &Worktree, out: &mut Vec<Command>) {
         Command::Copy(tree.path.display().to_string())
     });
     if !tree.is_main {
+        item(ui, Icon::Folder, "Move…", out, || {
+            move_worktree(&tree.path)
+        });
         separator(ui);
         danger(ui, Icon::Trash, "Remove…", out, || {
             remove_worktree(&tree.path)
         });
     }
+}
+
+pub fn move_worktree(path: &Path) -> Command {
+    let from = path.display().to_string();
+    Command::Open(TextDialog::open(
+        TextAction::MoveWorktree { from: from.clone() },
+        from,
+    ))
+}
+
+pub fn remote_items(ui: &mut Ui, remote: &str, out: &mut Vec<Command>) {
+    let name = remote.to_string();
+    item(ui, Icon::Fetch, &format!("Fetch {remote}"), out, || {
+        Command::Run(Op::FetchRemote(name.clone()))
+    });
+    item(ui, Icon::Fetch, "Prune stale branches", out, || {
+        Command::Run(Op::PruneRemote(name.clone()))
+    });
+    item(ui, Icon::Pencil, "Rename remote…", out, || {
+        Command::Open(TextDialog::open(
+            TextAction::RenameRemote { from: name.clone() },
+            name.clone(),
+        ))
+    });
+    item(ui, Icon::Pencil, "Change URL…", out, || {
+        Command::Open(TextDialog::open(
+            TextAction::SetRemoteUrl { name: name.clone() },
+            String::new(),
+        ))
+    });
+    separator(ui);
+    danger(ui, Icon::Trash, "Remove remote…", out, || {
+        confirm(
+            format!("Remove remote {name}?"),
+            "Its remote branches disappear from Kelp. Branches on the server are not touched.",
+            Op::RemoveRemote(name.clone()),
+            true,
+        )
+    });
+}
+
+pub fn add_remote() -> Command {
+    Command::Open(Dialog::AddRemote {
+        name: String::new(),
+        url: String::new(),
+    })
+}
+
+pub fn push_all_tags(ctx: &MenuContext) -> Option<Command> {
+    ctx.push_remote()
+        .map(|remote| Command::Run(Op::PushTags(remote)))
 }
 
 pub fn remove_worktree(path: &Path) -> Command {
@@ -687,6 +820,8 @@ mod tests {
             local_branches: vec!["main".into(), "feat/a".into()],
             head: None,
             on_github,
+            remotes: vec!["origin".into()],
+            upstreams: vec![("feat/a".into(), "origin/feat/a".into())],
         }
     }
 

@@ -34,6 +34,7 @@ mod repo_view;
 mod settings;
 mod sidebar;
 mod staging;
+mod stash_view;
 mod theme;
 mod updater;
 mod welcome;

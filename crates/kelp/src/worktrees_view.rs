@@ -12,7 +12,7 @@ use crate::{graph_view, menus, theme};
 
 const ROW_H: f32 = 52.0;
 const BRANCH_ROW_H: f32 = 44.0;
-const WORKTREE_COLS: [f32; 5] = [0.19, 0.22, 0.31, 0.12, 0.16];
+const WORKTREE_COLS: [f32; 5] = [0.17, 0.2, 0.27, 0.11, 0.25];
 const BRANCH_COLS: [f32; 5] = [0.26, 0.13, 0.33, 0.15, 0.13];
 
 pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
@@ -154,6 +154,13 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 );
                                 if remove.clicked() {
                                     commands.push(menus::remove_worktree(&wt.tree.path));
+                                }
+                                if actions
+                                    .add_enabled(!wt.tree.is_main && !current, plain_button("Move"))
+                                    .on_hover_text("git worktree move")
+                                    .clicked()
+                                {
+                                    commands.push(menus::move_worktree(&wt.tree.path));
                                 }
                                 if actions
                                     .add_enabled(

@@ -171,6 +171,20 @@ impl Repo {
             RepoAction::CopyBranchName => {
                 self.current_branch().map(|b| Command::Copy(b.to_string()))
             }
+            RepoAction::RenameBranch => self
+                .current_branch()
+                .map(|b| Command::StartRename(b.to_string())),
+            RepoAction::CreateTag => self.selected_commit().map(|(id, _)| {
+                Command::Open(crate::dialogs::Dialog::NewTag {
+                    commit_label: id[..7.min(id.len())].to_string(),
+                    commit: id,
+                    name: String::new(),
+                    annotated: false,
+                    message: String::new(),
+                })
+            }),
+            RepoAction::PushTags => crate::menus::push_all_tags(&self.menu_context()),
+            RepoAction::AddRemote => Some(crate::menus::add_remote()),
             RepoAction::OpenTerminal => self.workdir.clone().map(Command::OpenTerminal),
             RepoAction::OpenPullRequest => {
                 self.current_pull().map(|p| Command::OpenUrl(p.url.clone()))

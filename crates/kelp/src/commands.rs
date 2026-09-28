@@ -28,4 +28,6 @@ pub enum Command {
     TogglePanel(crate::panels::Side),
     OpenUrl(String),
     CreatePullRequest(String),
+    StartRename(String),
+    ShowStash(String),
 }
