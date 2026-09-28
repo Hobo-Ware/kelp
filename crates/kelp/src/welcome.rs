@@ -196,7 +196,7 @@ impl Welcome {
                         action = Some(Action::Open(recent.path.clone()));
                     }
                     response.context_menu(|ui| {
-                        ui.set_min_width(200.0);
+                        crate::menus::menu_width(ui, 200.0);
                         ui.spacing_mut().item_spacing.y = 0.0;
                         if menus::row(ui, Some(Icon::Folder), "Reveal in Finder", None, false) {
                             action = Some(Action::Reveal(recent.path.clone()));

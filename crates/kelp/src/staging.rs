@@ -238,7 +238,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                         actions.push(Action::Open(change.path.clone(), false));
                     }
                     row.context_menu(|ui| {
-                        ui.set_min_width(210.0);
+                        crate::menus::menu_width(ui, 210.0);
                         ui.spacing_mut().item_spacing.y = 0.0;
                         if menus::row(ui, Some(Icon::Plus), "Stage", None, false) {
                             actions.push(Action::Run(Op::Stage(vec![change.path.clone()])));
@@ -326,7 +326,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                         actions.push(Action::Open(change.path.clone(), true));
                     }
                     row.context_menu(|ui| {
-                        ui.set_min_width(210.0);
+                        crate::menus::menu_width(ui, 210.0);
                         ui.spacing_mut().item_spacing.y = 0.0;
                         if menus::row(ui, Some(Icon::Minus), "Unstage", None, false) {
                             actions.push(Action::Run(Op::Unstage {
