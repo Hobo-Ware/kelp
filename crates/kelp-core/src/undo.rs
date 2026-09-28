@@ -77,6 +77,7 @@ pub fn not_undoable_reason(op: &Op) -> Option<&'static str> {
         | Op::WorktreeRemove { .. }
         | Op::WorktreePrune
         | Op::WorktreeMove { .. } => Some("worktree folders are not tracked by undo"),
+        Op::SubmoduleUpdate { .. } => Some("submodules are separate repositories"),
         Op::AddRemote { .. }
         | Op::RenameRemote { .. }
         | Op::RemoveRemote(_)

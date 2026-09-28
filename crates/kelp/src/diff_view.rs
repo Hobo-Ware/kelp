@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use eframe::egui::{
     self, Align2, Color32, CursorIcon, FontId, Key, Margin, Modifiers, Rect, RichText, Sense,
@@ -98,6 +99,7 @@ pub struct DiffView {
     expanded: HashMap<u64, bool>,
     pending: Option<Op>,
     header_squeeze: u8,
+    lfs_hint: bool,
     embedded: bool,
     ask: Option<Dialog>,
     preview: Option<Preview>,
@@ -201,6 +203,7 @@ impl DiffView {
             (_, DiffSource::File(_)) => Mode::File,
             _ => Mode::Diff,
         };
+        let lfs_hint = lfs_hint_due(&diff);
         Ok(Self {
             source,
             old_path: old_path.map(str::to_string),
@@ -218,6 +221,7 @@ impl DiffView {
             pending: None,
             header_squeeze: 0,
             embedded: false,
+            lfs_hint,
             ask: None,
             preview,
             file_change_starts,
@@ -261,6 +265,7 @@ impl DiffView {
         self.replies = kept.replies;
         self.expanded = kept.expanded;
         self.header_squeeze = kept.header_squeeze;
+        self.lfs_hint = kept.lfs_hint;
         self.embedded = kept.embedded;
         self.scroll_y = kept.scroll_y;
         self.blame = kept.blame;
@@ -426,6 +431,7 @@ impl DiffView {
             }
         }
         let mut event = self.header(ui, review);
+        self.lfs_strip(ui);
         if self.mode == Mode::Preview
             && let Some(preview) = &mut self.preview
         {
@@ -445,6 +451,7 @@ impl DiffView {
             return event;
         }
         match &self.diff.body {
+            Body::Submodule(change) => submodule_card(ui, change),
             Body::Binary => notice(ui, "Binary file, no text to show."),
             Body::TooLarge => notice(ui, "This file is too large to show here."),
             Body::Text(_) if self.mode == Mode::Diff && self.lines.is_empty() => {
@@ -1541,6 +1548,78 @@ fn next_squeeze(level: u8, title_w: f32) -> u8 {
     } else {
         level
     }
+}
+
+static LFS_HINT_SHOWN: AtomicBool = AtomicBool::new(false);
+
+fn lfs_hint_due(diff: &FileDiff) -> bool {
+    !diff.lfs.is_empty()
+        && !kelp_core::lfs::installed()
+        && !LFS_HINT_SHOWN.swap(true, Ordering::Relaxed)
+}
+
+impl DiffView {
+    fn lfs_strip(&self, ui: &mut Ui) {
+        let Some(pointer) = self.diff.lfs.shown() else {
+            return;
+        };
+        let mut text = format!(
+            "LFS file · {} · oid {}",
+            human_bytes(pointer.size),
+            &pointer.oid[..12]
+        );
+        if self.lfs_hint {
+            text.push_str(" · Git LFS isn't installed, so only the pointer can be shown");
+        }
+        egui::Frame::new()
+            .fill(theme::with_alpha(theme::ACCENT, 0x14))
+            .inner_margin(Margin::symmetric(16, 6))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(RichText::new(text).size(12.0).color(theme::TEXT_MUTED));
+            });
+    }
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    match bytes as f64 {
+        b if b < KB => format!("{bytes} B"),
+        b if b < KB * KB => format!("{:.1} KB", b / KB),
+        b if b < KB * KB * KB => format!("{:.1} MB", b / (KB * KB)),
+        b => format!("{:.1} GB", b / (KB * KB * KB)),
+    }
+}
+
+fn submodule_card(ui: &mut Ui, change: &kelp_core::submodules::Change) {
+    let side = |id: Option<ObjectId>, title: &Option<String>| -> String {
+        match (id, title) {
+            (None, _) => "none".to_string(),
+            (Some(id), Some(title)) => format!("{} {title}", id.to_hex_with_len(7)),
+            (Some(id), None) => format!("{} (not checked out here)", id.to_hex_with_len(7)),
+        }
+    };
+    egui::Frame::new()
+        .inner_margin(Margin::symmetric(24, 20))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 8.0;
+            ui.label(
+                RichText::new(format!("Submodule {}", change.path))
+                    .size(14.0)
+                    .family(theme::semibold())
+                    .color(theme::TEXT_STRONG),
+            );
+            ui.label(
+                RichText::new(format!("- {}", side(change.old, &change.old_title)))
+                    .monospace()
+                    .color(theme::DELETED),
+            );
+            ui.label(
+                RichText::new(format!("+ {}", side(change.new, &change.new_title)))
+                    .monospace()
+                    .color(theme::ADDED),
+            );
+        });
 }
 
 fn notice(ui: &mut Ui, text: &str) {

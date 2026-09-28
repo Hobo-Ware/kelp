@@ -5,6 +5,7 @@ use gix::ObjectId;
 use similar::{ChangeTag, TextDiff};
 
 use crate::preview::Sides;
+use crate::{lfs, submodules};
 
 const CONTEXT_LINES: usize = 3;
 const MAX_DIFF_BYTES: usize = 8 * 1024 * 1024;
@@ -39,6 +40,7 @@ pub enum Body {
     Text(Vec<Hunk>),
     Binary,
     TooLarge,
+    Submodule(submodules::Change),
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +52,7 @@ pub struct FileDiff {
     pub old_text: Option<String>,
     pub new_text: Option<String>,
     pub preview: Option<Sides>,
+    pub lfs: lfs::Sides,
 }
 
 pub fn commit_file(
@@ -58,21 +61,37 @@ pub fn commit_file(
     path: &str,
 ) -> anyhow::Result<FileDiff> {
     let commit = repo.find_commit(commit)?;
-    let new = blob_at(&commit.tree()?, path)?;
-    let old = match commit.parent_ids().next() {
-        Some(parent) => blob_at(&repo.find_commit(parent.detach())?.tree()?, path)?,
+    let new_tree = commit.tree()?;
+    let old_tree = match commit.parent_ids().next() {
+        Some(parent) => Some(repo.find_commit(parent.detach())?.tree()?),
         None => None,
     };
-    Ok(build(path, old.as_deref(), new.as_deref()))
+    let old_link = old_tree.as_ref().and_then(|t| gitlink(t, path));
+    let new_link = gitlink(&new_tree, path);
+    if old_link.is_some() || new_link.is_some() {
+        return Ok(submodule_diff(repo, path, old_link, new_link));
+    }
+    let new = blob_at(&new_tree, path)?;
+    let old = match &old_tree {
+        Some(tree) => blob_at(tree, path)?,
+        None => None,
+    };
+    Ok(build_resolved(repo, path, old, new))
 }
 
 pub fn staged_file(repo: &gix::Repository, path: &str) -> anyhow::Result<FileDiff> {
-    let old = match repo.head_commit() {
-        Ok(head) => blob_at(&head.tree()?, path)?,
-        Err(_) => None,
+    let head_tree = repo.head_commit().ok().and_then(|head| head.tree().ok());
+    let old_link = head_tree.as_ref().and_then(|t| gitlink(t, path));
+    let new_link = index_gitlink(repo, path);
+    if old_link.is_some() || new_link.is_some() {
+        return Ok(submodule_diff(repo, path, old_link, new_link));
+    }
+    let old = match &head_tree {
+        Some(tree) => blob_at(tree, path)?,
+        None => None,
     };
     let new = index_blob(repo, path)?;
-    Ok(build(path, old.as_deref(), new.as_deref()))
+    Ok(build_resolved(repo, path, old, new))
 }
 
 pub fn unstaged_file(
@@ -80,9 +99,13 @@ pub fn unstaged_file(
     workdir: &Path,
     path: &str,
 ) -> anyhow::Result<FileDiff> {
+    if let Some(recorded) = index_gitlink(repo, path) {
+        let current = submodules::checked_out(workdir, path);
+        return Ok(submodule_diff(repo, path, Some(recorded), current));
+    }
     let old = index_blob(repo, path)?;
     let new = std::fs::read(workdir.join(path)).ok();
-    Ok(build(path, old.as_deref(), new.as_deref()))
+    Ok(build_resolved(repo, path, old, new))
 }
 
 pub fn index_blob(repo: &gix::Repository, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
@@ -90,7 +113,55 @@ pub fn index_blob(repo: &gix::Repository, path: &str) -> anyhow::Result<Option<V
     let Some(entry) = index.entry_by_path(path.into()) else {
         return Ok(None);
     };
+    if entry.mode == gix::index::entry::Mode::COMMIT {
+        return Ok(None);
+    }
     Ok(Some(repo.find_object(entry.id)?.detach().data))
+}
+
+fn index_gitlink(repo: &gix::Repository, path: &str) -> Option<ObjectId> {
+    let index = repo.index_or_empty().ok()?;
+    let entry = index.entry_by_path(path.into())?;
+    (entry.mode == gix::index::entry::Mode::COMMIT).then_some(entry.id)
+}
+
+fn gitlink(tree: &gix::Tree<'_>, path: &str) -> Option<ObjectId> {
+    let entry = tree.lookup_entry_by_path(path).ok()??;
+    entry.mode().is_commit().then(|| entry.object_id())
+}
+
+fn submodule_diff(
+    repo: &gix::Repository,
+    path: &str,
+    old: Option<ObjectId>,
+    new: Option<ObjectId>,
+) -> FileDiff {
+    FileDiff {
+        path: path.to_string(),
+        body: Body::Submodule(submodules::change(repo.workdir(), path, old, new)),
+        added: 0,
+        removed: 0,
+        old_text: None,
+        new_text: None,
+        preview: None,
+        lfs: lfs::Sides::default(),
+    }
+}
+
+fn build_resolved(
+    repo: &gix::Repository,
+    path: &str,
+    old: Option<Vec<u8>>,
+    new: Option<Vec<u8>>,
+) -> FileDiff {
+    let (old, old_pointer) = lfs::resolve(repo.common_dir(), old);
+    let (new, new_pointer) = lfs::resolve(repo.common_dir(), new);
+    let mut diff = build(path, old.as_deref(), new.as_deref());
+    diff.lfs = lfs::Sides {
+        old: old_pointer,
+        new: new_pointer,
+    };
+    diff
 }
 
 pub fn hunk_patch(diff: &FileDiff, hunk: usize) -> Option<String> {
@@ -157,7 +228,7 @@ pub fn range_file(
         (None, Some(workdir)) => std::fs::read(workdir.join(path)).ok(),
         (None, None) => anyhow::bail!("this repository has no working tree"),
     };
-    Ok(build(path, old.as_deref(), new.as_deref()))
+    Ok(build_resolved(repo, path, old, new))
 }
 
 pub fn file_at(
@@ -165,7 +236,8 @@ pub fn file_at(
     commit: ObjectId,
     path: &str,
 ) -> anyhow::Result<Option<Vec<u8>>> {
-    blob_at(&repo.find_commit(commit)?.tree()?, path)
+    let bytes = blob_at(&repo.find_commit(commit)?.tree()?, path)?;
+    Ok(lfs::resolve(repo.common_dir(), bytes).0)
 }
 
 fn blob_at(tree: &gix::Tree<'_>, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
@@ -190,6 +262,7 @@ pub fn build(path: &str, old: Option<&[u8]>, new: Option<&[u8]>) -> FileDiff {
         old_text: None,
         new_text: None,
         preview: preview.clone(),
+        lfs: lfs::Sides::default(),
     };
     if old.len() + new.len() > MAX_DIFF_BYTES {
         return empty(Body::TooLarge);
@@ -249,6 +322,7 @@ pub fn build(path: &str, old: Option<&[u8]>, new: Option<&[u8]>) -> FileDiff {
         old_text: Some(old_text.to_string()),
         new_text: Some(new_text.to_string()),
         preview,
+        lfs: lfs::Sides::default(),
     }
 }
 

@@ -115,6 +115,10 @@ pub enum Op {
         message: Option<String>,
     },
     DeleteTag(String),
+    SubmoduleUpdate {
+        path: Option<String>,
+        init: bool,
+    },
     PushTag {
         remote: String,
         name: String,
@@ -292,6 +296,17 @@ impl Op {
                 message: Some(message),
             } => v(&["tag", "-a", name, "-m", message, commit]),
             Op::DeleteTag(name) => v(&["tag", "-d", name]),
+            Op::SubmoduleUpdate { path, init } => {
+                let mut args = vec!["submodule".to_string(), "update".to_string()];
+                if *init {
+                    args.push("--init".into());
+                }
+                args.push("--recursive".into());
+                if let Some(path) = path {
+                    args.extend(["--".into(), path.clone()]);
+                }
+                args
+            }
             Op::PushTag { remote, name } => v(&["push", remote, &format!("refs/tags/{name}")]),
             Op::PushTags(remote) => v(&["push", remote, "--tags"]),
             Op::DeleteRemoteTag { remote, name } => {
@@ -361,6 +376,11 @@ impl Op {
             Op::WorktreeMove { to, .. } => format!("Moving worktree to {to}"),
             Op::CreateTag { name, .. } => format!("Tagging {name}"),
             Op::DeleteTag(name) => format!("Deleting tag {name}"),
+            Op::SubmoduleUpdate { init: true, .. } => "Initializing submodules".into(),
+            Op::SubmoduleUpdate {
+                path: Some(path), ..
+            } => format!("Updating {path}"),
+            Op::SubmoduleUpdate { .. } => "Updating submodules".into(),
             Op::PushTag { remote, name } => format!("Pushing tag {name} to {remote}"),
             Op::PushTags(remote) => format!("Pushing tags to {remote}"),
             Op::DeleteRemoteTag { remote, name } => format!("Deleting tag {name} on {remote}"),
@@ -433,6 +453,12 @@ impl Op {
                 git_cli::run(dir, &["stash", "drop", "-q", stash])?;
                 git_cli::run(dir, &["stash", "store", "-m", message, &sha])?
             }
+            Op::Commit { .. } => git_cli::run(dir, &args).map_err(|e| {
+                match crate::signing::explain_failure(&e.to_string()) {
+                    Some(hint) => anyhow::anyhow!("{hint}\n\n{e}"),
+                    None => e,
+                }
+            })?,
             _ => {
                 let mut out = String::new();
                 for step in self.steps() {
