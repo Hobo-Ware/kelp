@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.5.1 released (Liquid Glass icon). Next: v0.6 "Remotes and GitHub".
+- **Current milestone:** v0.6 built on main, not released yet. Next: v0.7 "Trust and polish".
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,22 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-28
+
+- **v0.6 "Remotes and GitHub", remaining items in (two branches).**
+  - CI dots on commits (green, red, amber) from `gh api graphql` for
+    visible commits only, 50 per call, cached (1 h done, 1 min running,
+    10 min none), backoff on 403/429. trakt-web: 100 commits in 3.4 s.
+  - Pull requests page (Open / Mine / Review requested, filter): check
+    out (switch or fetch `refs/pull/N/head`, fork-safe names), open,
+    show in graph. trakt-web: 16 open PRs in 2.7 s.
+  - Signature badges (Verified / Unverified / unknown or expired key),
+    Commit signing settings (Off, GPG, SSH; repo or global), clearer
+    errors when signing fails. trakt-web commits read `N`, no badge.
+  - Submodules section (state, init/update, open, reveal) and readable
+    submodule diffs (old -> new commit with titles).
+  - Git LFS pointers shown as files, with the local object swapped in
+    for diffs and previews when present.
+  - 345 tests pass. Idle CPU 0.0% on trakt-web with network on, 146 MB.
 
 - **Liquid Glass app icon (macOS 26).** A layered `AppIcon.icon`
   (stem, leaf, face, bladders over a dark fill, each glass with
