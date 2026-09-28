@@ -253,27 +253,40 @@ fn paint_row(
     } else {
         format!("{}  ·  missing", recents::tilde(&recent.path))
     };
-    painter.text(
-        pos2(rect.left() + 14.0, rect.bottom() - 9.0),
-        Align2::LEFT_BOTTOM,
+    let when = kelp_core::commit::relative_time(recent.opened, now);
+    let when = painter.layout_no_wrap(when, FontId::proportional(11.5), theme::TEXT_FAINT);
+    let when_w = when.size().x;
+    painter.galley(
+        pos2(
+            rect.right() - 14.0 - when_w,
+            rect.bottom() - 9.0 - when.size().y,
+        ),
+        when,
+        theme::TEXT_FAINT,
+    );
+    let path = crate::graph_view::truncated(
+        &painter,
         path,
         FontId::proportional(12.0),
         theme::TEXT_FAINT,
+        (rect.width() - 28.0 - when_w - 16.0).max(0.0),
     );
-    let when = kelp_core::commit::relative_time(recent.opened, now);
-    painter.text(
-        pos2(rect.right() - 14.0, rect.bottom() - 9.0),
-        Align2::RIGHT_BOTTOM,
-        when,
-        FontId::proportional(11.5),
+    painter.galley(
+        pos2(rect.left() + 14.0, rect.bottom() - 9.0 - path.size().y),
+        path,
         theme::TEXT_FAINT,
     );
     if let Some(branch) = branch {
-        painter.text(
-            pos2(rect.right() - 14.0, rect.top() + 10.0),
-            Align2::RIGHT_TOP,
-            branch,
+        let branch = crate::graph_view::truncated(
+            &painter,
+            branch.to_string(),
             FontId::proportional(12.0),
+            theme::LANES[0],
+            rect.width() * 0.45,
+        );
+        painter.galley(
+            pos2(rect.right() - 14.0 - branch.size().x, rect.top() + 10.0),
+            branch,
             theme::LANES[0],
         );
     }
