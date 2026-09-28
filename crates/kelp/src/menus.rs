@@ -285,6 +285,9 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
             sink.item(Icon::Copy, "Copy branch name", &|| {
                 Command::Copy(name.clone())
             });
+            sink.item(Icon::Undo, "Show reflog", &|| {
+                Command::ShowReflog(name.clone())
+            });
             pull_items(sink, label, ctx);
             if current != Some(name.as_str()) {
                 sink.separator();

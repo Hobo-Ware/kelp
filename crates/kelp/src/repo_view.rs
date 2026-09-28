@@ -129,6 +129,7 @@ pub enum Center {
     Worktrees,
     Rebase(Box<RebaseView>),
     Stash(Box<StashView>),
+    Reflog(Box<crate::reflog_view::ReflogView>),
 }
 
 pub struct Toast {
@@ -301,6 +302,14 @@ impl Repo {
         }
         if let Ok(branch) = std::env::var("KELP_RENAME") {
             ready.sidebar.start_rename(ctx, &branch);
+        }
+        if let Ok(reference) = std::env::var("KELP_OPEN_REFLOG") {
+            let reference = if reference == "1" {
+                "HEAD".to_string()
+            } else {
+                reference
+            };
+            ready.execute(ctx, vec![Command::ShowReflog(reference)]);
         }
         if let Ok(stash) = std::env::var("KELP_SHOW_STASH") {
             ready.execute(ctx, vec![Command::ShowStash(stash)]);
@@ -720,6 +729,11 @@ impl Repo {
                 }
                 Command::CreatePullRequest(branch) => self.create_pull_request(branch),
                 Command::StartRename(branch) => self.sidebar.start_rename(ctx, &branch),
+                Command::ShowReflog(reference) => {
+                    let view =
+                        crate::reflog_view::ReflogView::open(ctx, self.dir.clone(), reference);
+                    self.center = Center::Reflog(Box::new(view));
+                }
                 Command::ShowStash(name) => {
                     match StashView::open(&self.repo, self.workdir.as_deref(), &name) {
                         Ok(view) => self.center = Center::Stash(Box::new(view)),
@@ -1304,6 +1318,7 @@ impl Repo {
             }
         }
 
+        let current_branch = self.current_branch().map(str::to_string);
         let central = egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BG))
             .show(ui, |ui| match &mut self.center {
@@ -1356,6 +1371,23 @@ impl Repo {
                             let _ = self.review.save();
                         }
                         stash_view::Event::Diff(_) | stash_view::Event::None => {}
+                    }
+                }
+                Center::Reflog(view) => {
+                    match view.ui(
+                        ui,
+                        &self.repo,
+                        self.workdir.as_deref(),
+                        &mut self.review,
+                        &self.author,
+                        current_branch.as_deref(),
+                    ) {
+                        crate::reflog_view::Event::Close => self.center = Center::Graph,
+                        crate::reflog_view::Event::Command(command) => commands.push(command),
+                        crate::reflog_view::Event::Diff(diff_view::Event::Changed) => {
+                            let _ = self.review.save();
+                        }
+                        crate::reflog_view::Event::Diff(_) | crate::reflog_view::Event::None => {}
                     }
                 }
                 Center::Graph => self.graph_center(ui, &mut commands, settings),

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use eframe::egui::{self, FontId, Margin, RichText, Sense, Ui, vec2};
 use gix::ObjectId;
-use kelp_core::commit::{self, FileChange};
+use kelp_core::commit::{self, ChangeKind, FileChange};
 use kelp_core::review::Review;
 
 use crate::diff_view::{self, DiffSource, DiffView};
@@ -14,9 +14,14 @@ const ROW_H: f32 = 28.0;
 pub struct StashView {
     pub name: String,
     message: String,
-    id: ObjectId,
-    changes: Vec<FileChange>,
+    files: Vec<StashFile>,
     open: Option<(usize, Box<DiffView>)>,
+}
+
+struct StashFile {
+    change: FileChange,
+    commit: ObjectId,
+    untracked: bool,
 }
 
 pub enum Event {
@@ -36,11 +41,30 @@ impl StashView {
             .map_err(|e| anyhow::anyhow!("{name}: {e}"))?
             .detach();
         let details = commit::details(repo, id)?;
+        let mut files: Vec<StashFile> = details
+            .changes
+            .into_iter()
+            .map(|change| StashFile {
+                change,
+                commit: id,
+                untracked: false,
+            })
+            .collect();
+        let dir = workdir.unwrap_or(repo.path());
+        if let Some((untracked, paths)) = kelp_core::reflog::stash_untracked(dir, name) {
+            files.extend(paths.into_iter().map(|path| StashFile {
+                change: FileChange {
+                    path,
+                    kind: ChangeKind::Added,
+                },
+                commit: untracked,
+                untracked: true,
+            }));
+        }
         let mut view = Self {
             name: name.to_string(),
             message: details.title,
-            id,
-            changes: details.changes,
+            files,
             open: None,
         };
         view.select(repo, workdir, 0);
@@ -48,10 +72,15 @@ impl StashView {
     }
 
     fn select(&mut self, repo: &gix::Repository, workdir: Option<&Path>, index: usize) {
-        let Some(change) = self.changes.get(index) else {
+        let Some(file) = self.files.get(index) else {
             return;
         };
-        if let Ok(diff) = DiffView::load(repo, workdir, DiffSource::Commit(self.id), &change.path) {
+        if let Ok(diff) = DiffView::load(
+            repo,
+            workdir,
+            DiffSource::Commit(file.commit),
+            &file.change.path,
+        ) {
             self.open = Some((index, Box::new(diff)));
         }
     }
@@ -94,13 +123,13 @@ impl StashView {
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    for (i, change) in self.changes.iter().enumerate() {
+                    for (i, file) in self.files.iter().enumerate() {
                         let active = self.open.as_ref().is_some_and(|(open, _)| *open == i);
-                        if file_row(ui, change, active) {
+                        if file_row(ui, file, active) {
                             picked = Some(i);
                         }
                     }
-                    if self.changes.is_empty() {
+                    if self.files.is_empty() {
                         ui.label(RichText::new("No file changes").color(theme::TEXT_FAINT));
                     }
                 });
@@ -119,7 +148,8 @@ impl StashView {
     }
 }
 
-fn file_row(ui: &mut Ui, change: &FileChange, active: bool) -> bool {
+fn file_row(ui: &mut Ui, file: &StashFile, active: bool) -> bool {
+    let change = &file.change;
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
     if active {
@@ -136,12 +166,31 @@ fn file_row(ui: &mut Ui, change: &FileChange, active: bool) -> bool {
         FontId::monospace(12.0),
         color,
     );
+    let tag_w = if file.untracked {
+        let tag = ui.painter().layout_no_wrap(
+            "untracked".into(),
+            FontId::proportional(10.5),
+            theme::TEXT_FAINT,
+        );
+        let w = tag.size().x;
+        ui.painter().galley(
+            egui::pos2(
+                rect.right() - 10.0 - w,
+                rect.center().y - tag.size().y / 2.0,
+            ),
+            tag,
+            theme::TEXT_FAINT,
+        );
+        w + 12.0
+    } else {
+        0.0
+    };
     let name = crate::graph_view::truncated(
         ui.painter(),
         change.path.clone(),
         FontId::monospace(12.0),
         theme::TEXT,
-        rect.width() - 44.0,
+        rect.width() - 44.0 - tag_w,
     );
     ui.painter().galley(
         rect.left_center() + vec2(32.0, -name.size().y / 2.0),
@@ -151,4 +200,41 @@ fn file_row(ui: &mut Ui, change: &FileChange, active: bool) -> bool {
     response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .clicked()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn untracked_files_are_listed_and_open_as_added() {
+        let dir = std::env::temp_dir().join(format!("kelp-stash-view-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| kelp_core::git_cli::run(&dir, args).unwrap();
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "Test"]);
+        std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "first"]);
+        std::fs::write(dir.join("a.txt"), "two\n").unwrap();
+        std::fs::write(dir.join("new.txt"), "fresh\n").unwrap();
+        git(&["stash", "push", "-q", "-u"]);
+
+        let repo = gix::open(&dir).unwrap();
+        let mut view = StashView::open(&repo, Some(&dir), "stash@{0}").unwrap();
+        let paths: Vec<(&str, bool)> = view
+            .files
+            .iter()
+            .map(|f| (f.change.path.as_str(), f.untracked))
+            .collect();
+        assert_eq!(paths, [("a.txt", false), ("new.txt", true)]);
+        view.select(&repo, Some(&dir), 1);
+        let (index, diff) = view.open.as_ref().unwrap();
+        assert_eq!(*index, 1);
+        assert_eq!(diff.diff.added, 1);
+        assert_eq!(diff.diff.removed, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
