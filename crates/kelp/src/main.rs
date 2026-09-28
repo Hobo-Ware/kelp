@@ -9,6 +9,7 @@ mod columns;
 mod commands;
 mod compare_view;
 mod conflict_view;
+mod console_view;
 mod details;
 mod dev_bench;
 mod dev_screenshot;

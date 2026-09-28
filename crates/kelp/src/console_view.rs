@@ -1,0 +1,349 @@
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
+
+use eframe::egui::{self, Color32, Margin, RichText, Sense, Stroke, Ui, vec2};
+use kelp_core::console::{self, Entry, Kind};
+
+use crate::{theme, widgets};
+
+const ROW_H: f32 = 30.0;
+const OUTPUT_MAX_H: f32 = 320.0;
+
+pub enum Event {
+    None,
+    Close,
+}
+
+pub struct ConsoleView {
+    repo_dir: PathBuf,
+    filter: String,
+    show_background: bool,
+    all_repos: bool,
+    expanded: HashSet<u64>,
+    scroll_to: Option<u64>,
+    seen: u64,
+    entries: Vec<Entry>,
+}
+
+impl ConsoleView {
+    pub fn open(repo_dir: &Path, focus: Option<u64>) -> Self {
+        let mut view = Self {
+            repo_dir: repo_dir.to_path_buf(),
+            filter: String::new(),
+            show_background: focus.is_some_and(|id| {
+                console::entries()
+                    .iter()
+                    .any(|e| e.id == id && e.kind == Kind::Background)
+            }),
+            all_repos: false,
+            expanded: focus.into_iter().collect(),
+            scroll_to: focus,
+            seen: 0,
+            entries: Vec::new(),
+        };
+        view.refresh();
+        view
+    }
+
+    fn refresh(&mut self) {
+        let latest = console::latest_id();
+        if latest != self.seen {
+            self.entries = console::entries();
+            self.seen = latest;
+        }
+    }
+
+    pub fn show_background(mut self) -> Self {
+        self.show_background = true;
+        self
+    }
+
+    fn in_scope(&self, entry: &Entry) -> bool {
+        self.all_repos
+            || entry.dir.as_os_str().is_empty()
+            || entry.dir.starts_with(&self.repo_dir)
+            || self.repo_dir.starts_with(&entry.dir)
+    }
+
+    fn visible(&self) -> Vec<usize> {
+        let needle = self.filter.trim().to_lowercase();
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| self.show_background || e.kind == Kind::Action || e.failed())
+            .filter(|(_, e)| self.in_scope(e))
+            .filter(|(_, e)| needle.is_empty() || e.command_line().to_lowercase().contains(&needle))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    fn hidden_background(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|e| e.kind == Kind::Background && !e.failed() && self.in_scope(e))
+            .count()
+    }
+
+    pub fn ui(&mut self, ui: &mut Ui) -> Event {
+        self.refresh();
+        let mut event = Event::None;
+        egui::Frame::new()
+            .inner_margin(Margin::symmetric(24, 18))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("Git console")
+                            .size(17.0)
+                            .family(theme::semibold())
+                            .color(theme::TEXT_STRONG),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if widgets::close_button(ui, "Close (Esc)") {
+                            event = Event::Close;
+                        }
+                    });
+                });
+                ui.label(
+                    RichText::new(
+                        "Every git and gh command Kelp ran in this session, newest first. \
+                         Reads done in-process through gitoxide are not listed.",
+                    )
+                    .size(12.0)
+                    .color(theme::TEXT_FAINT),
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.filter)
+                            .hint_text("Filter commands")
+                            .desired_width(280.0),
+                    );
+                    ui.checkbox(
+                        &mut self.show_background,
+                        RichText::new("Background checks")
+                            .size(12.0)
+                            .color(theme::TEXT_MUTED),
+                    )
+                    .on_hover_text("Status polls, watcher checks and other housekeeping");
+                    ui.checkbox(
+                        &mut self.all_repos,
+                        RichText::new("All repositories")
+                            .size(12.0)
+                            .color(theme::TEXT_MUTED),
+                    );
+                });
+            });
+        let rows = self.visible();
+        if rows.is_empty() {
+            let hidden = self.hidden_background();
+            let text = if hidden > 0 && !self.show_background {
+                format!(
+                    "No actions yet. {hidden} background check{} hidden.",
+                    if hidden == 1 { " is" } else { "s are" }
+                )
+            } else {
+                "Nothing ran yet.".to_string()
+            };
+            ui.centered_and_justified(|ui| {
+                ui.label(RichText::new(text).color(theme::TEXT_MUTED));
+            });
+            return event;
+        }
+        let now = SystemTime::now();
+        egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                for &index in &rows {
+                    let entry = &self.entries[index];
+                    let open = self.expanded.contains(&entry.id);
+                    let response = entry_row(ui, entry, open, now);
+                    if self.scroll_to == Some(entry.id) {
+                        response.scroll_to_me(Some(egui::Align::Center));
+                        self.scroll_to = None;
+                    }
+                    if response.clicked() {
+                        if open {
+                            self.expanded.remove(&entry.id);
+                        } else {
+                            self.expanded.insert(entry.id);
+                        }
+                    }
+                    if open {
+                        entry_details(ui, entry);
+                    }
+                }
+            });
+        event
+    }
+}
+
+fn entry_row(ui: &mut Ui, entry: &Entry, open: bool, now: SystemTime) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    let painter = ui.painter_at(rect);
+    if response.hovered() || open {
+        painter.rect_filled(rect, 0.0, theme::with_alpha(Color32::WHITE, 0x06));
+    }
+    let color = match entry.exit {
+        Some(0) => theme::ADDED,
+        None => theme::MODIFIED,
+        Some(_) => theme::DELETED,
+    };
+    let left = rect.left() + 24.0;
+    painter.circle_filled(egui::pos2(left, rect.center().y), 3.5, color);
+    let right_text = format!(
+        "{}  ·  {}",
+        duration_text(entry.duration),
+        ago(entry.started, now)
+    );
+    let right = painter.layout_no_wrap(
+        right_text,
+        egui::FontId::proportional(11.0),
+        theme::TEXT_FAINT,
+    );
+    let right_w = right.size().x;
+    painter.galley(
+        egui::pos2(
+            rect.right() - 24.0 - right_w,
+            rect.center().y - right.size().y / 2.0,
+        ),
+        right,
+        theme::TEXT_FAINT,
+    );
+    let mut x = left + 14.0;
+    if entry.kind == Kind::Background {
+        let tag = painter.layout_no_wrap(
+            "bg".into(),
+            egui::FontId::proportional(10.0),
+            theme::TEXT_FAINT,
+        );
+        let tag_rect = egui::Rect::from_min_size(
+            egui::pos2(x, rect.center().y - 8.0),
+            vec2(tag.size().x + 10.0, 16.0),
+        );
+        painter.rect_stroke(
+            tag_rect,
+            4.0,
+            Stroke::new(1.0, theme::BORDER),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(tag_rect.center() - tag.size() / 2.0, tag, theme::TEXT_FAINT);
+        x = tag_rect.right() + 8.0;
+    }
+    let command = crate::graph_view::truncated(
+        &painter,
+        entry.command_line(),
+        egui::FontId::monospace(12.0),
+        theme::TEXT,
+        (rect.right() - 48.0 - right_w - x).max(0.0),
+    );
+    painter.galley(
+        egui::pos2(x, rect.center().y - command.size().y / 2.0),
+        command,
+        theme::TEXT,
+    );
+    response
+}
+
+fn entry_details(ui: &mut Ui, entry: &Entry) {
+    egui::Frame::new()
+        .fill(theme::FIELD)
+        .inner_margin(Margin {
+            left: 38,
+            right: 24,
+            top: 10,
+            bottom: 12,
+        })
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 6.0;
+            let exit = match entry.exit {
+                Some(code) => format!("exit {code}"),
+                None => "stopped".to_string(),
+            };
+            let dir = if entry.dir.as_os_str().is_empty() {
+                String::new()
+            } else {
+                format!("  ·  in {}", entry.dir.display())
+            };
+            ui.label(
+                RichText::new(format!("{exit}{dir}"))
+                    .size(12.0)
+                    .color(theme::TEXT_MUTED),
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Copy command").clicked() {
+                    ui.ctx().copy_text(entry.command_line());
+                }
+                if ui.button("Copy output").clicked() {
+                    ui.ctx()
+                        .copy_text(format!("{}{}", entry.stdout.text, entry.stderr.text));
+                }
+            });
+            output_block(ui, "stdout", &entry.stdout, entry.id);
+            output_block(ui, "stderr", &entry.stderr, entry.id);
+        });
+}
+
+fn output_block(ui: &mut Ui, label: &str, output: &console::Output, id: u64) {
+    if output.text.trim().is_empty() {
+        return;
+    }
+    let caption = if output.truncated {
+        format!("{label} (first 64 KB)")
+    } else {
+        label.to_string()
+    };
+    ui.label(RichText::new(caption).size(11.0).color(theme::TEXT_FAINT));
+    egui::ScrollArea::vertical()
+        .id_salt((label, id))
+        .max_height(OUTPUT_MAX_H)
+        .show(ui, |ui| {
+            ui.add(
+                egui::Label::new(
+                    RichText::new(output.text.trim_end())
+                        .monospace()
+                        .size(12.0)
+                        .color(theme::TEXT),
+                )
+                .selectable(true),
+            );
+        });
+}
+
+fn duration_text(duration: Duration) -> String {
+    let ms = duration.as_millis();
+    if ms < 1000 {
+        format!("{ms} ms")
+    } else {
+        format!("{:.1} s", duration.as_secs_f32())
+    }
+}
+
+fn ago(started: SystemTime, now: SystemTime) -> String {
+    let secs = now.duration_since(started).map_or(0, |d| d.as_secs());
+    match secs {
+        0..=4 => "just now".into(),
+        5..=59 => format!("{secs}s ago"),
+        60..=3599 => format!("{}m ago", secs / 60),
+        _ => format!("{}h ago", secs / 3600),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn durations_and_ages_read_naturally() {
+        assert_eq!(duration_text(Duration::from_millis(42)), "42 ms");
+        assert_eq!(duration_text(Duration::from_millis(1500)), "1.5 s");
+        let now = SystemTime::now();
+        assert_eq!(ago(now, now), "just now");
+        assert_eq!(ago(now - Duration::from_secs(90), now), "1m ago");
+        assert_eq!(ago(now - Duration::from_secs(7200), now), "2h ago");
+    }
+}

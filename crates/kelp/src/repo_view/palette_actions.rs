@@ -157,6 +157,7 @@ impl Repo {
             }
             RepoAction::ShowWorktrees => Some(Command::ShowWorktrees),
             RepoAction::ShowReflog => Some(Command::ShowReflog("HEAD".into())),
+            RepoAction::ShowConsole => Some(Command::ShowConsole(None)),
             RepoAction::ShowChanges => Some(Command::Reveal(Selection::Wip)),
             RepoAction::StageAll => Some(Command::Run(Op::StageAll)),
             RepoAction::UnstageAll => Some(Command::Run(Op::UnstageAll {

@@ -10,6 +10,8 @@ use eframe::egui::{self, Color32, Margin, RichText, Stroke, vec2};
 
 use crate::theme;
 
+const CONSOLE_TAIL: usize = 40;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Progress {
     pub phase: String,
@@ -125,6 +127,11 @@ pub fn run_clone(
     if dest.exists() {
         return Err(format!("{} already exists", dest.display()));
     }
+    let dest_arg = dest.to_string_lossy();
+    let log_args = ["clone", "--progress", url, &dest_arg];
+    let log = kelp_core::console::as_action(|| {
+        kelp_core::console::start("git", &log_args, dest.parent().unwrap_or(dest))
+    });
     let mut child = Command::new("git")
         .args(["clone", "--progress", url])
         .arg(dest)
@@ -159,6 +166,7 @@ pub fn run_clone(
             let _ = child.wait();
             let _ = reader.join();
             let _ = std::fs::remove_dir_all(dest);
+            log.finish(None, b"", b"cancelled");
             return Err("Clone cancelled".into());
         }
         match child.try_wait() {
@@ -168,6 +176,12 @@ pub fn run_clone(
         }
     };
     let stderr = reader.join().unwrap_or_default();
+    let lines: Vec<&str> = progress_lines(&stderr).collect();
+    let final_lines: String = lines[lines.len().saturating_sub(CONSOLE_TAIL)..]
+        .iter()
+        .map(|line| format!("{line}\n"))
+        .collect();
+    log.finish(status.code(), b"", final_lines.as_bytes());
     if status.success() {
         Ok(dest.to_path_buf())
     } else {

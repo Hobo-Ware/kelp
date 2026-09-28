@@ -326,6 +326,7 @@ fn open_diff_path(repo: &Repo) -> Option<String> {
         | Center::Rebase(_)
         | Center::Stash(_)
         | Center::Reflog(_)
+        | Center::Console(_)
         | Center::Pulls(_) => None,
     }
 }
