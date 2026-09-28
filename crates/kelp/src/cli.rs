@@ -121,7 +121,7 @@ fn launch_detached(paths: &[PathBuf]) -> std::io::Result<()> {
         .map(|_| ())
 }
 
-fn app_bundle(exe: &Path) -> Option<PathBuf> {
+pub fn app_bundle(exe: &Path) -> Option<PathBuf> {
     exe.ancestors()
         .find(|dir| dir.extension().is_some_and(|ext| ext == "app"))
         .map(Path::to_path_buf)
