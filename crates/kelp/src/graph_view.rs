@@ -220,6 +220,7 @@ impl GraphView {
             let mut label_events = Vec::new();
             let mut label_hits: Vec<(Rect, usize, RefLabel)> = Vec::new();
             let mut open_buttons = Vec::new();
+            let mut halo = None;
             for (i, display) in rows.clone().enumerate() {
                 let geo = RowGeo {
                     left: rect.left(),
@@ -299,6 +300,11 @@ impl GraphView {
                             }
                         }
                         let lane = theme::lane(history.layout.node_color(row));
+                        if is_selected {
+                            let center = pos2(geo.lane_x(history.layout.node_lane(row)), geo.mid());
+                            let graph_x = geo.graph_left()..=geo.msg_left();
+                            halo = Some((center, lane, graph_x));
+                        }
                         let events = ref_labels::interact(
                             ui, row, &labels, &placed, lane, force_open, &mut menu,
                         );
@@ -306,6 +312,10 @@ impl GraphView {
                     }
                     (Row::CurrentWip, None) => {}
                 }
+            }
+            if let Some((center, lane, graph_x)) = halo {
+                let clip = Rect::from_x_y_ranges(graph_x, rect.y_range());
+                selection_halo(&painter.with_clip_rect(clip), center, AVATAR_R, lane);
             }
             let commit_at = |pos: Pos2| -> Option<usize> {
                 if !rect.contains(pos) {
@@ -729,7 +739,7 @@ fn paint_row(
         let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
         placed = paint_labels(&soft, geo, &labels, node, color);
     }
-    paint_avatar(&graph_soft, node, summary, avatar, color, selected);
+    paint_avatar(&graph_soft, node, summary, avatar, color);
     paint_message(
         &soft,
         geo,
@@ -965,7 +975,6 @@ pub fn paint_avatar(
     summary: &Summary,
     texture: Option<egui::TextureId>,
     lane: Color32,
-    selected: bool,
 ) {
     draw_avatar(
         painter,
@@ -975,7 +984,15 @@ pub fn paint_avatar(
         &summary.email,
         texture,
         lane,
-        selected,
+        false,
+    );
+}
+
+pub fn selection_halo(painter: &egui::Painter, center: Pos2, radius: f32, ring: Color32) {
+    painter.circle_stroke(
+        center,
+        radius + 3.5,
+        Stroke::new(3.0, theme::with_alpha(ring, 0x40)),
     );
 }
 
@@ -991,11 +1008,7 @@ pub fn draw_avatar(
     selected: bool,
 ) {
     if selected {
-        painter.circle_stroke(
-            center,
-            radius + 3.5,
-            Stroke::new(3.0, theme::with_alpha(ring, 0x40)),
-        );
+        selection_halo(painter, center, radius, ring);
     }
     match texture {
         Some(id) => {
