@@ -314,7 +314,7 @@ impl GraphView {
                         let label = WipLabel {
                             owner: "this worktree".into(),
                             counts: counts_label(wip.changes),
-                            has_button: false,
+                            current: true,
                         };
                         paint_wip_row(&painter, &geo, history, wip.head_row, &label, is_selected);
                         if compare.work_tree {
@@ -331,7 +331,7 @@ impl GraphView {
                         let label = WipLabel {
                             owner: other.tree.name(),
                             counts: format!("{} changed", other.changes),
-                            has_button: true,
+                            current: false,
                         };
                         paint_wip_row(&painter, &geo, history, other.head_row, &label, false);
                         let button = open_button_rect(&geo);
@@ -1004,7 +1004,7 @@ fn check_color(state: kelp_core::checks::State) -> Color32 {
 struct WipLabel {
     owner: String,
     counts: String,
-    has_button: bool,
+    current: bool,
 }
 
 fn counts_label(changes: &[FileChange]) -> String {
@@ -1035,6 +1035,11 @@ fn paint_wip_row(
     let layout = &history.layout;
     let head_lane = layout.node_lane(head_row);
     let head_color = theme::lane(layout.node_color(head_row));
+    let mark_color = if label.current {
+        head_color
+    } else {
+        theme::text_faint()
+    };
     let node = pos2(geo.lane_x(head_lane), geo.mid());
     let graph = geo.graph_clip(painter);
 
@@ -1042,7 +1047,12 @@ fn paint_wip_row(
         geo.msg_left()..=geo.msg_left() + 3.0,
         geo.top..=geo.bottom(),
     );
-    painter.rect_filled(strip, 0.0, theme::wip_grey());
+    let strip_color = if label.current {
+        head_color
+    } else {
+        theme::wip_grey()
+    };
+    painter.rect_filled(strip, 0.0, strip_color);
     if selected {
         let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
         painter.rect_filled(bg, 0.0, theme::selected_row());
@@ -1057,7 +1067,7 @@ fn paint_wip_row(
             );
         }
     }
-    dashed(&graph, node, pos2(node.x, geo.bottom()), head_color);
+    dashed(&graph, node, pos2(node.x, geo.bottom()), mark_color);
 
     let ring: Vec<Pos2> = (0..=48)
         .map(|i| {
@@ -1066,13 +1076,17 @@ fn paint_wip_row(
         })
         .collect();
     graph.circle_filled(node, AVATAR_R + 1.0, theme::bg());
-    graph.extend(Shape::dashed_line(
-        &ring,
-        Stroke::new(2.0, head_color),
-        3.0,
-        2.5,
-    ));
-    paint_plus(&graph, node, 4.0, head_color);
+    if label.current {
+        graph.circle_stroke(node, AVATAR_R + 1.0, Stroke::new(2.0, head_color));
+    } else {
+        graph.extend(Shape::dashed_line(
+            &ring,
+            Stroke::new(2.0, mark_color),
+            3.0,
+            2.5,
+        ));
+    }
+    paint_plus(&graph, node, 4.0, mark_color);
 
     let mut job = LayoutJob::default();
     let italic = TextFormat {
@@ -1080,20 +1094,25 @@ fn paint_wip_row(
         ..TextFormat::simple(FontId::proportional(13.0), theme::text_muted())
     };
     job.append("Uncommitted changes", 0.0, italic);
+    let owner_color = if label.current {
+        theme::text()
+    } else {
+        theme::text_muted()
+    };
     job.append(
         &format!(" · {}", label.owner),
         0.0,
-        TextFormat::simple(FontId::proportional(13.0), theme::text_muted()),
+        TextFormat::simple(FontId::proportional(13.0), owner_color),
     );
     job.append(
         &label.counts,
         10.0,
         TextFormat::simple(FontId::proportional(13.0), theme::text_faint()),
     );
-    let reserved = if label.has_button {
-        OPEN_BUTTON_W + 28.0
-    } else {
+    let reserved = if label.current {
         14.0
+    } else {
+        OPEN_BUTTON_W + 28.0
     };
     job.wrap =
         TextWrapping::truncate_at_width((geo.right - reserved - geo.msg_left() - 15.0).max(0.0));
