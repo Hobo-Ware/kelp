@@ -1092,7 +1092,22 @@ mod tests {
 
     #[test]
     fn commit_search_finds_titles_and_stops_when_cancelled() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let dir = std::env::temp_dir().join(format!("kelp-palette-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| kelp_core::git_cli::run(&dir, args).unwrap();
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "Test"]);
+        for (file, message) in [
+            ("a", "feat: first thing"),
+            ("b", "chore: release 0.2.0"),
+            ("c", "fix: last thing"),
+        ] {
+            std::fs::write(dir.join(file), message).unwrap();
+            git(&["add", "."]);
+            git(&["commit", "-q", "-m", message]);
+        }
         let (_, history) = kelp_core::history::History::open(&dir).unwrap();
         let hits = search_commits(&dir, history.ids(), "Release 0.2.0", &|| false);
         assert!(hits.iter().any(|h| h.title == "chore: release 0.2.0"));
@@ -1100,6 +1115,7 @@ mod tests {
         let by_hash = search_commits(&dir, history.ids(), prefix, &|| false);
         assert_eq!(by_hash.first().map(|h| h.id), Some(history.id(0)));
         assert!(search_commits(&dir, history.ids(), "release", &|| true).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
