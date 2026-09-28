@@ -15,6 +15,23 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-09-28
 
+- **Pull requests inline, plus user-reported polish (after v0.3.0).**
+  - PR pills (#N, colored by open/draft/merged/closed, CI dot) on graph
+    labels, the `+N` list, sidebar rows, the details panel and the status
+    bar; click opens the PR. Menus: Open pull request / Create pull
+    request (gh, or the compare URL). Loaded via gh (all PRs with light
+    fields, open PRs with checks) or the REST API, cached 5 min.
+  - Real-repo test on trakt-web found two bugs the fixtures could not:
+    GitHub timed out (502/504) on "all PRs with checks", and the app
+    deadlocked reading gh output over 64 KB. Fixed; 202 PRs in ~4 s.
+  - Labels shrink their name next to a pill instead of collapsing to `+N`.
+  - Sidebar: Worktrees first; clicking a section title toggles it;
+    Manage has a real hit area.
+  - Selected avatar halo drawn after all rows (was clipped by its row).
+  - Commit descriptions capped at ~8 lines with a Show full message
+    viewer (Copy, Esc).
+  - 227 tests pass.
+
 - **v0.3 "Find anything", all items in (three parallel branches, merged
   on main).**
   - Command palette (Cmd+K / Cmd+Shift+P): fuzzy over 45+ registered
