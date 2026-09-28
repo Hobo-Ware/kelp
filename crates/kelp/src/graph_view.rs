@@ -805,7 +805,7 @@ fn paint_row(
     if dashed_top && !has_top {
         dashed(&graph, pos2(node.x, geo.top), node, color);
     }
-    for edge in edges {
+    for edge in &edges {
         if edge.kind == EdgeKind::Pass && !geo.lane_visible(edge.lane) {
             continue;
         }
