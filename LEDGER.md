@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.7.0 released (8 h soak rerun pending). Next: v1.0 "Ship".
+- **Current milestone:** v0.8.0 released. Left for v1.0: signing and notarization (needs Apple Developer ID secrets), the 8 h soak rerun, and the two-week bug bash.
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,19 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-28
+
+- **v0.8.0: v1.0 docs and What's new.**
+  - `CHANGELOG.md` for every release; `changelog.html` is built from it
+    by `scripts/make-changelog-page.py` and CI fails if it is stale.
+  - Site pages: getting started, shortcuts (generated from the shortcut
+    sheet, test fails if stale), undo, FAQ. `scripts/check-site.py`
+    checks links, anchors, meta tags, sitemap and dashes in CI.
+  - What's new modal after an upgrade (up to 3 sections, fresh install
+    shows nothing); Settings > Help and 7 palette actions.
+  - Current worktree's uncommitted row: solid ring and strip in the
+    branch color; other worktrees stay grey and dashed.
+  - Site: dropped the fake title bar that doubled the window buttons.
+  - 395 tests pass.
 
 - **v0.7 "Trust and polish" (soak still running).**
   - Git console (Cmd+Opt+L): every git and gh command with args
