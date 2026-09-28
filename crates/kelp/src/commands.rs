@@ -24,4 +24,5 @@ pub enum Command {
     ToggleRef(String),
     SoloRef(String),
     ShowAllRefs,
+    TogglePanel(crate::panels::Side),
 }

@@ -5,11 +5,15 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, Color32, FontId, Margin, RichText, Sense, Stroke, vec2};
 use kelp_core::history::History;
 
+use crate::clone::{self, CloneDialog};
 use crate::dev_screenshot::DevScreenshot;
 use crate::menus::{self, TabAction};
 use crate::palette::Palette;
+use crate::panels::{self, Side};
+use crate::recents;
 use crate::repo_view::{self, Repo};
 use crate::settings::{self, Settings};
+use crate::welcome::{self, Welcome};
 use crate::{theme, window};
 
 mod palette_glue;
@@ -23,7 +27,11 @@ pub struct KelpApp {
     settings: Settings,
     show_settings: bool,
     titlebar_unified: bool,
-    columns_unsaved: bool,
+    settings_unsaved: bool,
+    home: bool,
+    welcome: Welcome,
+    clone: Option<CloneDialog>,
+    notice: Option<(String, Instant)>,
     window: window::Tracker,
     started: Instant,
     ctx: egui::Context,
@@ -94,14 +102,24 @@ impl KelpApp {
         let tabs = paths.into_iter().map(|p| Tab::open(&ctx, p)).collect();
         let settings = Settings::load();
         let palette = palette_from_env(&settings);
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        ctx.set_zoom_factor(settings.zoom);
+        let mut welcome = Welcome::default();
+        welcome.reopen();
+        let clone = (std::env::var("KELP_OPEN_DIALOG").as_deref() == Ok("clone"))
+            .then(|| CloneDialog::new(settings.recent_repos.first().map(|r| r.path.as_path())));
         Self {
             tabs,
             active: 0,
             screenshot: DevScreenshot::from_env(),
-            settings,
             show_settings: std::env::var_os("KELP_OPEN_SETTINGS").is_some(),
             titlebar_unified: false,
-            columns_unsaved: false,
+            settings_unsaved: false,
+            home: std::env::var_os("KELP_OPEN_WELCOME").is_some(),
+            welcome,
+            clone,
+            notice: None,
+            settings,
             window: window::Tracker::default(),
             started: Instant::now(),
             updater: crate::updater::Updater::new(ctx.clone()),
@@ -129,14 +147,97 @@ impl KelpApp {
         }
     }
 
-    fn remember_columns(&mut self, ctx: &egui::Context) {
-        if !self.columns_unsaved || ctx.input(|i| i.pointer.any_down()) {
+    fn save_when_settled(&mut self, ctx: &egui::Context) {
+        if !self.settings_unsaved || ctx.input(|i| i.pointer.any_down()) {
             return;
         }
-        self.columns_unsaved = false;
-        if !settings::is_dev_run() {
-            self.settings.save();
+        self.settings_unsaved = false;
+        self.settings.save();
+    }
+
+    fn remember_recent(&mut self, dir: &Path) {
+        recents::remember(&mut self.settings.recent_repos, dir, recents::now());
+        self.settings.save();
+    }
+
+    fn show_home(&mut self) {
+        self.home = true;
+        self.welcome.reopen();
+    }
+
+    fn notify(&mut self, text: impl Into<String>) {
+        self.notice = Some((text.into(), Instant::now()));
+    }
+
+    fn set_zoom(&mut self, ctx: &egui::Context, zoom: f32) {
+        let zoom = panels::clamp_zoom(zoom);
+        ctx.set_zoom_factor(zoom);
+        self.settings.zoom = zoom;
+        self.settings.save();
+        self.notify(format!("Zoom {:.0}%", zoom * 100.0));
+    }
+
+    fn toggle_panel(&mut self, side: Side) {
+        self.settings.panels.toggle(side);
+        self.settings.save();
+    }
+
+    fn run_welcome(&mut self, ctx: &egui::Context, action: welcome::Action) {
+        match action {
+            welcome::Action::Open(path) => self.open_tab(ctx, path),
+            welcome::Action::PickFolder => self.pick_folder(),
+            welcome::Action::Clone => {
+                let recent = self.settings.recent_repos.first().map(|r| r.path.clone());
+                self.clone = Some(CloneDialog::new(recent.as_deref()));
+            }
+            welcome::Action::Init => self.init_repository(ctx),
+            welcome::Action::Forget(path) => {
+                recents::forget(&mut self.settings.recent_repos, &path);
+                self.settings.save();
+            }
+            welcome::Action::Reveal(path) => {
+                if let Err(e) = repo_view::reveal_in_finder(&path) {
+                    self.notify(format!("Could not reveal {}: {e}", path.display()));
+                }
+            }
         }
+    }
+
+    fn init_repository(&mut self, ctx: &egui::Context) {
+        let Some(dir) = rfd::FileDialog::new()
+            .set_title("Choose a folder for the new repository")
+            .pick_folder()
+        else {
+            return;
+        };
+        match clone::init_repo(&dir) {
+            Ok(()) => self.open_tab(ctx, dir),
+            Err(e) => self.notify(format!("Could not create a repository: {e:#}")),
+        }
+    }
+
+    fn paint_notice(&mut self, ctx: &egui::Context) {
+        let Some((text, shown)) = &self.notice else {
+            return;
+        };
+        let left = NOTICE_FOR.saturating_sub(shown.elapsed());
+        if left.is_zero() {
+            self.notice = None;
+            return;
+        }
+        ctx.request_repaint_after(left);
+        egui::Area::new(egui::Id::new("app-notice"))
+            .anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -40.0))
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(0x23, 0x28, 0x33))
+                    .stroke(Stroke::new(1.0, theme::POPUP_BORDER))
+                    .corner_radius(8)
+                    .inner_margin(Margin::symmetric(14, 10))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(text.as_str()).color(theme::TEXT_STRONG));
+                    });
+            });
     }
 
     fn close_tab(&mut self, i: usize) {
@@ -206,8 +307,37 @@ impl KelpApp {
         if settings {
             self.show_settings = true;
         }
-        let (open, close, refresh, step, number) = ctx.input_mut(|i| {
-            let open = i.consume_shortcut(&cmd(Key::T)) | i.consume_shortcut(&cmd(Key::O));
+        let cmd_alt = |key| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::ALT, key);
+        let (panel, zoom) = ctx.input_mut(|i| {
+            let panel = if i.consume_shortcut(&cmd_alt(Key::S)) {
+                Some(Side::Sidebar)
+            } else if i.consume_shortcut(&cmd_alt(Key::D)) {
+                Some(Side::Details)
+            } else {
+                None
+            };
+            let zoom =
+                if i.consume_shortcut(&cmd(Key::Plus)) | i.consume_shortcut(&cmd(Key::Equals)) {
+                    Some(1)
+                } else if i.consume_shortcut(&cmd(Key::Minus)) {
+                    Some(-1)
+                } else if i.consume_shortcut(&cmd(Key::Num0)) {
+                    Some(0)
+                } else {
+                    None
+                };
+            (panel, zoom)
+        });
+        if let Some(side) = panel {
+            self.toggle_panel(side);
+        }
+        if let Some(direction) = zoom {
+            let next = panels::zoom_step(self.settings.zoom, direction);
+            self.set_zoom(ctx, next);
+        }
+        let (new_tab, open, close, refresh, step, number) = ctx.input_mut(|i| {
+            let new_tab = i.consume_shortcut(&cmd(Key::T));
+            let open = i.consume_shortcut(&cmd(Key::O));
             let close = i.consume_shortcut(&cmd(Key::W));
             let refresh = i.consume_shortcut(&cmd(Key::R));
             let step = if i.consume_shortcut(&back) {
@@ -221,16 +351,32 @@ impl KelpApp {
                 .iter()
                 .position(|&key| i.consume_shortcut(&cmd(key)))
                 .map(|n| n + 1);
-            (open, close, refresh, step, number)
+            (new_tab, open, close, refresh, step, number)
         });
         if let Some(i) = number.and_then(|n| tab_for_number(n, self.tabs.len())) {
             self.active = i;
+            self.home = false;
         }
         if step != 0 {
             self.active = cycled(self.active, self.tabs.len(), step);
+            self.home = false;
         }
         if close {
-            self.close_tab(self.active);
+            if self.home && !self.tabs.is_empty() {
+                self.home = false;
+            } else {
+                self.close_tab(self.active);
+            }
+        }
+        if new_tab {
+            self.show_home();
+        }
+        if self.home
+            && !self.tabs.is_empty()
+            && self.clone.is_none()
+            && ctx.input(|i| i.key_pressed(Key::Escape))
+        {
+            self.home = false;
         }
         if refresh
             && let Some(Tab {
@@ -266,6 +412,7 @@ impl KelpApp {
     }
 
     fn open_tab(&mut self, ctx: &egui::Context, path: PathBuf) {
+        self.home = false;
         if let Some(i) = self.tabs.iter().position(|t| t.same_repo(&path)) {
             self.active = i;
             return;
@@ -277,9 +424,12 @@ impl KelpApp {
     fn tab_strip(&mut self, ui: &mut egui::Ui) {
         let mut close = None;
         let mut tab_action = None;
-        let mut pick_folder = false;
+        let mut new_tab = false;
+        let mut leave_home = false;
+        let native = 1.0 / ui.ctx().zoom_factor();
+        let tab_h = tab_height(ui.ctx());
         egui::Panel::top("tabs")
-            .exact_size(TAB_STRIP_H)
+            .exact_size(TAB_STRIP_H * native)
             .frame(
                 egui::Frame::new()
                     .fill(Color32::from_rgb(0x0f, 0x11, 0x15))
@@ -294,7 +444,7 @@ impl KelpApp {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     let fullscreen = ui.input(|i| i.viewport().fullscreen.unwrap_or(false));
                     if cfg!(target_os = "macos") && !fullscreen {
-                        ui.add_space(crate::macos::TRAFFIC_LIGHTS_W - 10.0);
+                        ui.add_space((crate::macos::TRAFFIC_LIGHTS_W * native - 10.0).max(0.0));
                     }
                     kelp_mark(ui);
                     ui.add_space(12.0);
@@ -302,7 +452,7 @@ impl KelpApp {
                     let mut dragged = None;
                     let has_others = self.tabs.len() > 1;
                     for (i, tab) in self.tabs.iter().enumerate() {
-                        let active = i == self.active;
+                        let active = i == self.active && !self.home;
                         let title = tab.title();
                         let galley = ui.painter().layout_no_wrap(
                             title.clone(),
@@ -310,7 +460,7 @@ impl KelpApp {
                             theme::TEXT,
                         );
                         let w = galley.size().x + 50.0;
-                        let (rect, _) = ui.allocate_exact_size(vec2(w, TAB_H), Sense::hover());
+                        let (rect, _) = ui.allocate_exact_size(vec2(w, tab_h), Sense::hover());
                         let response = ui.interact(
                             rect,
                             egui::Id::new(("tab", &tab.path)),
@@ -319,6 +469,7 @@ impl KelpApp {
                         centers.push(rect.center().x);
                         if response.drag_started() {
                             self.active = i;
+                            leave_home = true;
                         }
                         if response.dragged()
                             && let Some(pointer) = response.interact_pointer_pos()
@@ -363,6 +514,7 @@ impl KelpApp {
                             close = Some(i);
                         } else if response.clicked() {
                             self.active = i;
+                            leave_home = true;
                         }
                         let forced_menu = active
                             && self.screenshot.is_some()
@@ -389,12 +541,12 @@ impl KelpApp {
                             self.active = moved_index(self.active, from, to);
                         }
                     }
+                    if self.home && !self.tabs.is_empty() && home_tab(ui) {
+                        leave_home = true;
+                    }
                     ui.add_space(4.0);
-                    if new_tab_button(ui)
-                        .on_hover_text("Open a repository")
-                        .clicked()
-                    {
-                        pick_folder = true;
+                    if new_tab_button(ui).on_hover_text("New tab (⌘T)").clicked() {
+                        new_tab = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let settings = egui::Button::new(
@@ -423,8 +575,11 @@ impl KelpApp {
         if let Some((i, action)) = tab_action {
             self.run_tab_action(i, action);
         }
-        if pick_folder {
-            self.pick_folder();
+        if leave_home {
+            self.home = false;
+        }
+        if new_tab {
+            self.show_home();
         }
     }
 
@@ -541,13 +696,17 @@ fn paint_window_buttons(ui: &egui::Ui) {
         Color32::from_rgb(0xfe, 0xbc, 0x2e),
         Color32::from_rgb(0x28, 0xc8, 0x40),
     ];
+    let native = 1.0 / ui.ctx().zoom_factor();
     let top = ui.max_rect().top();
     let left = ui.max_rect().left() - 10.0;
     for (i, color) in colors.into_iter().enumerate() {
-        let center = egui::pos2(left + 19.0 + i as f32 * 20.0, top + TAB_STRIP_H / 2.0);
+        let center = egui::pos2(
+            left + (19.0 + i as f32 * 20.0) * native,
+            top + TAB_STRIP_H / 2.0 * native,
+        );
         ui.painter().circle(
             center,
-            6.0,
+            6.0 * native,
             color,
             Stroke::new(0.5, Color32::from_black_alpha(60)),
         );
@@ -598,8 +757,42 @@ fn paint_cross(painter: &egui::Painter, center: egui::Pos2, d: f32, color: Color
     painter.line_segment([center + vec2(-d, d), center + vec2(d, -d)], stroke);
 }
 
+fn home_tab(ui: &mut egui::Ui) -> bool {
+    let galley = ui.painter().layout_no_wrap(
+        "New tab".into(),
+        FontId::proportional(13.0),
+        theme::TEXT_STRONG,
+    );
+    let (rect, _) = ui.allocate_exact_size(
+        vec2(galley.size().x + 50.0, tab_height(ui.ctx())),
+        Sense::hover(),
+    );
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 6.0, theme::PANEL);
+    painter.galley(
+        egui::pos2(rect.left() + 14.0, rect.center().y - galley.size().y / 2.0),
+        galley,
+        theme::TEXT_STRONG,
+    );
+    let x_rect = egui::Rect::from_center_size(
+        egui::pos2(rect.right() - 16.0, rect.center().y),
+        vec2(18.0, 18.0),
+    );
+    let close = ui.interact(x_rect, egui::Id::new("close-home-tab"), Sense::click());
+    if close.hovered() {
+        painter.rect_filled(x_rect, 4.0, theme::with_alpha(Color32::WHITE, 0x14));
+    }
+    paint_cross(&painter, x_rect.center(), 3.5, theme::TEXT_FAINT);
+    close.clicked()
+}
+
+fn tab_height(ctx: &egui::Context) -> f32 {
+    TAB_H.min(TAB_STRIP_H / ctx.zoom_factor() - 4.0)
+}
+
 fn new_tab_button(ui: &mut egui::Ui) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(TAB_H, TAB_H), Sense::click());
+    let side = tab_height(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(vec2(side, side), Sense::click());
     let hovered = response.hovered();
     if hovered {
         ui.painter()
@@ -634,6 +827,7 @@ impl eframe::App for KelpApp {
             crate::macos::unify_titlebar(frame);
             self.titlebar_unified = true;
         }
+        let mut loaded = Vec::new();
         for tab in &mut self.tabs {
             if let State::Loading(rx) = &tab.state
                 && let Ok(result) = rx.try_recv()
@@ -644,7 +838,13 @@ impl eframe::App for KelpApp {
                     }
                     Err(e) => State::Failed(format!("{e:#}")),
                 };
+                if let State::Ready(repo) = &tab.state {
+                    loaded.push(repo.dir.clone());
+                }
             }
+        }
+        for dir in loaded {
+            self.remember_recent(&dir);
         }
         let active_ready = self.tabs.is_empty()
             || self
@@ -673,30 +873,23 @@ impl eframe::App for KelpApp {
                 }
             }
         }
+        let showing_home = self.home || self.tabs.is_empty();
+        let mut welcome_action = None;
         match self
             .tabs
             .get_mut(self.active)
+            .filter(|_| !showing_home)
             .map(|t| (&t.path, &mut t.state))
         {
             None => {
                 let waving = self.started.elapsed().as_secs_f32() < HELLO_SECONDS;
-                let screen = MascotScreen {
-                    title: "Welcome to Kelp",
-                    subtitle: "Open a repository to see its history.".into(),
-                    color: theme::TEXT_MUTED,
-                    button: Some("Open a repository"),
-                    animate: waving,
-                };
-                if screen.show(ui) {
-                    self.pick_folder();
-                }
+                welcome_action = self.welcome.ui(ui, &self.settings.recent_repos, waving);
             }
             Some((path, State::Loading(_))) => {
                 let screen = MascotScreen {
                     title: "Loading history",
                     subtitle: path.display().to_string(),
                     color: theme::TEXT_MUTED,
-                    button: None,
                     animate: true,
                 };
                 screen.show(ui);
@@ -706,7 +899,6 @@ impl eframe::App for KelpApp {
                     title: "Could not open this repository",
                     subtitle: format!("{}: {err}", path.display()),
                     color: theme::DELETED,
-                    button: None,
                     animate: false,
                 };
                 screen.show(ui);
@@ -716,7 +908,24 @@ impl eframe::App for KelpApp {
                 open.append(&mut repo.outbox);
                 if let Some(columns) = repo.columns_changed.take() {
                     self.settings.graph_columns = columns;
-                    self.columns_unsaved = true;
+                    self.settings_unsaved = true;
+                }
+                if let Some(layout) = repo.panels_changed.take() {
+                    self.settings.panels = layout;
+                    self.settings_unsaved = true;
+                }
+            }
+        }
+        if let Some(action) = welcome_action {
+            self.run_welcome(&ctx, action);
+        }
+        if let Some(dialog) = &mut self.clone {
+            match dialog.show(&ctx) {
+                clone::Outcome::Keep => {}
+                clone::Outcome::Close => self.clone = None,
+                clone::Outcome::Cloned(path) => {
+                    self.clone = None;
+                    self.open_tab(&ctx, path);
                 }
             }
         }
@@ -725,7 +934,8 @@ impl eframe::App for KelpApp {
         }
         self.remember_tabs();
         self.remember_window(&ctx);
-        self.remember_columns(&ctx);
+        self.save_when_settled(&ctx);
+        self.paint_notice(&ctx);
         if self.show_settings {
             self.settings
                 .window(&ctx, &mut self.show_settings, &mut self.updater);
@@ -734,6 +944,7 @@ impl eframe::App for KelpApp {
 }
 
 const HELLO_SECONDS: f32 = 4.0;
+const NOTICE_FOR: Duration = Duration::from_millis(1600);
 const TAB_STRIP_H: f32 = 40.0;
 const TAB_H: f32 = 28.0;
 const MASCOT_SIZE: f32 = 220.0;
@@ -742,13 +953,11 @@ struct MascotScreen<'a> {
     title: &'a str,
     subtitle: String,
     color: Color32,
-    button: Option<&'a str>,
     animate: bool,
 }
 
 impl MascotScreen<'_> {
-    fn show(self, ui: &mut egui::Ui) -> bool {
-        let mut clicked = false;
+    fn show(self, ui: &mut egui::Ui) {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::BG))
             .show(ui, |ui| {
@@ -789,38 +998,11 @@ impl MascotScreen<'_> {
                     sub.clone(),
                     self.color,
                 );
-                y += sub.size().y + 20.0;
-                if let Some(label) = self.button {
-                    let button = egui::Button::new(
-                        RichText::new(label)
-                            .family(theme::semibold())
-                            .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
-                    )
-                    .fill(theme::ACCENT)
-                    .corner_radius(8)
-                    .min_size(vec2(200.0, 38.0));
-                    let rect = egui::Rect::from_center_size(
-                        egui::pos2(full.center().x, y + 19.0),
-                        vec2(200.0, 38.0),
-                    );
-                    clicked = ui.put(rect, button).clicked();
-                    let hint = painter.layout_no_wrap(
-                        "or run  kelp <path>".into(),
-                        FontId::monospace(12.0),
-                        theme::TEXT_FAINT,
-                    );
-                    painter.galley(
-                        egui::pos2(full.center().x - hint.size().x / 2.0, rect.bottom() + 12.0),
-                        hint,
-                        theme::TEXT_FAINT,
-                    );
-                }
             });
         if self.animate {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(16));
         }
-        clicked
     }
 }
 

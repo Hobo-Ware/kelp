@@ -5,6 +5,8 @@ use eframe::egui::{self, Color32, Margin, RichText, Stroke};
 use serde::{Deserialize, Serialize};
 
 use crate::columns::GraphColumns;
+use crate::panels::{self, Panels};
+use crate::recents::Recent;
 use crate::theme;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -22,6 +24,9 @@ pub struct Settings {
     pub window: Option<[f32; 4]>,
     pub graph_columns: GraphColumns,
     pub recent_actions: Vec<String>,
+    pub recent_repos: Vec<Recent>,
+    pub panels: Panels,
+    pub zoom: f32,
     #[serde(skip)]
     offline: bool,
 }
@@ -41,6 +46,9 @@ impl Default for Settings {
             window: None,
             graph_columns: GraphColumns::default(),
             recent_actions: Vec::new(),
+            recent_repos: Vec::new(),
+            panels: Panels::default(),
+            zoom: 1.0,
             offline: false,
         }
     }
@@ -74,6 +82,15 @@ impl Settings {
         if let Ok(names) = std::env::var("KELP_COLUMNS") {
             settings.graph_columns = GraphColumns::from_names(&names);
         }
+        if is_dev_run() {
+            settings.recent_repos = crate::recents::from_env().unwrap_or_default();
+            settings.zoom = std::env::var("KELP_ZOOM")
+                .ok()
+                .and_then(|z| z.parse().ok())
+                .unwrap_or(1.0);
+            settings.panels = Panels::default().collapsed_by_env();
+        }
+        settings.zoom = panels::clamp_zoom(settings.zoom);
         settings
     }
 
@@ -82,6 +99,9 @@ impl Settings {
     }
 
     pub fn save(&self) {
+        if is_dev_run() {
+            return;
+        }
         let file = Self::file();
         if let Some(dir) = file.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -217,4 +237,35 @@ fn option(ui: &mut egui::Ui, value: &mut bool, label: &str, hint: &str) {
             ui.label(RichText::new(hint).size(12.0).color(theme::TEXT_FAINT));
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recents_panels_and_zoom_survive_a_round_trip() {
+        let mut settings = Settings::default();
+        settings.recent_repos.push(Recent {
+            path: PathBuf::from("/nope/kelp"),
+            opened: 42,
+        });
+        settings.panels.sidebar_open = false;
+        settings.panels.details_width = 410.0;
+        settings.zoom = 1.25;
+        let json = serde_json::to_string(&settings).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.recent_repos, settings.recent_repos);
+        assert_eq!(back.panels, settings.panels);
+        assert_eq!(back.zoom, 1.25);
+    }
+
+    #[test]
+    fn settings_from_older_versions_get_defaults() {
+        let back: Settings = serde_json::from_str(r#"{"load_avatars": false}"#).unwrap();
+        assert!(!back.load_avatars);
+        assert!(back.recent_repos.is_empty());
+        assert_eq!(back.panels, Panels::default());
+        assert_eq!(back.zoom, 1.0);
+    }
 }
