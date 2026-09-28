@@ -14,6 +14,10 @@ pub enum Op {
     },
     Switch(String),
     SwitchTrack(String),
+    SwitchFastForward {
+        branch: String,
+        upstream: String,
+    },
     SwitchDetached(String),
     CreateBranch {
         name: String,
@@ -169,6 +173,29 @@ impl ResetMode {
     }
 }
 
+pub fn checkout_remote(
+    remote_branch: &str,
+    locals: &[String],
+    upstreams: &[(String, String)],
+) -> Op {
+    let tracking = upstreams
+        .iter()
+        .find(|(_, upstream)| upstream == remote_branch)
+        .map(|(local, _)| local.clone());
+    let same_name = remote_branch
+        .split_once('/')
+        .map(|(_, name)| name)
+        .filter(|name| locals.iter().any(|l| l == name))
+        .map(str::to_string);
+    match tracking.or(same_name) {
+        Some(branch) => Op::SwitchFastForward {
+            branch,
+            upstream: remote_branch.to_string(),
+        },
+        None => Op::SwitchTrack(remote_branch.to_string()),
+    }
+}
+
 impl Op {
     pub fn args(&self) -> Vec<String> {
         let v = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
@@ -193,6 +220,7 @@ impl Op {
             }
             Op::Switch(branch) => v(&["switch", branch]),
             Op::SwitchTrack(remote_branch) => v(&["switch", "--track", remote_branch]),
+            Op::SwitchFastForward { branch, .. } => v(&["switch", branch]),
             Op::SwitchDetached(commit) => v(&["switch", "--detach", commit]),
             Op::CreateBranch {
                 name,
@@ -345,7 +373,9 @@ impl Op {
                 ..
             } => format!("Force pushing {branch}"),
             Op::Push { branch, .. } => format!("Pushing {branch}"),
-            Op::Switch(b) | Op::SwitchTrack(b) => format!("Checking out {b}"),
+            Op::Switch(b) | Op::SwitchTrack(b) | Op::SwitchFastForward { branch: b, .. } => {
+                format!("Checking out {b}")
+            }
             Op::SwitchDetached(c) => format!("Checking out {}", short(c)),
             Op::CreateBranch { name, .. } => format!("Creating {name}"),
             Op::RenameBranch { to, .. } => format!("Renaming to {to}"),
@@ -423,6 +453,9 @@ impl Op {
             Op::CheckoutAndMerge { branch, source } => {
                 vec![v(&["switch", branch]), v(&["merge", source])]
             }
+            Op::SwitchFastForward { branch, upstream } => {
+                vec![v(&["switch", branch]), v(&["merge", "--ff-only", upstream])]
+            }
             Op::CheckoutPull { branch, .. } => vec![self.args(), v(&["switch", branch])],
             Op::RenameRemoteBranch {
                 remote,
@@ -472,6 +505,14 @@ impl Op {
                 let sha = git_cli::run(dir, &args)?.trim().to_string();
                 git_cli::run(dir, &["stash", "drop", "-q", stash])?;
                 git_cli::run(dir, &["stash", "store", "-m", message, &sha])?
+            }
+            Op::SwitchFastForward { branch, upstream } => {
+                let switched = git_cli::run(dir, &args)?;
+                let behind = git_cli::run(dir, &["merge-base", "--is-ancestor", branch, upstream]);
+                match behind {
+                    Ok(_) => git_cli::run(dir, &["merge", "--ff-only", upstream])?,
+                    Err(_) => switched,
+                }
             }
             Op::Commit { .. } => git_cli::run(dir, &args).map_err(|e| {
                 match crate::signing::explain_failure(&e.to_string()) {
@@ -618,6 +659,106 @@ mod tests {
             Op::SwitchTrack("origin/feat".into()).command_line(),
             "git switch --track origin/feat"
         );
+    }
+
+    #[test]
+    fn checking_out_a_remote_branch_reuses_the_local_one() {
+        let locals = vec!["main".to_string(), "work".to_string()];
+        let upstreams = vec![("work".to_string(), "origin/feat/work".to_string())];
+        assert_eq!(
+            checkout_remote("origin/main", &locals, &upstreams),
+            Op::SwitchFastForward {
+                branch: "main".into(),
+                upstream: "origin/main".into()
+            }
+        );
+        assert_eq!(
+            checkout_remote("origin/feat/work", &locals, &upstreams),
+            Op::SwitchFastForward {
+                branch: "work".into(),
+                upstream: "origin/feat/work".into()
+            }
+        );
+        assert_eq!(
+            checkout_remote("origin/feat/new", &locals, &upstreams),
+            Op::SwitchTrack("origin/feat/new".into())
+        );
+        assert_eq!(
+            Op::SwitchFastForward {
+                branch: "main".into(),
+                upstream: "origin/main".into()
+            }
+            .command_line(),
+            "git switch main && git merge --ff-only origin/main"
+        );
+    }
+
+    fn scratch_clone(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (up, down) = (root.join("up"), root.join("down"));
+        std::fs::create_dir_all(&up).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "T"],
+            &["commit", "-q", "--allow-empty", "-m", "one"],
+        ] {
+            git_cli::run(&up, args).unwrap();
+        }
+        let clone = ["clone", "-q", up.to_str().unwrap(), down.to_str().unwrap()];
+        git_cli::run(&root, &clone).unwrap();
+        for args in [
+            &["config", "user.email", "t@example.com"][..],
+            &["config", "user.name", "T"],
+            &["switch", "-q", "-c", "side"],
+        ] {
+            git_cli::run(&down, args).unwrap();
+        }
+        (up, down)
+    }
+
+    fn tip(dir: &Path, rev: &str) -> String {
+        git_cli::run(dir, &["rev-parse", rev])
+            .unwrap()
+            .trim()
+            .to_string()
+    }
+
+    #[test]
+    fn switch_fast_forward_moves_a_branch_that_is_only_behind() {
+        let (up, down) = scratch_clone("kelp-ff-behind");
+        git_cli::run(&up, &["commit", "-q", "--allow-empty", "-m", "two"]).unwrap();
+        git_cli::run(&down, &["fetch", "-q"]).unwrap();
+        let op = Op::SwitchFastForward {
+            branch: "main".into(),
+            upstream: "origin/main".into(),
+        };
+        op.run(&down).unwrap();
+        assert_eq!(tip(&down, "HEAD"), tip(&down, "origin/main"));
+        let head = git_cli::run(&down, &["symbolic-ref", "--short", "HEAD"]).unwrap();
+        assert_eq!(head.trim(), "main");
+        let _ = std::fs::remove_dir_all(up.parent().unwrap());
+    }
+
+    #[test]
+    fn switch_fast_forward_leaves_a_diverged_branch_where_it_is() {
+        let (up, down) = scratch_clone("kelp-ff-diverged");
+        git_cli::run(&up, &["commit", "-q", "--allow-empty", "-m", "theirs"]).unwrap();
+        git_cli::run(&down, &["fetch", "-q"]).unwrap();
+        git_cli::run(&down, &["switch", "-q", "main"]).unwrap();
+        git_cli::run(&down, &["commit", "-q", "--allow-empty", "-m", "mine"]).unwrap();
+        let mine = tip(&down, "main");
+        git_cli::run(&down, &["switch", "-q", "side"]).unwrap();
+        let op = Op::SwitchFastForward {
+            branch: "main".into(),
+            upstream: "origin/main".into(),
+        };
+        op.run(&down).unwrap();
+        assert_eq!(tip(&down, "main"), mine);
+        let head = git_cli::run(&down, &["symbolic-ref", "--short", "HEAD"]).unwrap();
+        assert_eq!(head.trim(), "main");
+        let _ = std::fs::remove_dir_all(up.parent().unwrap());
     }
 
     #[test]
