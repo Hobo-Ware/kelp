@@ -171,6 +171,12 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
                 if ui.add(label).on_hover_text("Copy full hash").clicked() {
                     ui.ctx().copy_text(details.id.to_string());
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if crate::widgets::icon_button(ui, crate::icons::Icon::Pencil, "Edit message…")
+                    {
+                        repo.open_message_editor(&details.id.to_string());
+                    }
+                });
             });
             ui.label(
                 RichText::new(&details.title)

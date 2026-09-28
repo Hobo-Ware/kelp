@@ -46,20 +46,14 @@ pub enum Event {
 }
 
 impl Start {
-    pub fn run(&self, dir: &Path) -> anyhow::Result<String> {
+    pub fn run(&self, dir: &Path) -> anyhow::Result<Outcome> {
         let combined = |group: &Group| {
             self.combined
                 .get(&self.plan.steps[group.leader].id)
                 .cloned()
                 .unwrap_or_else(|| rebase::default_combined(&self.plan.steps, group))
         };
-        match rebase::run(dir, &self.plan, &combined)? {
-            Outcome::Done => Ok(String::new()),
-            Outcome::Conflicts => anyhow::bail!(
-                "Rebase stopped on conflicts. Resolve them, then continue or abort the rebase."
-            ),
-            Outcome::Paused(reason) => anyhow::bail!("Rebase paused: {reason}"),
-        }
+        rebase::run(dir, &self.plan, &combined)
     }
 }
 
@@ -118,7 +112,8 @@ impl RebaseView {
         match rx.try_recv() {
             Ok(Ok((mut plan, base_summary))) => {
                 self.original_order = plan.steps.iter().map(|s| s.id).collect();
-                for (step, letter) in plan.steps.iter_mut().zip(self.preset.chars()) {
+                let editable = plan.steps.iter_mut().filter(|s| !s.merge);
+                for (step, letter) in editable.zip(self.preset.chars()) {
                     if let Some(action) = Action::ALL
                         .into_iter()
                         .find(|a| action_key(*a).eq_ignore_ascii_case(&letter.to_string()))
@@ -168,15 +163,16 @@ impl RebaseView {
             ui.label(RichText::new(text).color(theme::TEXT_MUTED));
             return event;
         };
-        ui.label(
-            RichText::new(
-                "Oldest first, applied top to bottom. Drag to reorder. Squash and Fixup fold a \
-                 commit into the one above it; Squash keeps both messages.",
-            )
-            .size(12.0)
-            .color(theme::TEXT_FAINT),
-        );
-        list(ui, &mut plan.steps, &mut self.combined);
+        let merges = plan.has_merges();
+        let help = if merges {
+            "Oldest first. This range has merge commits, so the order and the merges stay as they \
+             are: Pick, Reword, Edit or Drop the other commits. Edit stops there so you can amend."
+        } else {
+            "Oldest first, applied top to bottom. Drag to reorder. Squash and Fixup fold a commit \
+             into the one above it; Squash keeps both messages. Edit stops there so you can amend."
+        };
+        ui.label(RichText::new(help).size(12.0).color(theme::TEXT_FAINT));
+        list(ui, &mut plan.steps, &mut self.combined, merges);
         let problem = rebase::problem(&plan.steps);
         let changed = has_changes(&plan.steps, &self.original_order, &self.combined);
         ui.add_space(4.0);
@@ -224,7 +220,12 @@ impl RebaseView {
     }
 }
 
-fn list(ui: &mut Ui, steps: &mut Vec<Step>, combined: &mut HashMap<ObjectId, String>) {
+fn list(
+    ui: &mut Ui,
+    steps: &mut Vec<Step>,
+    combined: &mut HashMap<ObjectId, String>,
+    keep_order: bool,
+) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
@@ -250,23 +251,26 @@ fn list(ui: &mut Ui, steps: &mut Vec<Step>, combined: &mut HashMap<ObjectId, Str
                 let step = &steps[i];
                 let (rect, _) =
                     ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
-                let response = ui.interact(
-                    rect,
-                    egui::Id::new(("rebase-row", step.id)),
-                    Sense::click_and_drag(),
-                );
+                let sense = if keep_order {
+                    Sense::hover()
+                } else {
+                    Sense::click_and_drag()
+                };
+                let response = ui.interact(rect, egui::Id::new(("rebase-row", step.id)), sense);
                 centers.push(rect.center().y);
                 if response.dragged()
                     && let Some(pointer) = response.interact_pointer_pos()
                 {
                     dragged = Some((i, pointer.y));
                     ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
-                } else if response.hovered() {
+                } else if response.hovered() && !keep_order {
                     ui.ctx().set_cursor_icon(CursorIcon::Grab);
                 }
                 if response.hovered()
                     && !typing
+                    && !step.merge
                     && let Some(action) = key_action(ui)
+                    && (!keep_order || action.allowed_with_merges())
                 {
                     new_action = Some((i, action));
                 }
@@ -275,20 +279,29 @@ fn list(ui: &mut Ui, steps: &mut Vec<Step>, combined: &mut HashMap<ObjectId, Str
                     rect,
                     step,
                     response.hovered() || response.dragged(),
+                    !keep_order,
                     now,
                 );
                 let pill = pill_rect(rect, step.action);
-                let pill_response = ui
-                    .interact(
-                        pill,
-                        egui::Id::new(("rebase-pill", step.id)),
-                        Sense::click(),
-                    )
-                    .on_hover_cursor(CursorIcon::PointingHand);
+                let pill_sense = if step.merge {
+                    Sense::hover()
+                } else {
+                    Sense::click()
+                };
+                let pill_response =
+                    ui.interact(pill, egui::Id::new(("rebase-pill", step.id)), pill_sense);
+                let pill_response = if step.merge {
+                    pill_response.on_hover_text("Merge commits keep their place")
+                } else {
+                    pill_response.on_hover_cursor(CursorIcon::PointingHand)
+                };
                 egui::Popup::menu(&pill_response).show(|ui| {
                     ui.set_min_width(190.0);
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    for action in Action::ALL {
+                    for action in Action::ALL
+                        .into_iter()
+                        .filter(|a| !keep_order || a.allowed_with_merges())
+                    {
                         if menus::row(
                             ui,
                             Some(action_icon(action)),
@@ -341,7 +354,7 @@ fn list(ui: &mut Ui, steps: &mut Vec<Step>, combined: &mut HashMap<ObjectId, Str
     }
 }
 
-fn paint_row(ui: &Ui, rect: Rect, step: &Step, hovered: bool, now: i64) {
+fn paint_row(ui: &Ui, rect: Rect, step: &Step, hovered: bool, grip: bool, now: i64) {
     let painter = ui.painter_at(rect);
     let folded = step.action.joins_previous();
     let inner = rect.shrink2(vec2(8.0, 3.0));
@@ -349,9 +362,11 @@ fn paint_row(ui: &Ui, rect: Rect, step: &Step, hovered: bool, now: i64) {
         painter.rect_filled(inner, 6.0, theme::CONTROL);
     }
     let mut x = rect.left() + 22.0;
-    for dy in [-5.0, 0.0, 5.0] {
-        for dx in [0.0, 5.0] {
-            painter.circle_filled(pos2(x + dx, rect.center().y + dy), 1.3, theme::TEXT_FAINT);
+    if grip {
+        for dy in [-5.0, 0.0, 5.0] {
+            for dx in [0.0, 5.0] {
+                painter.circle_filled(pos2(x + dx, rect.center().y + dy), 1.3, theme::TEXT_FAINT);
+            }
         }
     }
     x += 22.0;
@@ -373,7 +388,16 @@ fn paint_row(ui: &Ui, rect: Rect, step: &Step, hovered: bool, now: i64) {
         );
     }
     let pill = pill_rect(rect, step.action);
-    let color = action_color(step.action);
+    let color = if step.merge {
+        theme::TEXT_FAINT
+    } else {
+        action_color(step.action)
+    };
+    let pill_label = if step.merge {
+        "Merge"
+    } else {
+        step.action.label()
+    };
     painter.rect(
         pill,
         CornerRadius::same(11),
@@ -381,22 +405,25 @@ fn paint_row(ui: &Ui, rect: Rect, step: &Step, hovered: bool, now: i64) {
         Stroke::new(1.0, theme::with_alpha(color, 0x99)),
         egui::StrokeKind::Inside,
     );
+    let label_offset = if step.merge { 0.0 } else { 6.0 };
     painter.text(
-        pill.center() - vec2(6.0, 0.0),
+        pill.center() - vec2(label_offset, 0.0),
         Align2::CENTER_CENTER,
-        step.action.label(),
+        pill_label,
         FontId::proportional(12.0),
         color,
     );
-    let chevron = pill.right_center() - vec2(12.0, 0.0);
-    painter.line_segment(
-        [chevron + vec2(-3.0, -1.5), chevron + vec2(0.0, 1.5)],
-        Stroke::new(1.2, color),
-    );
-    painter.line_segment(
-        [chevron + vec2(0.0, 1.5), chevron + vec2(3.0, -1.5)],
-        Stroke::new(1.2, color),
-    );
+    if !step.merge {
+        let chevron = pill.right_center() - vec2(12.0, 0.0);
+        painter.line_segment(
+            [chevron + vec2(-3.0, -1.5), chevron + vec2(0.0, 1.5)],
+            Stroke::new(1.2, color),
+        );
+        painter.line_segment(
+            [chevron + vec2(0.0, 1.5), chevron + vec2(3.0, -1.5)],
+            Stroke::new(1.2, color),
+        );
+    }
     let text_x = pill.right() + 14.0;
     painter.text(
         pos2(text_x, rect.center().y),
@@ -486,6 +513,7 @@ fn key_action(ui: &Ui) -> Option<Action> {
             let key = match action {
                 Action::Pick => Key::P,
                 Action::Reword => Key::R,
+                Action::Edit => Key::E,
                 Action::Squash => Key::S,
                 Action::Fixup => Key::F,
                 Action::Drop => Key::D,
@@ -499,6 +527,7 @@ fn action_key(action: Action) -> &'static str {
     match action {
         Action::Pick => "P",
         Action::Reword => "R",
+        Action::Edit => "E",
         Action::Squash => "S",
         Action::Fixup => "F",
         Action::Drop => "D",
@@ -509,6 +538,7 @@ fn action_icon(action: Action) -> Icon {
     match action {
         Action::Pick => Icon::Check,
         Action::Reword => Icon::Pencil,
+        Action::Edit => Icon::Terminal,
         Action::Squash => Icon::Merge,
         Action::Fixup => Icon::Rebase,
         Action::Drop => Icon::Trash,
@@ -519,6 +549,7 @@ fn action_color(action: Action) -> Color32 {
     match action {
         Action::Pick => theme::TEXT_MUTED,
         Action::Reword => theme::lane(3),
+        Action::Edit => theme::lane(5),
         Action::Squash => theme::lane(2),
         Action::Fixup => theme::lane(1),
         Action::Drop => theme::DELETED,
@@ -563,6 +594,7 @@ fn summary(steps: &[Step], original: &[ObjectId]) -> String {
         (count(Action::Drop), "dropped"),
         (folded, "squashed"),
         (reworded, "reworded"),
+        (count(Action::Edit), "to edit"),
         (moved, "moved"),
     ]
     .into_iter()
@@ -633,6 +665,7 @@ mod tests {
             original: format!("c{n}"),
             action,
             message: format!("c{n}"),
+            merge: false,
         }
     }
 

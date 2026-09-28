@@ -33,6 +33,7 @@ use crate::settings::Settings;
 use crate::{details, sidebar, theme, worktrees_view};
 
 mod palette_actions;
+mod rewrite_actions;
 mod undo_actions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +56,11 @@ pub enum JobOutput {
         commit: bool,
         force_retry: Option<Op>,
         result: anyhow::Result<String>,
+        undo: undo::Outcome,
+    },
+    Rewrite {
+        label: String,
+        result: anyhow::Result<kelp_core::rebase::Outcome>,
         undo: undo::Outcome,
     },
     Undone {
@@ -152,6 +158,7 @@ pub struct Repo {
     github: Option<kelp_core::avatar::GitHubRepo>,
     pub pulls: kelp_core::pulls::Pulls,
     pub dialog: Option<Dialog>,
+    message_editor: Option<crate::message_editor::MessageEditor>,
     pub outbox: Vec<PathBuf>,
     pub review: Review,
     pub author: String,
@@ -239,6 +246,7 @@ impl Repo {
             github,
             pulls: kelp_core::pulls::Pulls::default(),
             dialog: None,
+            message_editor: None,
             outbox: Vec::new(),
             open_after_ops: Vec::new(),
             was_focused: None,
@@ -285,6 +293,9 @@ impl Repo {
         {
             ready.selected = None;
             ready.reveal(Selection::Commit(row));
+        }
+        if let Ok(commit) = std::env::var("KELP_EDIT_MESSAGE") {
+            ready.open_message_editor(&commit);
         }
         if let Ok(wanted) = std::env::var("KELP_OPEN_REBASE") {
             let (base, actions) = wanted.split_once(':').unwrap_or((&wanted, ""));
@@ -644,21 +655,11 @@ impl Repo {
                     self.center = Center::Rebase(Box::new(view));
                 }
                 Command::StartRebase(start) => {
-                    let dir = self.dir.clone();
                     self.center = Center::Graph;
-                    self.jobs.spawn("Rebasing", move || JobOutput::Op {
-                        label: "Interactive rebase".into(),
-                        quiet: false,
-                        commit: false,
-                        force_retry: None,
-                        result: start.run(&dir),
-                        undo: undo::Outcome::NotUndoable {
-                            label: "Interactive rebase".into(),
-                            reason: "interactive rebases are not tracked yet (the reflog keeps the old commits)",
-                        },
-                    });
+                    self.run_rewrite("Interactive rebase".into(), move |dir| start.run(dir));
                     ran_op = true;
                 }
+                Command::EditMessage(commit) => self.open_message_editor(&commit),
                 Command::OpenRepo(path) => {
                     let path = if path.is_relative() {
                         self.dir.join(path)
@@ -1050,6 +1051,11 @@ impl Repo {
                     self.notify(format!("Could not write commit-graph: {e:#}"), true)
                 }
                 JobOutput::Workspace(info) => self.workspace = *info,
+                JobOutput::Rewrite {
+                    label,
+                    result,
+                    undo,
+                } => self.finish_rewrite(label, result, undo),
                 JobOutput::Undone { record, result } => self.finish_undo(*record, result),
                 JobOutput::Redone {
                     original,
@@ -1292,6 +1298,7 @@ impl Repo {
             ctx.request_repaint();
         }
 
+        self.show_message_editor(&ctx);
         if let Some(dialog) = &mut self.dialog {
             match dialogs::show(&ctx, dialog) {
                 Outcome::Keep => {}

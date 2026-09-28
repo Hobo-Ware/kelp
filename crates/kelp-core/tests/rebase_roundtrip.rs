@@ -137,6 +137,137 @@ fn refuses_non_ancestors_and_merges() {
         "{err}"
     );
     repo.git(&["merge", "-q", "--no-ff", "-m", "merge side", "side"]);
-    let err = rebase::load(repo.path(), "HEAD~3").unwrap_err();
-    assert!(err.to_string().contains("merge commit"), "{err}");
+    let plan = rebase::load(repo.path(), "HEAD~3").unwrap();
+    assert!(plan.has_merges());
+}
+
+fn merge_repo(name: &str) -> Scratch {
+    let repo = Scratch::new(name);
+    repo.git(&["checkout", "-q", "-b", "side"]);
+    repo.commit("s.txt", "s\n", "side work");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.commit("m.txt", "m\n", "main work");
+    repo.git(&["merge", "-q", "--no-ff", "-m", "merge side", "side"]);
+    repo.commit("after.txt", "after\n", "after merge");
+    repo
+}
+
+fn parents(repo: &Scratch, rev: &str) -> usize {
+    repo.git(&["rev-list", "--parents", "-n", "1", rev])
+        .split_whitespace()
+        .count()
+        - 1
+}
+
+#[test]
+fn rebase_merges_keeps_the_merge() {
+    let repo = merge_repo("rebase-merges");
+    let mut plan = rebase::load(repo.path(), "HEAD~3").unwrap();
+    assert!(plan.steps.iter().any(|s| s.merge));
+    let find =
+        |plan: &Plan, name: &str| plan.steps.iter().position(|s| s.summary() == name).unwrap();
+    let main_work = find(&plan, "main work");
+    plan.steps[main_work].action = Action::Reword;
+    plan.steps[main_work].message = "main work, reworded".into();
+    let after = find(&plan, "after merge");
+    plan.steps[after].action = Action::Drop;
+    assert_eq!(run(&repo, &plan), Outcome::Done);
+    assert_eq!(repo.git(&["log", "-1", "--format=%s"]).trim(), "merge side");
+    assert_eq!(parents(&repo, "HEAD"), 2, "the merge survives");
+    let log = repo.git(&["log", "--format=%s"]);
+    assert!(log.contains("main work, reworded"), "{log}");
+    assert!(log.contains("side work"), "{log}");
+    assert!(!repo.path().join("after.txt").exists());
+}
+
+#[test]
+fn merge_plans_refuse_squash() {
+    let repo = merge_repo("rebase-merges-squash");
+    let mut plan = rebase::load(repo.path(), "HEAD~3").unwrap();
+    let last = plan.steps.len() - 1;
+    plan.steps[last].action = Action::Squash;
+    let combined = |g: &Group| rebase::default_combined(&plan.steps, g);
+    let err = rebase::run(repo.path(), &plan, &combined).unwrap_err();
+    assert!(err.to_string().contains("merge commits"), "{err}");
+}
+
+#[test]
+fn edit_stops_then_amend_and_continue() {
+    let repo = repo("rebase-edit");
+    let mut plan = plan(&repo);
+    plan.steps[1].action = Action::Edit;
+    let stopped = run(&repo, &plan);
+    let Outcome::Editing(sha) = stopped else {
+        panic!("expected an edit stop, got {stopped:?}");
+    };
+    assert_eq!(sha, plan.steps[1].id.to_hex_with_len(7).to_string());
+    let git_dir = repo.path().join(".git");
+    let progress = kelp_core::conflict::in_progress(&git_dir).unwrap();
+    assert_eq!(progress.editing.as_deref(), Some(sha.as_str()));
+    assert!(progress.title().contains("for editing"));
+    std::fs::write(repo.path().join("c.txt"), "c amended\n").unwrap();
+    repo.git(&["add", "c.txt"]);
+    repo.git(&["commit", "-q", "--amend", "-m", "add c, amended"]);
+    kelp_core::conflict::run_step(
+        repo.path(),
+        kelp_core::conflict::Operation::Rebase,
+        kelp_core::conflict::Step::Continue,
+    )
+    .unwrap();
+    assert_eq!(
+        subjects(&repo),
+        ["add d", "add c, amended", "add b", "second", "first"]
+    );
+    assert!(kelp_core::conflict::in_progress(&git_dir).is_none());
+}
+
+#[test]
+fn edit_message_of_head_keeps_the_index() {
+    let repo = repo("edit-head");
+    let tree = repo.git(&["rev-parse", "HEAD^{tree}"]);
+    std::fs::write(repo.path().join("b.txt"), "staged\n").unwrap();
+    repo.git(&["add", "b.txt"]);
+    let outcome =
+        rebase::edit_message(repo.path(), "HEAD", "add d, better\n\nWith a body.").unwrap();
+    assert_eq!(outcome, Outcome::Done);
+    assert_eq!(
+        repo.git(&["log", "-1", "--format=%B"]).trim_end(),
+        "add d, better\n\nWith a body."
+    );
+    assert_eq!(
+        repo.git(&["rev-parse", "HEAD^{tree}"]),
+        tree,
+        "the commit's files are untouched"
+    );
+    assert_eq!(
+        repo.git(&["diff", "--cached", "--name-only"]).trim(),
+        "b.txt"
+    );
+}
+
+#[test]
+fn edit_message_three_back_rewords_through_a_rebase() {
+    let repo = repo("edit-older");
+    let outcome = rebase::edit_message(repo.path(), "HEAD~2", "add b, renamed").unwrap();
+    assert_eq!(outcome, Outcome::Done);
+    assert_eq!(
+        subjects(&repo),
+        ["add d", "add c", "add b, renamed", "second", "first"]
+    );
+    assert!(repo.path().join("d.txt").exists());
+}
+
+#[test]
+fn edit_message_refuses_empty_and_off_branch() {
+    let repo = repo("edit-refuse");
+    assert!(rebase::edit_message(repo.path(), "HEAD", "  ").is_err());
+    repo.git(&["checkout", "-q", "-b", "side", "HEAD~1"]);
+    repo.commit("e.txt", "e\n", "add e");
+    let side = repo.git(&["rev-parse", "HEAD"]);
+    repo.git(&["checkout", "-q", "main"]);
+    let err = rebase::edit_message(repo.path(), side.trim(), "x").unwrap_err();
+    assert!(
+        err.to_string().contains("not on the current branch"),
+        "{err}"
+    );
 }

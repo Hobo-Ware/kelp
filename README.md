@@ -84,7 +84,7 @@ folder if it is a repo.
 - **Stashes:** stash, pop, apply, drop.
 - **Undo:** Cmd+Z undoes the last thing Kelp did (commit, amend, checkout,
   branch create/rename/delete, merge, rebase, pull, stash, discard,
-  stage), and Cmd+Shift+Z redoes it. Undo refuses rather than lose work
+  stage, interactive rebase, message edits), and Cmd+Shift+Z redoes it. Undo refuses rather than lose work
   when the repo changed since; pushes and fetches can't be undone.
 - **Conflicts:** a stopped merge, rebase, cherry-pick or revert shows a
   banner with Continue, Skip and Abort. Each conflicted file opens side
@@ -92,8 +92,14 @@ folder if it is a repo.
   a preview of the result, and whole-file choices (including delete vs
   modify).
 - **Interactive rebase:** right-click a commit, then reorder the commits after it by
-  dragging, and pick, reword, squash, fixup or drop each one. Messages are edited
-  inline; no editor opens.
+  dragging, and pick, reword, edit, squash, fixup or drop each one. Messages are edited
+  inline; no editor opens. Edit stops at that commit so you can amend it, then
+  Continue from the banner. Ranges with merge commits keep their shape
+  (`--rebase-merges`): merges stay put, the other commits can be picked, reworded,
+  edited or dropped.
+- **Edit any commit message:** the pencil in the details panel, the commit menu or
+  the palette. The latest commit is amended (staged changes stay staged); older
+  ones are reworded through a rebase. Cmd+Z undoes it.
 - **Search:** Cmd+F across messages, authors, emails and hash prefixes.
 - **Command palette:** Cmd+K (or Cmd+Shift+P) finds any action, branch,
   commit, changed file or tab. Prefix with `>` for actions, `@` for
@@ -147,7 +153,7 @@ folder if it is a repo.
 | Double-click a branch | Check it out |
 | Double-click a graph label | Check out that branch |
 | Drag a graph label onto a commit | Merge, rebase or reset |
-| P / R / S / F / D | In interactive rebase: pick, reword, squash, fixup or drop the hovered commit |
+| P / R / E / S / F / D | In interactive rebase: pick, reword, edit, squash, fixup or drop the hovered commit |
 
 ## Where Kelp keeps things
 
@@ -196,6 +202,7 @@ Developer switches (environment variables):
 | `KELP_FAKE_PULLS=<file>` | Load pull requests from a `gh pr list --json` file instead of GitHub |
 | `KELP_HOVER_ROW=<row>` | Draw the graph as if that commit row were hovered |
 | `KELP_OPEN_REBASE=<rev>` (or `<rev>:<letters>`, e.g. `HEAD~4:prsd`) | Open interactive rebase from a commit, optionally with actions preset |
+| `KELP_EDIT_MESSAGE=<rev>` | Open the message editor for a commit |
 
 The plan, design rules and decisions are in [PLAN.md](PLAN.md); progress
 is logged in [LEDGER.md](LEDGER.md). Fonts: IBM Plex Sans and JetBrains

@@ -53,6 +53,7 @@ pub enum RepoAction {
     CherryPick,
     Revert,
     InteractiveRebase,
+    EditMessage,
     CopyCommitHash,
     CopyBranchName,
     OpenTerminal,
@@ -150,6 +151,7 @@ pub static ACTIONS: &[Action] = &[
     repo("cherry-pick", "Cherry-pick the selected commit", "apply copy", None, Some(Icon::CherryPick), RepoAction::CherryPick),
     repo("revert", "Revert the selected commit", "undo inverse", None, Some(Icon::Revert), RepoAction::Revert),
     repo("interactive-rebase", "Interactive rebase from the selected commit…", "squash reword reorder fixup drop", None, Some(Icon::Rebase), RepoAction::InteractiveRebase),
+    repo("edit-message", "Edit the selected commit's message…", "reword rename amend", None, Some(Icon::Pencil), RepoAction::EditMessage),
     repo("copy-hash", "Copy the selected commit hash", "sha id clipboard", None, Some(Icon::Copy), RepoAction::CopyCommitHash),
     repo("copy-branch", "Copy the current branch name", "clipboard", None, Some(Icon::Copy), RepoAction::CopyBranchName),
     repo("open-pull-request", "Open the pull request for this branch", "pr github review", None, Some(Icon::Merge), RepoAction::OpenPullRequest),
@@ -220,9 +222,8 @@ impl State {
             ShowAllBranches => self.filtering,
             OpenPullRequest => self.pull,
             CreatePullRequest => self.github && self.branch && !self.pull,
-            CheckoutCommit | CherryPick | Revert | InteractiveRebase | CopyCommitHash => {
-                self.commit_selected
-            }
+            CheckoutCommit | CherryPick | Revert | InteractiveRebase | EditMessage
+            | CopyCommitHash => self.commit_selected,
             Fetch | NewBranch | Refresh | Search | ShowGraph | ShowWorktrees | RevealRepo => true,
         }
     }
@@ -265,7 +266,7 @@ pub static KEYS: &[KeyRow] = &[
     key("Double-click a branch", "Check it out", Group::Actions),
     key("Double-click a graph label", "Check out that branch", Group::Actions),
     key("Drag a graph label onto a commit", "Merge, rebase or reset", Group::Actions),
-    key("P / R / S / F / D", "In interactive rebase: pick, reword, squash, fixup or drop the hovered commit", Group::Actions),
+    key("P / R / E / S / F / D", "In interactive rebase: pick, reword, edit, squash, fixup or drop the hovered commit", Group::Actions),
 ];
 
 pub fn key_parts(keys: &str) -> impl Iterator<Item = &str> {
@@ -308,6 +309,7 @@ mod tests {
             "cherry-pick",
             "revert",
             "interactive-rebase",
+            "edit-message",
             "copy-hash",
             "copy-branch",
             "open-pull-request",

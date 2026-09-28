@@ -607,6 +607,9 @@ impl Banner {
                             .color(theme::TEXT_STRONG),
                     );
                     let (note, color) = match conflicted {
+                        0 if op.editing.is_some() => {
+                            ("amend, then Continue".to_string(), theme::TEXT_MUTED)
+                        }
                         0 => ("all conflicts resolved".to_string(), theme::ADDED),
                         1 => ("1 conflicted file".to_string(), theme::MODIFIED),
                         n => (format!("{n} conflicted files"), theme::MODIFIED),

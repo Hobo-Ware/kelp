@@ -20,6 +20,7 @@ pub enum Command {
     RevealFile(String),
     Undo,
     OpenRebase(String),
+    EditMessage(String),
     StartRebase(rebase_view::Start),
     ToggleRef(String),
     SoloRef(String),

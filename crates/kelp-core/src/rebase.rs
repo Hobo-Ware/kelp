@@ -10,15 +10,17 @@ use crate::git_cli;
 pub enum Action {
     Pick,
     Reword,
+    Edit,
     Squash,
     Fixup,
     Drop,
 }
 
 impl Action {
-    pub const ALL: [Action; 5] = [
+    pub const ALL: [Action; 6] = [
         Action::Pick,
         Action::Reword,
+        Action::Edit,
         Action::Squash,
         Action::Fixup,
         Action::Drop,
@@ -28,10 +30,15 @@ impl Action {
         match self {
             Action::Pick => "Pick",
             Action::Reword => "Reword",
+            Action::Edit => "Edit",
             Action::Squash => "Squash",
             Action::Fixup => "Fixup",
             Action::Drop => "Drop",
         }
+    }
+
+    pub fn allowed_with_merges(self) -> bool {
+        !self.joins_previous()
     }
 
     pub fn joins_previous(self) -> bool {
@@ -47,6 +54,7 @@ pub struct Step {
     pub original: String,
     pub action: Action,
     pub message: String,
+    pub merge: bool,
 }
 
 impl Step {
@@ -59,6 +67,12 @@ impl Step {
 pub struct Plan {
     pub base: ObjectId,
     pub steps: Vec<Step>,
+}
+
+impl Plan {
+    pub fn has_merges(&self) -> bool {
+        self.steps.iter().any(|s| s.merge)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +93,7 @@ impl Group {
 pub enum Outcome {
     Done,
     Conflicts,
+    Editing(String),
     Paused(String),
 }
 
@@ -105,7 +120,6 @@ pub fn load(dir: &Path, base: &str) -> anyhow::Result<Plan> {
         ],
     )?;
     let mut steps = Vec::new();
-    let mut merges = 0;
     for record in log.split('\x1e').map(|r| r.trim_start_matches('\n')) {
         let mut fields = record.splitn(5, '\x1f');
         let (Some(id), Some(parents), Some(author), Some(time), Some(message)) = (
@@ -117,9 +131,6 @@ pub fn load(dir: &Path, base: &str) -> anyhow::Result<Plan> {
         ) else {
             continue;
         };
-        if parents.split_whitespace().count() > 1 {
-            merges += 1;
-        }
         let message = message.trim_end().to_string();
         steps.push(Step {
             id: parse_id(id)?,
@@ -128,14 +139,8 @@ pub fn load(dir: &Path, base: &str) -> anyhow::Result<Plan> {
             original: message.clone(),
             action: Action::Pick,
             message,
+            merge: parents.split_whitespace().count() > 1,
         });
-    }
-    if merges > 0 {
-        bail!(
-            "There {} {merges} merge commit{} after this commit. Interactive rebase here only handles a straight line of commits.",
-            if merges == 1 { "is" } else { "are" },
-            if merges == 1 { "" } else { "s" },
-        );
     }
     if steps.is_empty() {
         bail!("This is the latest commit, so there is nothing after it to rebase.");
@@ -164,6 +169,20 @@ pub fn groups(steps: &[Step]) -> Vec<Group> {
 }
 
 pub fn problem(steps: &[Step]) -> Option<String> {
+    if steps.iter().any(|s| s.merge) {
+        if let Some(step) = steps.iter().find(|s| !s.action.allowed_with_merges()) {
+            return Some(format!(
+                "\"{}\" can't be squashed or fixed up here: the range has merge commits, so only Pick, Reword, Edit and Drop keep the history's shape.",
+                step.summary()
+            ));
+        }
+        if let Some(step) = steps.iter().find(|s| s.merge && s.action != Action::Pick) {
+            return Some(format!(
+                "\"{}\" is a merge commit; it keeps its place and can only be picked.",
+                step.summary()
+            ));
+        }
+    }
     let first = steps.iter().find(|s| s.action != Action::Drop)?;
     first.action.joins_previous().then(|| {
         format!(
@@ -195,15 +214,17 @@ pub fn todo(steps: &[Step], combined: &dyn Fn(&Group) -> String, message_dir: &P
     let mut messages = Vec::new();
     let mut amend = |text: &mut String, message: String| {
         let path = message_dir.join(format!("message-{}.txt", messages.len()));
-        text.push_str(&format!(
-            "exec git commit --amend --allow-empty --quiet -F {}\n",
-            shell_quote(&path.to_string_lossy())
-        ));
+        text.push_str(&amend_line(&path));
         messages.push((path, message));
     };
     for group in groups(steps) {
         let leader = &steps[group.leader];
-        text.push_str(&format!("pick {}\n", leader.id));
+        let verb = if leader.action == Action::Edit {
+            "edit"
+        } else {
+            "pick"
+        };
+        text.push_str(&format!("{verb} {}\n", leader.id));
         for &m in &group.members {
             text.push_str(&format!("fixup {}\n", steps[m].id));
         }
@@ -217,6 +238,67 @@ pub fn todo(steps: &[Step], combined: &dyn Fn(&Group) -> String, message_dir: &P
         text.push_str(&format!("drop {}\n", step.id));
     }
     Todo { text, messages }
+}
+
+pub fn keep_shape(git_todo: &str, steps: &[Step], message_dir: &Path) -> Todo {
+    let mut text = String::new();
+    let mut messages = Vec::new();
+    for line in git_todo.lines() {
+        let mut words = line.split_whitespace();
+        let step = match (words.next(), words.next()) {
+            (Some("pick" | "p"), Some(sha)) => ObjectId::from_hex(sha.as_bytes())
+                .ok()
+                .and_then(|id| steps.iter().find(|s| s.id == id)),
+            _ => None,
+        };
+        let Some(step) = step else {
+            text.push_str(line);
+            text.push('\n');
+            continue;
+        };
+        match step.action {
+            Action::Drop => text.push_str(&format!("drop {}\n", step.id)),
+            Action::Edit => text.push_str(&format!("edit {}\n", step.id)),
+            Action::Reword if step.message != step.original => {
+                let path = message_dir.join(format!("message-{}.txt", messages.len()));
+                text.push_str(&format!("pick {}\n", step.id));
+                text.push_str(&amend_line(&path));
+                messages.push((path, step.message.clone()));
+            }
+            _ => {
+                text.push_str(line);
+                text.push('\n');
+            }
+        }
+    }
+    Todo { text, messages }
+}
+
+fn amend_line(path: &Path) -> String {
+    format!(
+        "exec git commit --amend --allow-empty --quiet -F {}\n",
+        shell_quote(&path.to_string_lossy())
+    )
+}
+
+fn git_todo_for(dir: &Path, base: &ObjectId, work: &Path) -> anyhow::Result<String> {
+    let captured = work.join("git-todo");
+    let _ = Command::new("git")
+        .current_dir(dir)
+        .args(["-c", "core.abbrev=40", "rebase", "-i", "--rebase-merges"])
+        .arg(base.to_string())
+        .env(
+            "GIT_SEQUENCE_EDITOR",
+            format!(
+                "kelp_capture() {{ cp \"$1\" {}; exit 1; }}; kelp_capture",
+                shell_quote(&captured.to_string_lossy())
+            ),
+        )
+        .env("GIT_EDITOR", "true")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .context("could not start git rebase")?;
+    std::fs::read_to_string(&captured).context("git did not produce a rebase plan")
 }
 
 pub fn run(
@@ -238,15 +320,26 @@ pub fn run(
     let work = git_dir.join("kelp").join("rebase");
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work)?;
-    let todo = todo(&plan.steps, combined, &work);
+    let merges = plan.has_merges();
+    let todo = if merges {
+        keep_shape(&git_todo_for(dir, &plan.base, &work)?, &plan.steps, &work)
+    } else {
+        todo(&plan.steps, combined, &work)
+    };
     for (path, message) in &todo.messages {
         std::fs::write(path, message)?;
     }
     let todo_path = work.join("todo");
     std::fs::write(&todo_path, &todo.text)?;
+    let base = plan.base.to_string();
+    let mut args = vec!["-c", "core.abbrev=40", "rebase", "-i", "--no-autosquash"];
+    if merges {
+        args.push("--rebase-merges");
+    }
+    args.push(&base);
     let output = Command::new("git")
         .current_dir(dir)
-        .args(["rebase", "-i", "--no-autosquash", &plan.base.to_string()])
+        .args(&args)
         .env(
             "GIT_SEQUENCE_EDITOR",
             format!("cp {}", shell_quote(&todo_path.to_string_lossy())),
@@ -255,13 +348,17 @@ pub fn run(
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .context("could not start git rebase")?;
-    if output.status.success() {
+    let stopped = git_dir.join("rebase-merge");
+    if output.status.success() && !stopped.exists() {
         let _ = std::fs::remove_dir_all(&work);
         return Ok(Outcome::Done);
     }
-    if !git_dir.join("rebase-merge").exists() {
+    if !stopped.exists() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         bail!("git rebase failed: {stderr}");
+    }
+    if let Some(sha) = editing_at(&git_dir) {
+        return Ok(Outcome::Editing(sha));
     }
     let conflicts = git_cli::run(dir, &["diff", "--name-only", "--diff-filter=U"])?;
     if !conflicts.trim().is_empty() {
@@ -276,6 +373,69 @@ pub fn run(
         .trim()
         .to_string();
     Ok(Outcome::Paused(reason))
+}
+
+pub fn editing_at(git_dir: &Path) -> Option<String> {
+    let amend = std::fs::read_to_string(git_dir.join("rebase-merge").join("amend")).ok()?;
+    let sha = amend.trim();
+    (!sha.is_empty()).then(|| sha.chars().take(7).collect())
+}
+
+pub fn edit_message(dir: &Path, commit: &str, message: &str) -> anyhow::Result<Outcome> {
+    let message = message.trim_end();
+    if message.trim().is_empty() {
+        bail!("The commit message can't be empty.");
+    }
+    let resolve = |rev: &str| -> anyhow::Result<String> {
+        Ok(git_cli::run(
+            dir,
+            &["rev-parse", "--verify", &format!("{rev}^{{commit}}")],
+        )?
+        .trim()
+        .to_string())
+    };
+    let target = resolve(commit)?;
+    if target == resolve("HEAD")? {
+        let git_dir =
+            PathBuf::from(git_cli::run(dir, &["rev-parse", "--absolute-git-dir"])?.trim());
+        let work = git_dir.join("kelp");
+        std::fs::create_dir_all(&work)?;
+        let file = work.join("edit-message.txt");
+        std::fs::write(&file, message)?;
+        let result = git_cli::run(
+            dir,
+            &[
+                "commit",
+                "--amend",
+                "--only",
+                "--allow-empty",
+                "--quiet",
+                "-F",
+                &file.to_string_lossy(),
+            ],
+        );
+        let _ = std::fs::remove_file(&file);
+        result?;
+        return Ok(Outcome::Done);
+    }
+    if git_cli::run(dir, &["merge-base", "--is-ancestor", &target, "HEAD"]).is_err() {
+        bail!("This commit is not on the current branch, so its message can't be edited here.");
+    }
+    let Ok(parent) = resolve(&format!("{target}^")) else {
+        bail!("The first commit of a branch can only be edited while it is the latest commit.");
+    };
+    let mut plan = load(dir, &parent)?;
+    let target_id = parse_id(&target)?;
+    let Some(step) = plan.steps.iter_mut().find(|s| s.id == target_id) else {
+        bail!("Kelp could not find this commit in the branch history.");
+    };
+    if step.merge {
+        bail!("Merge commit messages can only be edited while the merge is the latest commit.");
+    }
+    step.action = Action::Reword;
+    step.message = message.to_string();
+    let steps = plan.steps.clone();
+    run(dir, &plan, &|group| default_combined(&steps, group))
 }
 
 fn parse_id(hex: &str) -> anyhow::Result<ObjectId> {
@@ -300,7 +460,54 @@ mod tests {
             original: format!("commit {n}"),
             action,
             message: format!("commit {n}"),
+            merge: false,
         }
+    }
+
+    #[test]
+    fn edit_stops_instead_of_picking() {
+        let steps = [step(1, Action::Edit), step(2, Action::Pick)];
+        let combined = |g: &Group| default_combined(&steps, g);
+        let todo = todo(&steps, &combined, Path::new("/m"));
+        assert!(todo.text.starts_with(&format!("edit {}\n", steps[0].id)));
+    }
+
+    #[test]
+    fn merge_plans_keep_the_shape_and_only_touch_picks() {
+        let mut steps = vec![
+            step(1, Action::Drop),
+            step(2, Action::Reword),
+            step(3, Action::Pick),
+            step(4, Action::Edit),
+        ];
+        steps[1].message = "new two".into();
+        steps[2].merge = true;
+        let captured = format!(
+            "label onto\nreset onto\npick {} # one\nlabel side\nreset onto\npick {} # two\nmerge -C {} side # Merge side\npick {} # four\n",
+            steps[0].id, steps[1].id, steps[2].id, steps[3].id
+        );
+        let todo = keep_shape(&captured, &steps, Path::new("/m"));
+        let lines: Vec<&str> = todo.text.lines().collect();
+        assert_eq!(lines[0], "label onto");
+        assert_eq!(lines[2], format!("drop {}", steps[0].id));
+        assert_eq!(lines[5], format!("pick {}", steps[1].id));
+        assert!(lines[6].ends_with("-F '/m/message-0.txt'"));
+        assert_eq!(
+            lines[7],
+            format!("merge -C {} side # Merge side", steps[2].id)
+        );
+        assert_eq!(lines[8], format!("edit {}", steps[3].id));
+        assert_eq!(todo.messages[0].1, "new two");
+    }
+
+    #[test]
+    fn merge_plans_refuse_squash_and_touching_merges() {
+        let mut steps = vec![step(1, Action::Pick), step(2, Action::Squash)];
+        steps[0].merge = true;
+        assert!(problem(&steps).unwrap().contains("merge commits"));
+        steps[1].action = Action::Pick;
+        steps[0].action = Action::Drop;
+        assert!(problem(&steps).unwrap().contains("is a merge commit"));
     }
 
     #[test]
