@@ -139,6 +139,10 @@ pub fn checkout_op(label: &RefLabel) -> Option<Op> {
     }
 }
 
+const LABEL_PAD: f32 = 16.0;
+const LABEL_MIN_TEXT_W: f32 = 40.0;
+const MORE_CHIP_W: f32 = 30.0;
+
 pub fn paint(
     painter: &egui::Painter,
     right_edge: f32,
@@ -151,19 +155,26 @@ pub fn paint(
     let mut right = right_edge;
     let mut placed = Vec::new();
     for (i, label) in labels.iter().enumerate() {
+        let pill_w = label.pull.as_ref().map_or(0.0, |pull| {
+            crate::pulls_ui::pill_width(painter, pull) + PILL_GAP
+        });
+        let more_chip = if i + 1 < labels.len() {
+            MORE_CHIP_W
+        } else {
+            0.0
+        };
+        let text_room = (right - left_edge - LABEL_PAD - pill_w - more_chip).min(LABEL_MAX_TEXT_W);
+        let remaining = labels.len() - i;
+        let fits = text_room >= LABEL_MIN_TEXT_W && (i == 0 || right - left_edge > MORE_CHIP_W);
         let galley = crate::graph_view::truncated(
             painter,
             label_text(label),
             font.clone(),
             Color32::PLACEHOLDER,
-            LABEL_MAX_TEXT_W,
+            text_room.max(0.0),
         );
-        let pill_w = label.pull.as_ref().map_or(0.0, |pull| {
-            crate::pulls_ui::pill_width(painter, pull) + PILL_GAP
-        });
-        let w = galley.size().x + 16.0 + pill_w;
-        let remaining = labels.len() - i;
-        if right - w < left_edge || (i > 0 && right - w - 30.0 < left_edge) {
+        let w = galley.size().x + LABEL_PAD + pill_w;
+        if !fits || right - w < left_edge {
             let g = painter.layout_no_wrap(format!("+{remaining}"), font, theme::TEXT_MUTED);
             let rect = Rect::from_min_size(
                 pos2(right - g.size().x - 12.0, mid - LABEL_H / 2.0),
