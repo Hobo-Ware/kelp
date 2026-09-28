@@ -23,6 +23,7 @@ mod open_with;
 mod palette;
 mod panels;
 mod preview_view;
+mod pulls_ui;
 mod rebase_view;
 mod recents;
 mod ref_labels;

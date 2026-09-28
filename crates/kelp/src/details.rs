@@ -230,10 +230,40 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
                     }
                 });
             }
+            pull_line(ui, repo, details.id);
             ui.separator();
             stats(ui, &details.changes);
         });
     reveal
+}
+
+fn pull_line(ui: &mut Ui, repo: &Repo, commit: gix::ObjectId) {
+    let mut pulls: Vec<&kelp_core::pulls::Pull> = repo
+        .history
+        .refs
+        .labels
+        .iter()
+        .filter(|l| l.target == commit)
+        .filter_map(|l| l.pull.as_ref())
+        .collect();
+    pulls.sort_by_key(|p| p.number);
+    pulls.dedup_by_key(|p| p.number);
+    for pull in pulls {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("pull request")
+                    .size(12.0)
+                    .color(theme::TEXT_MUTED),
+            );
+            if crate::pulls_ui::clicked_pill(ui, pull) {
+                let _ = crate::pulls_ui::open_url(&pull.url);
+            }
+            ui.add(
+                egui::Label::new(RichText::new(&pull.title).size(12.0).color(theme::TEXT))
+                    .truncate(),
+            );
+        });
+    }
 }
 
 fn file_controls(ui: &mut Ui, repo: &mut Repo, changes: &[FileChange]) {

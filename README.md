@@ -92,6 +92,13 @@ folder if it is a repo.
   Copy path; the diff header has an editor button too. Pick the editor in
   Settings (empty uses the first installed of Cursor, VS Code, Zed and
   Sublime Text).
+- **Pull requests:** on GitHub repos, branches with a pull request show a
+  `#123` pill (green open, grey draft, purple merged, red closed, with a
+  dot for checks) on graph labels, in the sidebar, the details panel and
+  the status bar; click it to open the PR. Branch menus offer Open pull
+  request or Create pull request. Uses `gh` when installed, otherwise the
+  GitHub API; cached for five minutes and refreshed after fetch, pull and
+  push.
 - **Stays current:** changes made from the command line or another app
   show up on their own, and remotes are fetched in the background every
   5 minutes (change or turn off in Settings).
@@ -175,6 +182,7 @@ Developer switches (environment variables):
 | `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`, `clone`; `KELP_CLONE_URL=<url>` prefills it), `KELP_OPEN_WELCOME=1` (the new tab page; `KELP_RECENTS=<path>,<path>` fakes its list), `KELP_ZOOM=1.25`, `KELP_COLLAPSE=sidebar,details`, `KELP_OPEN_SETTINGS=1`, `KELP_OPEN_PALETTE=<query>`, `KELP_OPEN_SHORTCUTS=1`, `KELP_OPEN_MESSAGE=1` (full commit message), `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`, `sort`), `KELP_SIDEBAR_FILTER=text`, `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
+| `KELP_FAKE_PULLS=<file>` | Load pull requests from a `gh pr list --json` file instead of GitHub |
 | `KELP_HOVER_ROW=<row>` | Draw the graph as if that commit row were hovered |
 | `KELP_OPEN_REBASE=<rev>` (or `<rev>:<letters>`, e.g. `HEAD~4:prsd`) | Open interactive rebase from a commit, optionally with actions preset |
 

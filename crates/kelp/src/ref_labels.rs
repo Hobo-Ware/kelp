@@ -13,6 +13,7 @@ const LABEL_H: f32 = 22.0;
 const LABEL_MAX_TEXT_W: f32 = 114.0;
 const LIST_ROW_H: f32 = 30.0;
 const LIST_W: f32 = 260.0;
+const PILL_GAP: f32 = 6.0;
 
 pub enum MenuFor<'a> {
     Commit(Selection, &'a str),
@@ -24,6 +25,7 @@ pub enum MenuFor<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Slot {
     Label(usize),
+    Pull(usize),
     More,
 }
 
@@ -156,7 +158,10 @@ pub fn paint(
             Color32::PLACEHOLDER,
             LABEL_MAX_TEXT_W,
         );
-        let w = galley.size().x + 16.0;
+        let pill_w = label.pull.as_ref().map_or(0.0, |pull| {
+            crate::pulls_ui::pill_width(painter, pull) + PILL_GAP
+        });
+        let w = galley.size().x + 16.0 + pill_w;
         let remaining = labels.len() - i;
         if right - w < left_edge || (i > 0 && right - w - 30.0 < left_edge) {
             let g = painter.layout_no_wrap(format!("+{remaining}"), font, theme::TEXT_MUTED);
@@ -194,6 +199,20 @@ pub fn paint(
             rect,
             slot: Slot::Label(i),
         });
+        if let Some(pull) = &label.pull {
+            let pill = Rect::from_min_size(
+                pos2(
+                    rect.right() - pill_w + PILL_GAP - 4.0,
+                    mid - crate::pulls_ui::PILL_H / 2.0,
+                ),
+                vec2(pill_w - PILL_GAP, crate::pulls_ui::PILL_H),
+            );
+            crate::pulls_ui::paint_pill(painter, pill, pull, false);
+            placed.push(Placed {
+                rect: pill,
+                slot: Slot::Pull(i),
+            });
+        }
         right -= w + 4.0;
     }
     placed
@@ -273,6 +292,18 @@ pub fn interact(
                 }
                 response.context_menu(|ui| menu(ui, MenuFor::Ref(label)));
             }
+            Slot::Pull(i) => {
+                let Some(pull) = &labels[i].pull else {
+                    continue;
+                };
+                let response = ui
+                    .interact(spot.rect, Id::new(("ref-pull", row, i)), Sense::click())
+                    .on_hover_cursor(CursorIcon::PointingHand)
+                    .on_hover_ui(|ui| crate::pulls_ui::tooltip(ui, pull));
+                if response.clicked() {
+                    events.push(LabelEvent::Command(Command::OpenUrl(pull.url.clone())));
+                }
+            }
             Slot::More => {
                 let names: Vec<&str> = labels.iter().map(|l| l.name.as_str()).collect();
                 let response = ui
@@ -339,13 +370,24 @@ fn ref_list(
             name,
             theme::TEXT,
         );
-        painter.text(
+        let kind = painter.text(
             pos2(rect.right() - 26.0, rect.center().y),
             Align2::RIGHT_CENTER,
             kind_name(label),
             FontId::proportional(11.0),
             theme::TEXT_FAINT,
         );
+        if let Some(pull) = &label.pull {
+            let w = crate::pulls_ui::pill_width(&painter, pull);
+            let pill = Rect::from_min_size(
+                pos2(
+                    kind.left() - 8.0 - w,
+                    rect.center().y - crate::pulls_ui::PILL_H / 2.0,
+                ),
+                vec2(w, crate::pulls_ui::PILL_H),
+            );
+            crate::pulls_ui::paint_pill(&painter, pill, pull, false);
+        }
         let chevron = pos2(rect.right() - 14.0, rect.center().y);
         let ink = Stroke::new(1.3, theme::TEXT_MUTED);
         painter.line_segment([chevron + vec2(-2.0, -4.0), chevron + vec2(2.0, 0.0)], ink);
@@ -552,6 +594,7 @@ mod tests {
                     seen.push(match event {
                         LabelEvent::Select => "select",
                         LabelEvent::Command(Command::Run(Op::Switch(_))) => "switch",
+                        LabelEvent::Command(Command::OpenUrl(_)) => "open-url",
                         LabelEvent::Command(_) => "command",
                         LabelEvent::DragStart(_) => "drag-start",
                         LabelEvent::DragStop => "drag-stop",
@@ -614,6 +657,32 @@ mod tests {
         h.click(pos2(40.0, 30.0));
         h.click(pos2(40.0, 30.0));
         assert!(!h.events.contains(&"switch"));
+    }
+
+    #[test]
+    fn clicking_the_pull_pill_opens_the_pull_request_not_the_commit() {
+        let mut feat = label("feat/a", RefKind::Local, false);
+        feat.pull = Some(kelp_core::pulls::Pull {
+            number: 42,
+            title: "Add a".into(),
+            head: "feat/a".into(),
+            head_owner: None,
+            state: kelp_core::pulls::State::Open,
+            url: "https://github.com/o/r/pull/42".into(),
+            review: None,
+            checks: None,
+        });
+        let pill = Placed {
+            rect: Rect::from_min_size(pos2(80.0, 23.0), vec2(26.0, 16.0)),
+            slot: Slot::Pull(0),
+        };
+        let mut h = Harness::new(vec![feat], vec![spot(Slot::Label(0)), pill]);
+        h.frame(vec![]);
+        h.click(pos2(92.0, 31.0));
+        assert_eq!(h.events, ["open-url"]);
+        h.events.clear();
+        h.click(pos2(40.0, 30.0));
+        assert_eq!(h.events, ["select"]);
     }
 
     #[test]

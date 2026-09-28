@@ -16,6 +16,7 @@ pub struct MenuContext {
     pub repo_dir_name: String,
     pub local_branches: Vec<String>,
     pub head: Option<String>,
+    pub on_github: bool,
 }
 
 const ROW_H: f32 = 30.0;
@@ -147,6 +148,31 @@ pub struct Entry {
     pub command: Command,
 }
 
+fn pull_items(sink: &mut dyn Sink, label: &RefLabel, ctx: &MenuContext) {
+    if let Some(pull) = &label.pull {
+        let url = pull.url.clone();
+        sink.item(
+            Icon::Merge,
+            &format!("Open pull request #{}", pull.number),
+            &|| Command::OpenUrl(url.clone()),
+        );
+        return;
+    }
+    let branch = match label.kind {
+        RefKind::Local if label.has_remote => label.name.clone(),
+        RefKind::Remote => match label.name.split_once('/') {
+            Some((_, branch)) => branch.to_string(),
+            None => return,
+        },
+        _ => return,
+    };
+    if ctx.on_github {
+        sink.item(Icon::Merge, "Create pull request…", &|| {
+            Command::CreatePullRequest(branch.clone())
+        });
+    }
+}
+
 trait Sink {
     fn add(&mut self, icon: Icon, label: &str, danger: bool, command: &dyn Fn() -> Command);
     fn separator(&mut self);
@@ -247,6 +273,7 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
             sink.item(Icon::Copy, "Copy branch name", &|| {
                 Command::Copy(name.clone())
             });
+            pull_items(sink, label, ctx);
             if current != Some(name.as_str()) {
                 sink.separator();
                 let remote = label.has_remote.then(|| "origin".to_string());
@@ -284,6 +311,7 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
             sink.item(Icon::Copy, "Copy branch name", &|| {
                 Command::Copy(name.clone())
             });
+            pull_items(sink, label, ctx);
             sink.separator();
             if let Some((remote, branch)) = name.split_once('/') {
                 let (remote, branch) = (remote.to_string(), branch.to_string());
@@ -638,5 +666,90 @@ pub fn view_items(ui: &mut Ui, label: &RefLabel, filtering: bool, out: &mut Vec<
         item(ui, Icon::Eye, "Show all branches", out, || {
             Command::ShowAllRefs
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use kelp_core::pulls::{Pull, State};
+    use kelp_core::refs::{RefKind, RefLabel};
+
+    use super::{MenuContext, branch_entries};
+    use crate::commands::Command;
+
+    fn ctx(on_github: bool) -> MenuContext {
+        MenuContext {
+            current_branch: Some("main".into()),
+            repo_dir_name: "repo".into(),
+            local_branches: vec!["main".into(), "feat/a".into()],
+            head: None,
+            on_github,
+        }
+    }
+
+    fn branch(name: &str, kind: RefKind, has_remote: bool) -> RefLabel {
+        RefLabel {
+            name: name.into(),
+            kind,
+            target: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            row: Some(0),
+            is_head: false,
+            has_remote,
+            hidden: false,
+            pull: None,
+        }
+    }
+
+    fn labels(label: &RefLabel, on_github: bool) -> Vec<String> {
+        branch_entries(label, &ctx(on_github))
+            .into_iter()
+            .map(|e| e.label)
+            .collect()
+    }
+
+    #[test]
+    fn a_branch_with_a_pull_request_offers_to_open_it() {
+        let mut label = branch("feat/a", RefKind::Local, true);
+        label.pull = Some(Pull {
+            number: 42,
+            title: "A".into(),
+            head: "feat/a".into(),
+            head_owner: None,
+            state: State::Open,
+            url: "https://github.com/o/r/pull/42".into(),
+            review: None,
+            checks: None,
+        });
+        let entries = branch_entries(&label, &ctx(true));
+        let open = entries
+            .iter()
+            .find(|e| e.label == "Open pull request #42")
+            .expect("open entry");
+        assert!(matches!(&open.command, Command::OpenUrl(url) if url.ends_with("/42")));
+        assert!(!labels(&label, true).iter().any(|l| l.starts_with("Create")));
+    }
+
+    #[test]
+    fn pushed_branches_on_github_offer_to_create_one() {
+        let pushed = branch("feat/a", RefKind::Local, true);
+        assert!(labels(&pushed, true).contains(&"Create pull request\u{2026}".to_string()));
+        let remote = branch("origin/feat/a", RefKind::Remote, false);
+        let entries = branch_entries(&remote, &ctx(true));
+        let create = entries
+            .iter()
+            .find(|e| e.label.starts_with("Create pull request"))
+            .expect("create entry");
+        assert!(matches!(&create.command, Command::CreatePullRequest(b) if b == "feat/a"));
+        let local_only = branch("feat/b", RefKind::Local, false);
+        assert!(
+            !labels(&local_only, true)
+                .iter()
+                .any(|l| l.contains("pull request"))
+        );
+        assert!(
+            !labels(&pushed, false)
+                .iter()
+                .any(|l| l.contains("pull request"))
+        );
     }
 }

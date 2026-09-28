@@ -9,6 +9,7 @@ use eframe::egui::{
     self, Color32, FontId, Key, KeyboardShortcut, Modifiers, RichText, Sense, Ui, text::LayoutJob,
     vec2,
 };
+use kelp_core::pulls::Pull;
 use kelp_core::ref_tree::{self, Node, Sort};
 use kelp_core::refs::{RefKind, RefLabel};
 use kelp_core::sidebar_prefs::{self, SidebarPrefs};
@@ -769,7 +770,9 @@ impl RefRows<'_> {
         };
         let full_name = label.full_name();
         let pinned = self.pinned.contains(&full_name);
+        let mut pull_clicked = false;
         let response = Row {
+            pull: label.pull.as_ref().map(|pull| (pull, &mut pull_clicked)),
             name: display,
             highlight,
             strong: label.is_head,
@@ -781,6 +784,9 @@ impl RefRows<'_> {
             ..Row::new(dot)
         }
         .show(ui);
+        if pull_clicked && let Some(pull) = &label.pull {
+            self.commands.push(Command::OpenUrl(pull.url.clone()));
+        }
         if !label.is_head
             && (label.hidden || ui.rect_contains_pointer(response.rect))
             && eye_toggle(ui, &response, label.hidden)
@@ -963,6 +969,7 @@ struct Row<'a> {
     dim: bool,
     indent: f32,
     pinned: bool,
+    pull: Option<(&'a Pull, &'a mut bool)>,
 }
 
 impl<'a> Row<'a> {
@@ -978,6 +985,7 @@ impl<'a> Row<'a> {
             dim: false,
             indent: 0.0,
             pinned: false,
+            pull: None,
         }
     }
 
@@ -1010,16 +1018,32 @@ impl<'a> Row<'a> {
             .tag
             .map(|t| painter.layout_no_wrap(t.to_string(), FontId::proportional(11.0), self.dot));
         let pin_w = if self.pinned { 18.0 } else { 0.0 };
-        let reserved = tag_galley.as_ref().map_or(12.0, |g| g.size().x + 20.0) + pin_w;
+        let pill_w = self.pull.as_ref().map_or(0.0, |(pull, _)| {
+            crate::pulls_ui::pill_width(&painter, pull) + 6.0
+        });
+        let reserved = tag_galley.as_ref().map_or(12.0, |g| g.size().x + 20.0) + pin_w + pill_w;
         let max_width = (rect.right() - left - 24.0 - reserved).max(0.0);
         let mut job = highlighted(self.name, self.highlight, font, color);
         job.wrap = egui::text::TextWrapping::truncate_at_width(max_width);
         let galley = painter.layout_job(job);
+        let name_right = left + 24.0 + galley.size().x;
         painter.galley(
             egui::pos2(left + 24.0, name_y - galley.size().y / 2.0),
             galley,
             color,
         );
+        if let Some((pull, clicked)) = self.pull {
+            let pill = egui::Rect::from_min_size(
+                egui::pos2(name_right + 6.0, name_y - crate::pulls_ui::PILL_H / 2.0),
+                vec2(pill_w - 6.0, crate::pulls_ui::PILL_H),
+            );
+            let pill_response = ui
+                .interact(pill, response.id.with("pull"), Sense::click())
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_ui(|ui| crate::pulls_ui::tooltip(ui, pull));
+            crate::pulls_ui::paint_pill(&painter, pill, pull, pill_response.hovered());
+            *clicked = pill_response.clicked();
+        }
         if let Some(sub) = self.subtitle {
             let sub = crate::graph_view::truncated(
                 &painter,

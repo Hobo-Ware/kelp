@@ -25,4 +25,6 @@ pub enum Command {
     SoloRef(String),
     ShowAllRefs,
     TogglePanel(crate::panels::Side),
+    OpenUrl(String),
+    CreatePullRequest(String),
 }
