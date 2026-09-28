@@ -100,10 +100,10 @@ impl SigningPanel {
         ui.label(
             RichText::new("Commit signing")
                 .family(theme::semibold())
-                .color(theme::TEXT_STRONG),
+                .color(theme::text_strong()),
         );
         if self.loading.is_some() {
-            ui.label(RichText::new("Reading your git config…").color(theme::TEXT_FAINT));
+            ui.label(RichText::new("Reading your git config…").color(theme::text_faint()));
             return;
         }
         widgets::segmented(
@@ -142,7 +142,7 @@ impl SigningPanel {
                             } else {
                                 "No GPG secret keys found"
                             })
-                            .color(theme::TEXT_FAINT),
+                            .color(theme::text_faint()),
                         );
                     }
                 });
@@ -168,9 +168,9 @@ impl SigningPanel {
             }
             if let Some((text, error)) = &self.status {
                 let color = if *error {
-                    theme::DELETED
+                    theme::deleted()
                 } else {
-                    theme::TEXT_FAINT
+                    theme::text_faint()
                 };
                 ui.label(RichText::new(text).size(12.0).color(color));
             }
@@ -180,7 +180,7 @@ impl SigningPanel {
                 "Kelp signs through git, so commits from the terminal sign the same way.",
             )
             .size(12.0)
-            .color(theme::TEXT_FAINT),
+            .color(theme::text_faint()),
         );
     }
 

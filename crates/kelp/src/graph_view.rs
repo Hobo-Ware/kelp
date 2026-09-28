@@ -35,7 +35,6 @@ const MIN_GRAPH_W: f32 = 80.0;
 const DEFAULT_MAX_LANES: f32 = 14.0;
 const HEADER_H: f32 = 28.0;
 const MARK_INSET: f32 = 12.0;
-const WIP_GREY: Color32 = Color32::from_rgb(0x3a, 0x41, 0x50);
 const HOVER_LINE_W: f32 = 3.5;
 const OFF_PATH_OPACITY: f32 = 0.45;
 const OPEN_BUTTON_W: f32 = 56.0;
@@ -303,7 +302,7 @@ impl GraphView {
                 {
                     let band =
                         Rect::from_x_y_ranges(geo.msg_left()..=geo.right, geo.top..=geo.bottom());
-                    painter.rect_filled(band, 0.0, theme::with_alpha(Color32::WHITE, 0x06));
+                    painter.rect_filled(band, 0.0, theme::overlay(0x06));
                 }
                 let on_path = |row: usize| match &visible_path {
                     None => OnPath::NoHover,
@@ -461,7 +460,7 @@ impl GraphView {
                             painter.rect_stroke(
                                 row_rect,
                                 CornerRadius::same(5),
-                                Stroke::new(1.5, theme::with_alpha(theme::ACCENT, 0xb0)),
+                                Stroke::new(1.5, theme::with_alpha(theme::accent(), 0xb0)),
                                 egui::StrokeKind::Inside,
                             );
                         }
@@ -552,7 +551,7 @@ impl GraphView {
                 ui.painter().rect_stroke(
                     row_rect.shrink(1.0),
                     0.0,
-                    egui::Stroke::new(2.0, theme::ACCENT),
+                    egui::Stroke::new(2.0, theme::accent()),
                     egui::StrokeKind::Inside,
                 );
             }
@@ -650,11 +649,11 @@ impl GraphView {
         let (rect, _) =
             ui.allocate_exact_size(vec2(ui.available_width(), HEADER_H), Sense::hover());
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, theme::HEADER);
+        painter.rect_filled(rect, 0.0, theme::header());
         painter.hline(
             rect.x_range(),
             rect.bottom() - 0.5,
-            Stroke::new(1.0, theme::BORDER),
+            Stroke::new(1.0, theme::border()),
         );
         let font = FontId::monospace(10.0);
         let y = rect.center().y;
@@ -669,7 +668,7 @@ impl GraphView {
                 Align2::LEFT_CENTER,
                 label,
                 font.clone(),
-                theme::TEXT_FAINT,
+                theme::text_faint(),
             );
         }
 
@@ -688,7 +687,11 @@ impl GraphView {
             rect.top() + 6.0..=rect.bottom() - 6.0,
             Stroke::new(
                 if hot { 2.0 } else { 1.0 },
-                if hot { theme::ACCENT } else { theme::BORDER },
+                if hot {
+                    theme::accent()
+                } else {
+                    theme::border()
+                },
             ),
         );
         if response.dragged() {
@@ -719,14 +722,14 @@ fn filter_button(ui: &Ui, painter: &egui::Painter, header: Rect, active: bool) -
         .on_hover_text("Filter commits (Cmd+Shift+F)")
         .on_hover_cursor(CursorIcon::PointingHand);
     if response.hovered() {
-        painter.rect_filled(rect, 4.0, theme::CONTROL_HOVER);
+        painter.rect_filled(rect, 4.0, theme::control_hover());
     }
     let color = if active {
-        theme::ACCENT
+        theme::accent()
     } else if response.hovered() {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_FAINT
+        theme::text_faint()
     };
     crate::icons::paint(
         painter,
@@ -873,7 +876,7 @@ fn paint_row(
     soft.rect_filled(strip, 0.0, theme::with_alpha(color, 0xb0));
     if selected {
         let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
-        painter.rect_filled(bg, 0.0, theme::SELECTED_ROW);
+        painter.rect_filled(bg, 0.0, theme::selected_row());
     }
 
     let edges = layout.edges(row);
@@ -963,21 +966,21 @@ fn checks_tooltip(ui: &mut Ui, status: &kelp_core::checks::Status) {
             ui.label(
                 egui::RichText::new(format!("{name} · {verb}"))
                     .size(12.0)
-                    .color(theme::TEXT),
+                    .color(theme::text()),
             );
         }
         if names.len() > 8 {
             ui.label(
                 egui::RichText::new(format!("{} more {verb}", names.len() - 8))
                     .size(12.0)
-                    .color(theme::TEXT_FAINT),
+                    .color(theme::text_faint()),
             );
         }
     }
     ui.label(
         egui::RichText::new("Click to open the checks on GitHub")
             .size(11.0)
-            .color(theme::TEXT_FAINT),
+            .color(theme::text_faint()),
     );
 }
 
@@ -992,9 +995,9 @@ const CHECK_DOT_ROOM: f32 = 16.0;
 
 fn check_color(state: kelp_core::checks::State) -> Color32 {
     match state {
-        kelp_core::checks::State::Success => theme::ADDED,
-        kelp_core::checks::State::Failure => theme::DELETED,
-        kelp_core::checks::State::Pending => theme::MODIFIED,
+        kelp_core::checks::State::Success => theme::added(),
+        kelp_core::checks::State::Failure => theme::deleted(),
+        kelp_core::checks::State::Pending => theme::modified(),
     }
 }
 
@@ -1039,10 +1042,10 @@ fn paint_wip_row(
         geo.msg_left()..=geo.msg_left() + 3.0,
         geo.top..=geo.bottom(),
     );
-    painter.rect_filled(strip, 0.0, WIP_GREY);
+    painter.rect_filled(strip, 0.0, theme::wip_grey());
     if selected {
         let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
-        painter.rect_filled(bg, 0.0, theme::SELECTED_ROW);
+        painter.rect_filled(bg, 0.0, theme::selected_row());
     }
     for edge in layout.edges(head_row) {
         let from_above = matches!(edge.kind, EdgeKind::Pass | EdgeKind::Top | EdgeKind::JoinIn);
@@ -1062,7 +1065,7 @@ fn paint_wip_row(
             node + vec2(a.cos(), a.sin()) * (AVATAR_R + 1.0)
         })
         .collect();
-    graph.circle_filled(node, AVATAR_R + 1.0, theme::BG);
+    graph.circle_filled(node, AVATAR_R + 1.0, theme::bg());
     graph.extend(Shape::dashed_line(
         &ring,
         Stroke::new(2.0, head_color),
@@ -1074,18 +1077,18 @@ fn paint_wip_row(
     let mut job = LayoutJob::default();
     let italic = TextFormat {
         italics: true,
-        ..TextFormat::simple(FontId::proportional(13.0), theme::TEXT_MUTED)
+        ..TextFormat::simple(FontId::proportional(13.0), theme::text_muted())
     };
     job.append("Uncommitted changes", 0.0, italic);
     job.append(
         &format!(" · {}", label.owner),
         0.0,
-        TextFormat::simple(FontId::proportional(13.0), theme::TEXT_MUTED),
+        TextFormat::simple(FontId::proportional(13.0), theme::text_muted()),
     );
     job.append(
         &label.counts,
         10.0,
-        TextFormat::simple(FontId::proportional(13.0), theme::TEXT_FAINT),
+        TextFormat::simple(FontId::proportional(13.0), theme::text_faint()),
     );
     let reserved = if label.has_button {
         OPEN_BUTTON_W + 28.0
@@ -1098,7 +1101,7 @@ fn paint_wip_row(
     painter.galley(
         pos2(geo.msg_left() + 15.0, geo.mid() - galley.size().y / 2.0),
         galley,
-        theme::TEXT,
+        theme::text(),
     );
 }
 
@@ -1117,15 +1120,15 @@ fn open_button_rect(geo: &RowGeo) -> Rect {
 
 fn paint_open_button(painter: &egui::Painter, rect: Rect, hot: bool) {
     let (fill, text) = if hot {
-        (theme::CONTROL_HOVER, theme::TEXT_STRONG)
+        (theme::control_hover(), theme::text_strong())
     } else {
-        (theme::CONTROL, theme::TEXT)
+        (theme::control(), theme::text())
     };
     painter.rect(
         rect,
         CornerRadius::same(5),
         fill,
-        Stroke::new(1.0, theme::BORDER),
+        Stroke::new(1.0, theme::border()),
         egui::StrokeKind::Inside,
     );
     painter.text(
@@ -1165,7 +1168,7 @@ pub fn commit_tooltip(ui: &mut Ui, commit: &TooltipCommit<'_>, now: i64) {
     ui.label(
         egui::RichText::new(commit.title)
             .family(theme::semibold())
-            .color(theme::TEXT_STRONG),
+            .color(theme::text_strong()),
     );
     let body: Vec<&str> = commit
         .body
@@ -1174,12 +1177,12 @@ pub fn commit_tooltip(ui: &mut Ui, commit: &TooltipCommit<'_>, now: i64) {
         .take(3)
         .collect();
     if !body.is_empty() {
-        ui.label(egui::RichText::new(body.join("\n")).color(theme::TEXT_MUTED));
+        ui.label(egui::RichText::new(body.join("\n")).color(theme::text_muted()));
     }
     ui.label(
         egui::RichText::new(format!("{} <{}>", commit.author, commit.email))
             .size(12.0)
-            .color(theme::TEXT),
+            .color(theme::text()),
     );
     ui.label(
         egui::RichText::new(format!(
@@ -1188,13 +1191,13 @@ pub fn commit_tooltip(ui: &mut Ui, commit: &TooltipCommit<'_>, now: i64) {
             commit::relative_time(commit.time, now)
         ))
         .size(12.0)
-        .color(theme::TEXT_FAINT),
+        .color(theme::text_faint()),
     );
     ui.label(
         egui::RichText::new(commit.id.to_string())
             .monospace()
             .size(11.0)
-            .color(theme::TEXT_FAINT),
+            .color(theme::text_faint()),
     );
 }
 
@@ -1359,7 +1362,7 @@ fn paint_message(
     } else {
         let when = commit::relative_time(summary.time, now);
         let time_galley =
-            painter.layout_no_wrap(when, FontId::proportional(11.0), theme::TEXT_FAINT);
+            painter.layout_no_wrap(when, FontId::proportional(11.0), theme::text_faint());
         let time_w = time_galley.size().x;
         painter.galley(
             pos2(
@@ -1367,7 +1370,7 @@ fn paint_message(
                 geo.mid() - time_galley.size().y / 2.0,
             ),
             time_galley,
-            theme::TEXT_FAINT,
+            theme::text_faint(),
         );
         time_w
     };
@@ -1382,9 +1385,9 @@ fn paint_message(
     let max_width = (right - 14.0 - time_w - 12.0 - x).max(0.0);
     let mut job = LayoutJob::default();
     let title_color = if selected {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT
+        theme::text()
     };
     let title_font = if selected {
         FontId::new(13.0, theme::semibold())
@@ -1400,7 +1403,7 @@ fn paint_message(
         job.append(
             &summary.body_preview,
             10.0,
-            TextFormat::simple(FontId::proportional(13.0), theme::TEXT_FAINT),
+            TextFormat::simple(FontId::proportional(13.0), theme::text_faint()),
         );
     }
     job.wrap = TextWrapping {
@@ -1413,7 +1416,7 @@ fn paint_message(
     painter.galley(
         pos2(x, geo.mid() - galley.size().y / 2.0),
         galley,
-        theme::TEXT,
+        theme::text(),
     );
     dot
 }

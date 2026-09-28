@@ -126,7 +126,7 @@ impl CompareView {
                         RichText::new("COMPARING")
                             .size(11.0)
                             .family(theme::semibold())
-                            .color(theme::TEXT_MUTED),
+                            .color(theme::text_muted()),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if widgets::close_button(ui, "Stop comparing (Esc)") {
@@ -165,7 +165,7 @@ impl CompareView {
                         if files.len() == 1 { "" } else { "s" }
                     ),
                 };
-                ui.label(RichText::new(summary).size(12.0).color(theme::TEXT_FAINT));
+                ui.label(RichText::new(summary).size(12.0).color(theme::text_faint()));
             });
         ui.separator();
         let Files::Ready(files) = &self.files else {
@@ -201,18 +201,18 @@ impl CompareView {
 }
 
 pub fn paint_mark(painter: &egui::Painter, center: egui::Pos2, mark: &str) {
-    painter.circle_filled(center, 7.0, theme::with_alpha(theme::ACCENT, 0x40));
+    painter.circle_filled(center, 7.0, theme::with_alpha(theme::accent(), 0x40));
     painter.circle_stroke(
         center,
         7.0,
-        egui::Stroke::new(1.0, theme::with_alpha(theme::ACCENT, 0xc0)),
+        egui::Stroke::new(1.0, theme::with_alpha(theme::accent(), 0xc0)),
     );
     painter.text(
         center,
         egui::Align2::CENTER_CENTER,
         mark,
         FontId::new(9.5, theme::semibold()),
-        theme::ACCENT,
+        theme::accent(),
     );
 }
 
@@ -223,7 +223,7 @@ fn end_line(ui: &mut Ui, mark: &str, hash: &str, title: &str) {
     let hash = painter.layout_no_wrap(
         hash.to_string(),
         FontId::monospace(12.0),
-        theme::TEXT_STRONG,
+        theme::text_strong(),
     );
     let hash_w = hash.size().x;
     painter.galley(
@@ -235,7 +235,7 @@ fn end_line(ui: &mut Ui, mark: &str, hash: &str, title: &str) {
         &painter,
         title.to_string(),
         FontId::proportional(13.0),
-        theme::TEXT,
+        theme::text(),
         (rect.width() - 32.0 - hash_w).max(0.0),
     );
     painter.galley(

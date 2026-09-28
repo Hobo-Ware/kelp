@@ -151,17 +151,17 @@ pub fn paint_cells(
             Column::Author => (
                 summary.author.clone(),
                 FontId::proportional(12.0),
-                theme::TEXT_MUTED,
+                theme::text_muted(),
             ),
             Column::Date => (
                 commit::relative_time(summary.time, now),
                 FontId::proportional(11.5),
-                theme::TEXT_FAINT,
+                theme::text_faint(),
             ),
             Column::Hash => (
                 id.to_hex_with_len(7).to_string(),
                 FontId::monospace(11.5),
-                theme::TEXT_FAINT,
+                theme::text_faint(),
             ),
         };
         let max_width = (end - start - PAD * 2.0).max(0.0);
@@ -184,7 +184,7 @@ pub fn header(ui: &mut Ui, rect: Rect, columns: &mut GraphColumns) -> bool {
             Align2::LEFT_CENTER,
             column.title(),
             font.clone(),
-            theme::TEXT_FAINT,
+            theme::text_faint(),
         );
         let handle = Rect::from_center_size(pos2(start, rect.center().y), vec2(9.0, rect.height()));
         let response = ui.interact(
@@ -201,7 +201,11 @@ pub fn header(ui: &mut Ui, rect: Rect, columns: &mut GraphColumns) -> bool {
             rect.top() + 6.0..=rect.bottom() - 6.0,
             Stroke::new(
                 if hot { 2.0 } else { 1.0 },
-                if hot { theme::ACCENT } else { theme::BORDER },
+                if hot {
+                    theme::accent()
+                } else {
+                    theme::border()
+                },
             ),
         );
         if response.dragged() {

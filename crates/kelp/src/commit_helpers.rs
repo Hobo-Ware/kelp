@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use eframe::egui::{
-    self, Color32, CornerRadius, CursorIcon, FontId, Id, Response, RichText, Sense, Stroke, Ui,
-    WidgetInfo, WidgetType, pos2, vec2,
+    self, CornerRadius, CursorIcon, FontId, Id, Response, RichText, Sense, Stroke, Ui, WidgetInfo,
+    WidgetType, pos2, vec2,
 };
 use kelp_core::commit_message::{self, TYPES};
 
@@ -147,7 +147,7 @@ fn people_menu(
         ui.label(
             RichText::new("No other authors in the history")
                 .size(12.0)
-                .color(theme::TEXT_FAINT),
+                .color(theme::text_faint()),
         );
     }
     let mut picked = None;
@@ -163,7 +163,7 @@ fn people_menu(
 fn chip(ui: &mut Ui, name: &str, email: &str) -> bool {
     let mut removed = false;
     egui::Frame::new()
-        .fill(theme::CONTROL)
+        .fill(theme::control())
         .corner_radius(10)
         .inner_margin(egui::Margin {
             left: 9,
@@ -173,7 +173,7 @@ fn chip(ui: &mut Ui, name: &str, email: &str) -> bool {
         })
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
-            ui.label(RichText::new(name).size(12.0).color(theme::TEXT))
+            ui.label(RichText::new(name).size(12.0).color(theme::text()))
                 .on_hover_text(email);
             removed = ui
                 .add(egui::Button::new("×").frame(false))
@@ -194,16 +194,16 @@ pub fn more_button(ui: &mut Ui, id: Id, enabled: bool) -> Response {
     response
         .widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, "More commit options"));
     let fill = if !enabled {
-        Color32::from_rgb(0x2b, 0x32, 0x40)
+        theme::card_hover()
     } else if response.hovered() {
-        theme::with_alpha(theme::ACCENT, 0xdd)
+        theme::with_alpha(theme::accent(), 0xdd)
     } else {
-        theme::ACCENT
+        theme::accent()
     };
     let ink = if enabled {
-        Color32::from_rgb(0x10, 0x13, 0x1a)
+        theme::on_accent()
     } else {
-        theme::TEXT_FAINT
+        theme::text_faint()
     };
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same(6), fill);
@@ -232,7 +232,7 @@ fn pill_with_caret(ui: &mut Ui, id: Id, text: &str, selected: bool, caret: bool)
     let font = FontId::proportional(12.0);
     let width = ui
         .painter()
-        .layout_no_wrap(text.to_string(), font.clone(), theme::TEXT)
+        .layout_no_wrap(text.to_string(), font.clone(), theme::text())
         .size()
         .x;
     let caret_w = if caret { 12.0 } else { 0.0 };
@@ -243,9 +243,9 @@ fn pill_with_caret(ui: &mut Ui, id: Id, text: &str, selected: bool, caret: bool)
         .on_hover_cursor(CursorIcon::PointingHand);
     response.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, selected, text));
     let (fill, ink) = match (selected, response.hovered()) {
-        (true, _) => (theme::with_alpha(theme::ACCENT, 0x30), theme::ACCENT),
-        (false, true) => (theme::CONTROL_HOVER, theme::TEXT_STRONG),
-        (false, false) => (theme::CONTROL, theme::TEXT_MUTED),
+        (true, _) => (theme::with_alpha(theme::accent(), 0x30), theme::accent()),
+        (false, true) => (theme::control_hover(), theme::text_strong()),
+        (false, false) => (theme::control(), theme::text_muted()),
     };
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same(5), fill);

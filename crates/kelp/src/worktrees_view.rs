@@ -74,16 +74,12 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 let cols = columns(rect, &WORKTREE_COLS);
                                 let painter = ui.painter_at(rect);
                                 if response.hovered() {
-                                    painter.rect_filled(
-                                        rect,
-                                        0.0,
-                                        theme::with_alpha(Color32::WHITE, 0x06),
-                                    );
+                                    painter.rect_filled(rect, 0.0, theme::overlay(0x06));
                                 }
                                 painter.hline(
                                     rect.x_range(),
                                     rect.bottom() - 0.5,
-                                    Stroke::new(1.0, Color32::from_rgb(0x22, 0x26, 0x2e)),
+                                    Stroke::new(1.0, theme::card()),
                                 );
                                 let y = rect.center().y;
                                 let name = painter.text(
@@ -91,14 +87,14 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                     Align2::LEFT_CENTER,
                                     wt.tree.name(),
                                     FontId::proportional(13.5),
-                                    theme::TEXT_STRONG,
+                                    theme::text_strong(),
                                 );
                                 if current {
                                     badge(
                                         &painter,
                                         pos2(name.right() + 8.0, y),
                                         "current",
-                                        theme::LANES[0],
+                                        theme::lanes()[0],
                                     );
                                 }
                                 let branch =
@@ -109,31 +105,31 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                     &painter,
                                     branch,
                                     FontId::proportional(13.0),
-                                    Color32::from_rgb(0xd5, 0xd7, 0xdc),
+                                    theme::text_control(),
                                     cols[1].width() - 24.0,
                                 );
                                 painter.galley(
                                     pos2(cols[1].left() + 16.0, y - g.size().y / 2.0),
                                     g,
-                                    Color32::from_rgb(0xd5, 0xd7, 0xdc),
+                                    theme::text_control(),
                                 );
                                 let folder = graph_view::truncated(
                                     &painter,
                                     tilde(&wt.tree.path),
                                     FontId::monospace(12.0),
-                                    theme::TEXT_MUTED,
+                                    theme::text_muted(),
                                     cols[2].width() - 16.0,
                                 );
                                 painter.galley(
                                     pos2(cols[2].left(), y - folder.size().y / 2.0),
                                     folder,
-                                    theme::TEXT_MUTED,
+                                    theme::text_muted(),
                                 );
                                 let (status, color) = match (wt.tree.prunable, wt.changes) {
-                                    (true, _) => ("missing".to_string(), theme::DELETED),
-                                    (_, Some(0)) => ("clean".to_string(), theme::ADDED),
-                                    (_, Some(n)) => (format!("{n} changed"), theme::MODIFIED),
-                                    (_, None) => ("…".to_string(), theme::TEXT_FAINT),
+                                    (true, _) => ("missing".to_string(), theme::deleted()),
+                                    (_, Some(0)) => ("clean".to_string(), theme::added()),
+                                    (_, Some(n)) => (format!("{n} changed"), theme::modified()),
+                                    (_, None) => ("…".to_string(), theme::text_faint()),
                                 };
                                 painter.text(
                                     pos2(cols[3].left(), y),
@@ -218,24 +214,20 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 let cols = columns(rect, &BRANCH_COLS);
                                 let painter = ui.painter_at(rect);
                                 if response.hovered() {
-                                    painter.rect_filled(
-                                        rect,
-                                        0.0,
-                                        theme::with_alpha(Color32::WHITE, 0x06),
-                                    );
+                                    painter.rect_filled(rect, 0.0, theme::overlay(0x06));
                                 }
                                 painter.hline(
                                     rect.x_range(),
                                     rect.bottom() - 0.5,
-                                    Stroke::new(1.0, Color32::from_rgb(0x22, 0x26, 0x2e)),
+                                    Stroke::new(1.0, theme::card()),
                                 );
                                 let y = rect.center().y;
                                 let dot = lane_of(repo, Some(&label.name));
                                 painter.circle_filled(pos2(cols[0].left() + 4.0, y), 4.0, dot);
                                 let name_color = if label.is_head {
-                                    theme::TEXT_STRONG
+                                    theme::text_strong()
                                 } else {
-                                    Color32::from_rgb(0xd5, 0xd7, 0xdc)
+                                    theme::text_control()
                                 };
                                 let g = graph_view::truncated(
                                     &painter,
@@ -258,7 +250,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                     Align2::LEFT_CENTER,
                                     ab,
                                     FontId::monospace(12.0),
-                                    theme::TEXT_MUTED,
+                                    theme::text_muted(),
                                 );
                                 let summary = label.row.and_then(|r| {
                                     commit::summary(&repo.repo, repo.history.id(r as usize)).ok()
@@ -268,20 +260,20 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                         &painter,
                                         summary.title.clone(),
                                         FontId::proportional(13.0),
-                                        Color32::from_rgb(0xb4, 0xb9, 0xc2),
+                                        theme::text_body(),
                                         cols[2].width() - 16.0,
                                     );
                                     painter.galley(
                                         pos2(cols[2].left(), y - g.size().y / 2.0),
                                         g,
-                                        Color32::from_rgb(0xb4, 0xb9, 0xc2),
+                                        theme::text_body(),
                                     );
                                     painter.text(
                                         pos2(cols[4].left(), y),
                                         Align2::LEFT_CENTER,
                                         commit::relative_time(summary.time, now),
                                         FontId::proportional(12.0),
-                                        theme::TEXT_FAINT,
+                                        theme::text_faint(),
                                     );
                                 }
                                 let tree = repo
@@ -296,7 +288,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                     Align2::LEFT_CENTER,
                                     tree,
                                     FontId::proportional(13.0),
-                                    theme::TEXT_MUTED,
+                                    theme::text_muted(),
                                 );
                                 if response.clicked()
                                     && let Some(r) = label.row
@@ -320,7 +312,7 @@ fn lane_of(repo: &Repo, branch: Option<&str>) -> Color32 {
         .find(|l| Some(l.name.as_str()) == branch)
         .and_then(|l| l.row)
         .map(|r| theme::lane(repo.history.layout.node_color(r as usize)))
-        .unwrap_or(theme::TEXT_FAINT)
+        .unwrap_or(theme::text_faint())
 }
 
 fn tilde(path: &std::path::Path) -> String {
@@ -337,18 +329,18 @@ fn header(ui: &mut Ui, title: &str, subtitle: &str, actions: impl FnOnce(&mut Ui
             RichText::new(title)
                 .size(18.0)
                 .family(theme::semibold())
-                .color(theme::TEXT_STRONG),
+                .color(theme::text_strong()),
         );
         ui.add_space(8.0);
-        ui.label(RichText::new(subtitle).color(theme::TEXT_FAINT));
+        ui.label(RichText::new(subtitle).color(theme::text_faint()));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), actions);
     });
 }
 
 fn table(ui: &mut Ui, headers: &[&str], widths: &[f32], rows: impl FnOnce(&mut Ui)) {
     egui::Frame::new()
-        .fill(theme::PANEL)
-        .stroke(Stroke::new(1.0, Color32::from_rgb(0x2a, 0x2f, 0x38)))
+        .fill(theme::panel())
+        .stroke(Stroke::new(1.0, theme::control()))
         .corner_radius(8)
         .inner_margin(Margin::symmetric(16, 0))
         .show(ui, |ui| {
@@ -362,13 +354,13 @@ fn table(ui: &mut Ui, headers: &[&str], widths: &[f32], rows: impl FnOnce(&mut U
                     Align2::LEFT_CENTER,
                     *title,
                     FontId::monospace(10.0),
-                    theme::TEXT_FAINT,
+                    theme::text_faint(),
                 );
             }
             painter.hline(
                 rect.x_range(),
                 rect.bottom() - 0.5,
-                Stroke::new(1.0, Color32::from_rgb(0x2a, 0x2f, 0x38)),
+                Stroke::new(1.0, theme::control()),
             );
             rows(ui);
         });
@@ -412,9 +404,9 @@ fn accent_button(text: &str) -> egui::Button<'_> {
         RichText::new(text)
             .size(12.0)
             .family(theme::semibold())
-            .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+            .color(theme::on_accent()),
     )
-    .fill(theme::ACCENT)
+    .fill(theme::accent())
     .corner_radius(5)
     .min_size(vec2(0.0, 30.0))
 }

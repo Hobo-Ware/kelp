@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
-use eframe::egui::{self, Color32, Margin, RichText, Stroke, vec2};
+use eframe::egui::{self, Margin, RichText, Stroke, vec2};
 
 use crate::theme;
 
@@ -276,10 +276,11 @@ impl CloneDialog {
         let mut outcome = Outcome::Keep;
         let busy = self.running.is_some();
         let modal = egui::Modal::new(egui::Id::new("kelp-clone"))
+            .backdrop_color(theme::backdrop())
             .frame(
                 egui::Frame::new()
-                    .fill(theme::POPUP)
-                    .stroke(Stroke::new(1.0, theme::POPUP_BORDER))
+                    .fill(theme::popup())
+                    .stroke(Stroke::new(1.0, theme::popup_border()))
                     .corner_radius(10)
                     .inner_margin(Margin::same(22)),
             )
@@ -290,10 +291,10 @@ impl CloneDialog {
                     RichText::new("Clone a repository")
                         .size(17.0)
                         .family(theme::semibold())
-                        .color(theme::TEXT_STRONG),
+                        .color(theme::text_strong()),
                 );
                 ui.add_enabled_ui(!busy, |ui| {
-                    ui.label(RichText::new("URL").size(12.0).color(theme::TEXT_MUTED));
+                    ui.label(RichText::new("URL").size(12.0).color(theme::text_muted()));
                     let mut url = self.url.clone();
                     let edit = ui.add(
                         egui::TextEdit::singleline(&mut url)
@@ -310,10 +311,14 @@ impl CloneDialog {
                         self.set_url(url);
                         self.error = None;
                     }
-                    ui.label(RichText::new("Folder").size(12.0).color(theme::TEXT_MUTED));
+                    ui.label(
+                        RichText::new("Folder")
+                            .size(12.0)
+                            .color(theme::text_muted()),
+                    );
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new(crate::recents::tilde(&self.parent)).color(theme::TEXT),
+                            RichText::new(crate::recents::tilde(&self.parent)).color(theme::text()),
                         );
                         if ui.small_button("Change…").clicked()
                             && let Some(dir) = rfd::FileDialog::new()
@@ -324,7 +329,7 @@ impl CloneDialog {
                             self.parent = dir;
                         }
                     });
-                    ui.label(RichText::new("Name").size(12.0).color(theme::TEXT_MUTED));
+                    ui.label(RichText::new("Name").size(12.0).color(theme::text_muted()));
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut self.name).desired_width(f32::INFINITY),
@@ -337,16 +342,16 @@ impl CloneDialog {
                 if let Some(running) = &self.running {
                     let bar = egui::ProgressBar::new(running.progress.percent.unwrap_or(0.0))
                         .desired_height(6.0)
-                        .fill(theme::ACCENT)
+                        .fill(theme::accent())
                         .animate(running.progress.percent.is_none());
                     ui.add(bar);
                     let text = match running.progress.percent {
                         Some(p) => format!("{} {:.0}%", running.progress.phase, p * 100.0),
                         None => format!("{}…", running.progress.phase),
                     };
-                    ui.label(RichText::new(text).size(12.0).color(theme::TEXT_MUTED));
+                    ui.label(RichText::new(text).size(12.0).color(theme::text_muted()));
                 } else if let Some(error) = &self.error {
-                    ui.label(RichText::new(error).size(12.0).color(theme::DELETED));
+                    ui.label(RichText::new(error).size(12.0).color(theme::deleted()));
                 } else if !self.url.trim().is_empty() {
                     ui.label(
                         RichText::new(format!(
@@ -356,7 +361,7 @@ impl CloneDialog {
                         ))
                         .size(11.5)
                         .monospace()
-                        .color(theme::TEXT_FAINT),
+                        .color(theme::text_faint()),
                     );
                 }
                 ui.add_space(4.0);
@@ -374,9 +379,9 @@ impl CloneDialog {
                         let clone = egui::Button::new(
                             RichText::new("Clone")
                                 .family(theme::semibold())
-                                .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+                                .color(theme::on_accent()),
                         )
-                        .fill(theme::ACCENT)
+                        .fill(theme::accent())
                         .min_size(vec2(90.0, 30.0));
                         let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
                         if ui.add_enabled(ready, clone).clicked() || (ready && enter) {

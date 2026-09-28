@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, Ui, pos2, vec2,
-};
+use eframe::egui::{self, Align2, CornerRadius, FontId, Rect, RichText, Sense, Ui, pos2, vec2};
 
 use crate::icons::Icon;
 use crate::recents::{self, Recent};
@@ -51,7 +49,7 @@ impl Welcome {
 
     pub fn ui(&mut self, ui: &mut Ui, recents: &[Recent], waving: bool) -> Option<Action> {
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::BG))
+            .frame(egui::Frame::new().fill(theme::bg()))
             .show(ui, |ui| {
                 let full = ui.max_rect();
                 let column = Rect::from_center_size(
@@ -71,11 +69,11 @@ impl Welcome {
                 let title = ui.painter().layout_no_wrap(
                     "Welcome to Kelp".into(),
                     FontId::new(22.0, theme::semibold()),
-                    theme::TEXT_STRONG,
+                    theme::text_strong(),
                 );
                 let title_pos = pos2(full.center().x - title.size().x / 2.0, art.bottom() + 12.0);
                 ui.painter()
-                    .galley(title_pos, title.clone(), theme::TEXT_STRONG);
+                    .galley(title_pos, title.clone(), theme::text_strong());
                 let buttons_top = title_pos.y + title.size().y + 20.0;
                 let mut action = self.buttons(ui, column, buttons_top);
                 let filter_top = buttons_top + BUTTON_H + 26.0;
@@ -109,13 +107,13 @@ impl Welcome {
             let text = if primary {
                 RichText::new(label)
                     .family(theme::semibold())
-                    .color(Color32::from_rgb(0x10, 0x13, 0x1a))
+                    .color(theme::on_accent())
             } else {
-                RichText::new(label).color(theme::TEXT)
+                RichText::new(label).color(theme::text())
             };
             let mut button = egui::Button::new(text).corner_radius(8);
             if primary {
-                button = button.fill(theme::ACCENT);
+                button = button.fill(theme::accent());
             }
             if ui.put(rect, button).clicked() {
                 picked = Some(act);
@@ -155,7 +153,7 @@ impl Welcome {
                 Align2::CENTER_TOP,
                 "Repositories you open show up here.",
                 FontId::proportional(13.0),
-                theme::TEXT_FAINT,
+                theme::text_faint(),
             );
             return None;
         }
@@ -166,7 +164,7 @@ impl Welcome {
                 Align2::CENTER_TOP,
                 "No recent repository matches.",
                 FontId::proportional(13.0),
-                theme::TEXT_FAINT,
+                theme::text_faint(),
             );
             return None;
         }
@@ -230,16 +228,16 @@ fn paint_row(
 ) {
     let painter = ui.painter_at(rect);
     if hovered {
-        painter.rect_filled(rect, CornerRadius::same(8), theme::CONTROL);
+        painter.rect_filled(rect, CornerRadius::same(8), theme::control());
     }
     let name = recent.path.file_name().map_or_else(
         || recent.path.display().to_string(),
         |n| n.to_string_lossy().to_string(),
     );
     let strong = if exists {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_FAINT
+        theme::text_faint()
     };
     painter.text(
         pos2(rect.left() + 14.0, rect.top() + 9.0),
@@ -254,7 +252,7 @@ fn paint_row(
         format!("{}  ·  missing", recents::tilde(&recent.path))
     };
     let when = kelp_core::commit::relative_time(recent.opened, now);
-    let when = painter.layout_no_wrap(when, FontId::proportional(11.5), theme::TEXT_FAINT);
+    let when = painter.layout_no_wrap(when, FontId::proportional(11.5), theme::text_faint());
     let when_w = when.size().x;
     painter.galley(
         pos2(
@@ -262,32 +260,32 @@ fn paint_row(
             rect.bottom() - 9.0 - when.size().y,
         ),
         when,
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     let path = crate::graph_view::truncated(
         &painter,
         path,
         FontId::proportional(12.0),
-        theme::TEXT_FAINT,
+        theme::text_faint(),
         (rect.width() - 28.0 - when_w - 16.0).max(0.0),
     );
     painter.galley(
         pos2(rect.left() + 14.0, rect.bottom() - 9.0 - path.size().y),
         path,
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     if let Some(branch) = branch {
         let branch = crate::graph_view::truncated(
             &painter,
             branch.to_string(),
             FontId::proportional(12.0),
-            theme::LANES[0],
+            theme::lanes()[0],
             rect.width() * 0.45,
         );
         painter.galley(
             pos2(rect.right() - 14.0 - branch.size().x, rect.top() + 10.0),
             branch,
-            theme::LANES[0],
+            theme::lanes()[0],
         );
     }
 }

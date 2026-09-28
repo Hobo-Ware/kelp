@@ -68,6 +68,7 @@ fn main() -> eframe::Result {
         }
     };
     let saved = settings::Settings::load();
+    let saved_theme = saved.theme_preference();
     let paths = startup_paths(args, &saved);
     let placement = window::restore(saved.window.filter(|_| !settings::is_dev_run()));
     let mut viewport = egui::ViewportBuilder::default()
@@ -89,7 +90,7 @@ fn main() -> eframe::Result {
         "Kelp",
         options,
         Box::new(move |cc| {
-            theme::apply(&cc.egui_ctx);
+            theme::apply(&cc.egui_ctx, saved_theme);
             egui_extras::install_image_loaders(&cc.egui_ctx);
             fonts::install(&cc.egui_ctx);
             Ok(Box::new(app::KelpApp::open(cc.egui_ctx.clone(), paths)))

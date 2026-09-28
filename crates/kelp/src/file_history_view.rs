@@ -97,7 +97,7 @@ impl FileHistoryView {
         let now = now();
         egui::Panel::left("file-history-list")
             .exact_size(LIST_W)
-            .frame(egui::Frame::new().fill(theme::PANEL))
+            .frame(egui::Frame::new().fill(theme::panel()))
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 egui::ScrollArea::vertical().auto_shrink(false).show_rows(
@@ -132,7 +132,9 @@ impl FileHistoryView {
                 Some(Ok(())) => "No commits touch this file.".to_string(),
                 None => "Reading the history…".to_string(),
             };
-            ui.centered_and_justified(|ui| ui.label(RichText::new(text).color(theme::TEXT_MUTED)));
+            ui.centered_and_justified(|ui| {
+                ui.label(RichText::new(text).color(theme::text_muted()))
+            });
         }
         event
     }
@@ -140,27 +142,27 @@ impl FileHistoryView {
     fn header(&self, ui: &mut Ui) -> Event {
         let mut event = Event::None;
         egui::Frame::new()
-            .fill(theme::PANEL)
+            .fill(theme::panel())
             .inner_margin(Margin::symmetric(16, 10))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new("History of")
                             .size(13.0)
-                            .color(theme::TEXT_MUTED),
+                            .color(theme::text_muted()),
                     );
                     ui.label(
                         RichText::new(&self.path)
                             .monospace()
                             .family(theme::semibold())
-                            .color(theme::TEXT_STRONG),
+                            .color(theme::text_strong()),
                     );
                     let count = self.entries.len();
                     let status = match self.finished {
                         None => format!("{count} commits so far…"),
                         Some(_) => format!("{count} commit{}", if count == 1 { "" } else { "s" }),
                     };
-                    ui.label(RichText::new(status).size(12.0).color(theme::TEXT_FAINT));
+                    ui.label(RichText::new(status).size(12.0).color(theme::text_faint()));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if widgets::close_button(ui, "Close (Esc)") {
                             event = Event::Close;
@@ -195,9 +197,9 @@ fn entry_row(
         ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
     let painter = ui.painter_at(rect);
     if active {
-        painter.rect_filled(rect, 0.0, theme::SIDEBAR_SELECTED);
+        painter.rect_filled(rect, 0.0, theme::sidebar_selected());
     } else if response.hovered() {
-        painter.rect_filled(rect, 0.0, theme::with_alpha(egui::Color32::WHITE, 0x08));
+        painter.rect_filled(rect, 0.0, theme::overlay(0x08));
     }
     let avatar = pos2(rect.left() + 26.0, rect.center().y);
     graph_view::draw_avatar(
@@ -207,7 +209,7 @@ fn entry_row(
         &entry.author,
         &entry.email,
         avatars.texture(&entry.email, entry.id),
-        theme::BORDER,
+        theme::border(),
         false,
     );
     let text_left = rect.left() + 48.0;
@@ -217,9 +219,9 @@ fn entry_row(
         .as_ref()
         .map_or(0.0, |(plus, minus)| plus.size().x + minus.size().x + 14.0);
     let title_color = if active {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT
+        theme::text()
     };
     let title = graph_view::truncated(
         &painter,
@@ -232,8 +234,8 @@ fn entry_row(
     if let Some((plus, minus)) = counts {
         let minus_x = right - minus.size().x;
         let plus_x = minus_x - 4.0 - plus.size().x;
-        painter.galley(pos2(plus_x, rect.top() + 9.0), plus, theme::ADDED);
-        painter.galley(pos2(minus_x, rect.top() + 9.0), minus, theme::DELETED);
+        painter.galley(pos2(plus_x, rect.top() + 9.0), plus, theme::added());
+        painter.galley(pos2(minus_x, rect.top() + 9.0), minus, theme::deleted());
     }
     let mut meta = format!(
         "{} · {}",
@@ -247,13 +249,13 @@ fn entry_row(
         &painter,
         meta,
         FontId::proportional(12.0),
-        theme::TEXT_FAINT,
+        theme::text_faint(),
         (right - text_left).max(0.0),
     );
     painter.galley(
         pos2(text_left, rect.bottom() - 21.0),
         meta,
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     let response = response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -277,8 +279,8 @@ fn counts(
     let (added, removed) = (entry.added?, entry.removed?);
     let font = FontId::proportional(11.5);
     Some((
-        painter.layout_no_wrap(format!("+{added}"), font.clone(), theme::ADDED),
-        painter.layout_no_wrap(format!("−{removed}"), font, theme::DELETED),
+        painter.layout_no_wrap(format!("+{added}"), font.clone(), theme::added()),
+        painter.layout_no_wrap(format!("−{removed}"), font, theme::deleted()),
     ))
 }
 

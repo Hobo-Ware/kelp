@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 
-use eframe::egui::{self, Align2, Color32, FontId, Rect, RichText, Sense, Ui, pos2, vec2};
+use eframe::egui::{self, Align2, FontId, Rect, RichText, Sense, Ui, pos2, vec2};
 use gix::ObjectId;
 use kelp_core::blame::{self, Blame};
 
@@ -16,9 +16,6 @@ const LINE_H: f32 = 22.0;
 const GUTTER_W: f32 = 250.0;
 const NUM_W: f32 = 46.0;
 const AVATAR_R: f32 = 8.0;
-const BAND: Color32 = Color32::from_rgb(0x20, 0x24, 0x2c);
-const TEXT_COLOR: Color32 = Color32::from_rgb(0xb4, 0xb9, 0xc2);
-const NUM_COLOR: Color32 = Color32::from_rgb(0x5e, 0x65, 0x73);
 
 struct Target {
     rev: Option<ObjectId>,
@@ -158,7 +155,7 @@ impl BlameView {
                         continue;
                     };
                     if loaded.band[line] {
-                        painter.rect_filled(gutter, 0.0, BAND);
+                        painter.rect_filled(gutter, 0.0, theme::band());
                     }
                     let response = ui
                         .interact(gutter, ui.id().with(("blame", line)), Sense::click())
@@ -205,14 +202,14 @@ impl BlameView {
                         Align2::RIGHT_CENTER,
                         (line + 1).to_string(),
                         font.clone(),
-                        NUM_COLOR,
+                        theme::line_number(),
                     );
                     painter.text(
                         pos2(gutter.right() + NUM_W + 12.0, row.center().y),
                         Align2::LEFT_CENTER,
                         &loaded.lines[line],
                         font.clone(),
-                        TEXT_COLOR,
+                        theme::text_body(),
                     );
                 }
             },
@@ -229,7 +226,7 @@ impl BlameView {
     fn history_bar(&mut self, ui: &mut Ui) {
         let mut forward = false;
         egui::Frame::new()
-            .fill(theme::PANEL)
+            .fill(theme::panel())
             .inner_margin(egui::Margin::symmetric(16, 6))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -239,7 +236,7 @@ impl BlameView {
                     ui.label(
                         RichText::new(format!("Blame before {at} · {}", self.target.path))
                             .size(12.0)
-                            .color(theme::TEXT_MUTED),
+                            .color(theme::text_muted()),
                     );
                     if ui.button(RichText::new("Back").size(12.0)).clicked() {
                         forward = true;
@@ -286,12 +283,12 @@ fn paint_origin(
 ) {
     let mid = gutter.center().y;
     let (texture, hash, color) = if origin.is_uncommitted() {
-        (None, "not committed".to_string(), theme::MODIFIED)
+        (None, "not committed".to_string(), theme::modified())
     } else {
         (
             avatars.texture(&origin.email, origin.id),
             origin.id.to_hex_with_len(7).to_string(),
-            theme::TEXT_MUTED,
+            theme::text_muted(),
         )
     };
     graph_view::draw_avatar(
@@ -301,16 +298,16 @@ fn paint_origin(
         &origin.author,
         &origin.email,
         texture,
-        theme::BORDER,
+        theme::border(),
         false,
     );
     let when = kelp_core::commit::relative_time(origin.time, now);
-    let when = painter.layout_no_wrap(when, FontId::proportional(11.5), theme::TEXT_FAINT);
+    let when = painter.layout_no_wrap(when, FontId::proportional(11.5), theme::text_faint());
     let when_w = when.size().x;
     painter.galley(
         pos2(gutter.right() - 10.0 - when_w, mid - when.size().y / 2.0),
         when,
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
     let hash = painter.layout_no_wrap(hash, FontId::monospace(11.5), color);
     let hash_w = hash.size().x;
@@ -323,7 +320,7 @@ fn paint_origin(
         painter,
         origin.author.clone(),
         FontId::proportional(12.0),
-        theme::TEXT,
+        theme::text(),
         (gutter.width() - 34.0 - hash_w - 10.0 - when_w - 22.0).max(0.0),
     );
     painter.galley(
@@ -332,12 +329,12 @@ fn paint_origin(
             mid - author.size().y / 2.0,
         ),
         author,
-        theme::TEXT,
+        theme::text(),
     );
 }
 
 fn notice(ui: &mut Ui, text: &str) -> Event {
-    ui.centered_and_justified(|ui| ui.label(RichText::new(text).color(theme::TEXT_MUTED)));
+    ui.centered_and_justified(|ui| ui.label(RichText::new(text).color(theme::text_muted())));
     Event::None
 }
 

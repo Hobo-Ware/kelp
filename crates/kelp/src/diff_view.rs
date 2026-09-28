@@ -35,12 +35,6 @@ const THREAD_INDENT: f32 = NUM_W * 2.0 + GUTTER_W + 10.0;
 const THREAD_W: f32 = 640.0;
 const RESOLVED_H: f32 = 34.0;
 const COMPOSER_H: f32 = 132.0;
-const ADDED_BG: Color32 = Color32::from_rgb(0x16, 0x30, 0x2a);
-const REMOVED_BG: Color32 = Color32::from_rgb(0x3a, 0x1f, 0x22);
-const ADDED_EMPHASIS: Color32 = Color32::from_rgb(0x22, 0x55, 0x44);
-const REMOVED_EMPHASIS: Color32 = Color32::from_rgb(0x66, 0x2d, 0x33);
-const NUM_COLOR: Color32 = Color32::from_rgb(0x5e, 0x65, 0x73);
-const CONTEXT_TEXT: Color32 = Color32::from_rgb(0xb4, 0xb9, 0xc2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffSource {
@@ -479,7 +473,7 @@ impl DiffView {
     fn header(&mut self, ui: &mut Ui, review: &Review) -> Event {
         let mut event = Event::None;
         egui::Frame::new()
-            .fill(theme::PANEL)
+            .fill(theme::panel())
             .inner_margin(Margin::symmetric(16, 0))
             .show(ui, |ui| {
                 ui.set_height(HEADER_H);
@@ -558,9 +552,9 @@ impl DiffView {
                                     RichText::new(label)
                                         .size(12.0)
                                         .family(theme::semibold())
-                                        .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+                                        .color(theme::on_accent()),
                                 )
-                                .fill(theme::ACCENT)
+                                .fill(theme::accent())
                                 .corner_radius(5);
                                 if ui.add(button).clicked() {
                                     self.stage_selected_lines();
@@ -572,12 +566,12 @@ impl DiffView {
                                             if count == 1 { "" } else { "s" }
                                         ))
                                         .size(12.0)
-                                        .color(theme::DELETED),
+                                        .color(theme::deleted()),
                                     )
-                                    .fill(theme::with_alpha(theme::DELETED, 0x1c))
+                                    .fill(theme::with_alpha(theme::deleted(), 0x1c))
                                     .stroke(Stroke::new(
                                         1.0,
-                                        theme::with_alpha(theme::DELETED, 0x66),
+                                        theme::with_alpha(theme::deleted(), 0x66),
                                     ))
                                     .corner_radius(5);
                                     let response = ui.add(discard).on_hover_text(
@@ -589,7 +583,7 @@ impl DiffView {
                                     }
                                 }
                                 let clear = egui::Button::new(
-                                    RichText::new("Clear").size(12.0).color(theme::TEXT_MUTED),
+                                    RichText::new("Clear").size(12.0).color(theme::text_muted()),
                                 )
                                 .frame(false);
                                 if ui.add(clear).clicked() {
@@ -632,7 +626,7 @@ impl DiffView {
                             ui.label(
                                 RichText::new(format!("{dir}/"))
                                     .monospace()
-                                    .color(theme::TEXT_FAINT),
+                                    .color(theme::text_faint()),
                             );
                             ui.add_space(-12.0);
                         }
@@ -641,7 +635,7 @@ impl DiffView {
                                 RichText::new(name)
                                     .monospace()
                                     .family(theme::semibold())
-                                    .color(theme::TEXT_STRONG),
+                                    .color(theme::text_strong()),
                             )
                             .truncate(),
                         )
@@ -650,12 +644,12 @@ impl DiffView {
                             ui.label(
                                 RichText::new(format!("+{}", self.diff.added))
                                     .size(12.0)
-                                    .color(theme::ADDED),
+                                    .color(theme::added()),
                             );
                             ui.label(
                                 RichText::new(format!("−{}", self.diff.removed))
                                     .size(12.0)
-                                    .color(theme::DELETED),
+                                    .color(theme::deleted()),
                             );
                         }
                         let origin = match self.source {
@@ -672,7 +666,7 @@ impl DiffView {
                             DiffSource::Unstaged => "unstaged".into(),
                             DiffSource::Staged => "staged".into(),
                         };
-                        ui.label(RichText::new(origin).size(12.0).color(theme::TEXT_FAINT));
+                        ui.label(RichText::new(origin).size(12.0).color(theme::text_faint()));
                         let comments = review.count_for(self.path());
                         if comments > 0 {
                             ui.label(
@@ -681,7 +675,7 @@ impl DiffView {
                                     if comments == 1 { "" } else { "s" }
                                 ))
                                 .size(12.0)
-                                .color(theme::ACCENT),
+                                .color(theme::accent()),
                             );
                         }
                     },
@@ -691,7 +685,7 @@ impl DiffView {
         ui.painter().hline(
             rect.x_range(),
             rect.bottom(),
-            Stroke::new(1.0, theme::BORDER),
+            Stroke::new(1.0, theme::border()),
         );
         event
     }
@@ -825,7 +819,7 @@ impl DiffView {
                         let g = ui.painter().layout(
                             c.body.clone(),
                             FontId::proportional(13.0),
-                            theme::TEXT,
+                            theme::text(),
                             body_w,
                         );
                         26.0 + g.size().y + 14.0
@@ -874,14 +868,13 @@ impl DiffView {
                 let rect = Rect::from_min_size(origin + vec2(0.0, top), vec2(width, heights[k]));
                 match *item {
                     Item::Hunk(h) => {
-                        ui.painter()
-                            .rect_filled(rect, 0.0, Color32::from_rgb(0x1a, 0x22, 0x30));
+                        ui.painter().rect_filled(rect, 0.0, theme::hunk_bg());
                         ui.painter().text(
                             pos2(rect.left() + 16.0, rect.center().y),
                             Align2::LEFT_CENTER,
                             &self.hunks[h],
                             font.clone(),
-                            Color32::from_rgb(0x8f, 0xb4, 0xe8),
+                            theme::hunk_text(),
                         );
                         if let Some(label) = self.hunk_action() {
                             let visible_right = rect.left() + viewport.max.x - viewport.min.x;
@@ -891,7 +884,7 @@ impl DiffView {
                             );
                             let button = egui::Button::new(RichText::new(label).size(12.0))
                                 .corner_radius(5)
-                                .fill(Color32::from_rgb(0x24, 0x2c, 0x3a));
+                                .fill(theme::tone(Color32::from_rgb(0x24, 0x2c, 0x3a)));
                             if ui.put(button_rect, button).clicked()
                                 && let Some(patch) = diff::hunk_patch(&self.diff, h)
                             {
@@ -904,10 +897,10 @@ impl DiffView {
                                     vec2(DISCARD_W, button_rect.height()),
                                 );
                                 let discard = egui::Button::new(
-                                    RichText::new("Discard").size(12.0).color(theme::DELETED),
+                                    RichText::new("Discard").size(12.0).color(theme::deleted()),
                                 )
                                 .corner_radius(5)
-                                .fill(theme::with_alpha(theme::DELETED, 0x1c));
+                                .fill(theme::with_alpha(theme::deleted(), 0x1c));
                                 let response = ui.put(discard_rect, discard).on_hover_text(
                                     "Undo this hunk in the file. Shift-click skips the question.",
                                 );
@@ -919,14 +912,17 @@ impl DiffView {
                         }
                     }
                     Item::OutsideHeader => {
-                        ui.painter()
-                            .rect_filled(rect, 0.0, Color32::from_rgb(0x1f, 0x23, 0x2b));
+                        ui.painter().rect_filled(
+                            rect,
+                            0.0,
+                            theme::tone(Color32::from_rgb(0x1f, 0x23, 0x2b)),
+                        );
                         ui.painter().text(
                             pos2(rect.left() + 16.0, rect.center().y),
                             Align2::LEFT_CENTER,
                             "Comments on lines not shown here",
                             FontId::proportional(12.0),
-                            theme::TEXT_MUTED,
+                            theme::text_muted(),
                         );
                     }
                     Item::Line(i) => self.unified_line(ui, rect, i, &font),
@@ -942,7 +938,7 @@ impl DiffView {
                         ui.painter().vline(
                             right.left(),
                             rect.y_range(),
-                            Stroke::new(1.0, theme::BORDER),
+                            Stroke::new(1.0, theme::border()),
                         );
                     }
                     Item::FileLine(i) => {
@@ -957,8 +953,8 @@ impl DiffView {
                                 text: &text,
                                 emphasis: &[],
                                 bg: Color32::TRANSPARENT,
-                                mark_color: theme::TEXT_FAINT,
-                                text_color: CONTEXT_TEXT,
+                                mark_color: theme::text_faint(),
+                                text_color: theme::text_body(),
                                 side: Side::New,
                                 selectable: None,
                             },
@@ -1029,7 +1025,7 @@ impl DiffView {
     ) {
         let Some(index) = index else {
             ui.painter()
-                .rect_filled(rect, 0.0, Color32::from_rgb(0x18, 0x1b, 0x21));
+                .rect_filled(rect, 0.0, theme::tone(Color32::from_rgb(0x18, 0x1b, 0x21)));
             return;
         };
         let line = self.lines[index].1.clone();
@@ -1076,14 +1072,14 @@ impl DiffView {
                 )
                 .on_hover_cursor(CursorIcon::PointingHand);
             if self.selected_lines.contains(&index) {
-                painter.rect_filled(numbers_rect, 0.0, theme::with_alpha(theme::ACCENT, 0x38));
+                painter.rect_filled(numbers_rect, 0.0, theme::with_alpha(theme::accent(), 0x38));
                 painter.rect_filled(
                     Rect::from_min_size(rect.min, vec2(3.0, rect.height())),
                     0.0,
-                    theme::ACCENT,
+                    theme::accent(),
                 );
             } else if response.hovered() {
-                painter.rect_filled(numbers_rect, 0.0, theme::with_alpha(Color32::WHITE, 0x0c));
+                painter.rect_filled(numbers_rect, 0.0, theme::overlay(0x0c));
             }
             let hint = if self.is_staged() {
                 "Select to unstage (Shift-click for a range)"
@@ -1102,14 +1098,14 @@ impl DiffView {
                     Align2::RIGHT_CENTER,
                     num(old),
                     font.clone(),
-                    NUM_COLOR,
+                    theme::line_number(),
                 );
                 painter.text(
                     pos2(rect.left() + NUM_W * 2.0 - 8.0, mid),
                     Align2::RIGHT_CENTER,
                     num(new),
                     font.clone(),
-                    NUM_COLOR,
+                    theme::line_number(),
                 );
                 if row.side == Side::Old { old } else { new }
             }
@@ -1119,7 +1115,7 @@ impl DiffView {
                     Align2::RIGHT_CENTER,
                     num(n),
                     font.clone(),
-                    NUM_COLOR,
+                    theme::line_number(),
                 );
                 n
             }
@@ -1143,9 +1139,9 @@ impl DiffView {
                 button,
                 4.0,
                 if response.hovered() {
-                    theme::TEXT_STRONG
+                    theme::text_strong()
                 } else {
-                    theme::ACCENT
+                    theme::accent()
                 },
             );
             painter.text(
@@ -1153,7 +1149,7 @@ impl DiffView {
                 Align2::CENTER_CENTER,
                 "+",
                 FontId::proportional(14.0),
-                Color32::from_rgb(0x10, 0x13, 0x1a),
+                theme::on_accent(),
             );
             if response.on_hover_text("Add a comment").clicked() {
                 self.composer = Some((side, line_no));
@@ -1169,10 +1165,10 @@ impl DiffView {
         );
         let galley = painter.layout_no_wrap(row.text.to_string(), font.clone(), row.text_color);
         let origin = pos2(gutter.right() + 20.0, mid - galley.size().y / 2.0);
-        let emphasis_fill = if row.bg == REMOVED_BG {
-            REMOVED_EMPHASIS
+        let emphasis_fill = if row.bg == theme::removed_bg() {
+            theme::removed_emphasis()
         } else {
-            ADDED_EMPHASIS
+            theme::added_emphasis()
         };
         for &(start, end) in row.emphasis {
             let x = |byte: usize| {
@@ -1214,8 +1210,8 @@ impl DiffView {
             ui.painter().rect(
                 chip,
                 12.0,
-                Color32::from_rgb(0x1e, 0x24, 0x2e),
-                Stroke::new(1.0, Color32::from_rgb(0x2c, 0x34, 0x42)),
+                theme::thread(),
+                Stroke::new(1.0, theme::tone(Color32::from_rgb(0x2c, 0x34, 0x42))),
                 egui::StrokeKind::Inside,
             );
             let label = format!(
@@ -1229,7 +1225,7 @@ impl DiffView {
                 Align2::LEFT_CENTER,
                 label,
                 FontId::proportional(12.0),
-                theme::TEXT_MUTED,
+                theme::text_muted(),
             );
             if response.on_hover_text("Show").clicked() {
                 self.expanded.insert(id, true);
@@ -1239,8 +1235,8 @@ impl DiffView {
         ui.painter().rect(
             card,
             8.0,
-            Color32::from_rgb(0x1e, 0x24, 0x2e),
-            Stroke::new(1.0, Color32::from_rgb(0x33, 0x40, 0x55)),
+            theme::thread(),
+            Stroke::new(1.0, theme::tone(Color32::from_rgb(0x33, 0x40, 0x55))),
             egui::StrokeKind::Inside,
         );
         let mut y = card.top() + 12.0;
@@ -1265,7 +1261,7 @@ impl DiffView {
                 Align2::LEFT_TOP,
                 &comment.author,
                 FontId::proportional(13.0),
-                theme::TEXT_STRONG,
+                theme::text_strong(),
             );
             let when = kelp_core::commit::relative_time(comment.time, now());
             ui.painter().text(
@@ -1273,19 +1269,19 @@ impl DiffView {
                 Align2::LEFT_TOP,
                 when,
                 FontId::proportional(12.0),
-                theme::TEXT_FAINT,
+                theme::text_faint(),
             );
             let body = ui.painter().layout(
                 comment.body.clone(),
                 FontId::proportional(13.0),
-                Color32::from_rgb(0xd5, 0xd7, 0xdc),
+                theme::text_control(),
                 THREAD_W - 64.0,
             );
             let body_h = body.size().y;
             ui.painter().galley(
                 pos2(card.left() + 50.0, y + 24.0),
                 body,
-                Color32::from_rgb(0xd5, 0xd7, 0xdc),
+                theme::text_control(),
             );
             y += 26.0 + body_h + 14.0;
         }
@@ -1312,16 +1308,16 @@ impl DiffView {
             ui.label(
                 RichText::new("Saved in this repo only · not pushed")
                     .size(11.0)
-                    .color(theme::TEXT_FAINT),
+                    .color(theme::text_faint()),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let can_send = !self.replies.get(&id).is_some_and(|d| d.trim().is_empty());
                 let reply = egui::Button::new(
                     RichText::new("Reply")
                         .family(theme::semibold())
-                        .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+                        .color(theme::on_accent()),
                 )
-                .fill(theme::ACCENT)
+                .fill(theme::accent())
                 .corner_radius(5);
                 if (ui.add_enabled(can_send, reply).clicked() || send_shortcut) && can_send {
                     let body = self.replies.remove(&id).unwrap_or_default();
@@ -1346,7 +1342,7 @@ impl DiffView {
                 }
                 if ui
                     .add(
-                        egui::Button::new(RichText::new("Delete").color(theme::DELETED))
+                        egui::Button::new(RichText::new("Delete").color(theme::deleted()))
                             .frame(false),
                     )
                     .clicked()
@@ -1370,8 +1366,8 @@ impl DiffView {
         ui.painter().rect(
             card,
             8.0,
-            Color32::from_rgb(0x1e, 0x24, 0x2e),
-            Stroke::new(1.0, theme::with_alpha(theme::ACCENT, 0x99)),
+            theme::thread(),
+            Stroke::new(1.0, theme::with_alpha(theme::accent(), 0x99)),
             egui::StrokeKind::Inside,
         );
         let area = card.shrink(12.0);
@@ -1384,7 +1380,7 @@ impl DiffView {
         child.label(
             RichText::new(format!("Comment on line {line_no}"))
                 .size(12.0)
-                .color(theme::TEXT_MUTED),
+                .color(theme::text_muted()),
         );
         let edit = child.add(
             egui::TextEdit::multiline(&mut self.draft)
@@ -1405,9 +1401,9 @@ impl DiffView {
                 let save = egui::Button::new(
                     RichText::new("Comment")
                         .family(theme::semibold())
-                        .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+                        .color(theme::on_accent()),
                 )
-                .fill(theme::ACCENT)
+                .fill(theme::accent())
                 .corner_radius(5);
                 let clicked = ui.add_enabled(enabled, save).clicked();
                 if enabled && (clicked || save_shortcut) {
@@ -1477,9 +1473,9 @@ fn key_of(line: &Line) -> Option<(Side, u32)> {
 
 fn text_color(kind: LineKind) -> Color32 {
     if kind == LineKind::Context {
-        CONTEXT_TEXT
+        theme::text_body()
     } else {
-        theme::TEXT
+        theme::text()
     }
 }
 
@@ -1522,12 +1518,12 @@ fn arrow_button(ui: &mut Ui, up: bool, hint: &str) -> bool {
         .on_hover_cursor(CursorIcon::PointingHand);
     let hovered = response.hovered();
     if hovered {
-        ui.painter().rect_filled(rect, 5.0, theme::CONTROL_HOVER);
+        ui.painter().rect_filled(rect, 5.0, theme::control_hover());
     }
     let color = if hovered {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_MUTED
+        theme::text_muted()
     };
     let c = rect.center();
     let dy = if up { -2.5 } else { 2.5 };
@@ -1541,9 +1537,9 @@ fn arrow_button(ui: &mut Ui, up: bool, hint: &str) -> bool {
 
 fn style(kind: LineKind) -> (Color32, &'static str, Color32) {
     match kind {
-        LineKind::Added => (ADDED_BG, "+", theme::ADDED),
-        LineKind::Removed => (REMOVED_BG, "-", theme::DELETED),
-        LineKind::Context => (Color32::TRANSPARENT, "", theme::TEXT_FAINT),
+        LineKind::Added => (theme::added_bg(), "+", theme::added()),
+        LineKind::Removed => (theme::removed_bg(), "-", theme::deleted()),
+        LineKind::Context => (Color32::TRANSPARENT, "", theme::text_faint()),
     }
 }
 
@@ -1579,11 +1575,11 @@ impl DiffView {
             text.push_str(" · Git LFS isn't installed, so only the pointer can be shown");
         }
         egui::Frame::new()
-            .fill(theme::with_alpha(theme::ACCENT, 0x14))
+            .fill(theme::with_alpha(theme::accent(), 0x14))
             .inner_margin(Margin::symmetric(16, 6))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(RichText::new(text).size(12.0).color(theme::TEXT_MUTED));
+                ui.label(RichText::new(text).size(12.0).color(theme::text_muted()));
             });
     }
 }
@@ -1614,23 +1610,23 @@ fn submodule_card(ui: &mut Ui, change: &kelp_core::submodules::Change) {
                 RichText::new(format!("Submodule {}", change.path))
                     .size(14.0)
                     .family(theme::semibold())
-                    .color(theme::TEXT_STRONG),
+                    .color(theme::text_strong()),
             );
             ui.label(
                 RichText::new(format!("- {}", side(change.old, &change.old_title)))
                     .monospace()
-                    .color(theme::DELETED),
+                    .color(theme::deleted()),
             );
             ui.label(
                 RichText::new(format!("+ {}", side(change.new, &change.new_title)))
                     .monospace()
-                    .color(theme::ADDED),
+                    .color(theme::added()),
             );
         });
 }
 
 fn notice(ui: &mut Ui, text: &str) {
-    ui.centered_and_justified(|ui| ui.label(RichText::new(text).color(theme::TEXT_MUTED)));
+    ui.centered_and_justified(|ui| ui.label(RichText::new(text).color(theme::text_muted())));
 }
 
 fn now() -> i64 {

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use eframe::egui::{self, Color32, Margin, RichText, Stroke};
+use eframe::egui::{self, Margin, RichText, Stroke};
 use serde::{Deserialize, Serialize};
 
 use crate::columns::GraphColumns;
@@ -9,9 +9,28 @@ use crate::panels::{self, Panels};
 use crate::recents::Recent;
 use crate::theme;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Appearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl Appearance {
+    pub fn preference(self) -> egui::ThemePreference {
+        match self {
+            Appearance::System => egui::ThemePreference::System,
+            Appearance::Light => egui::ThemePreference::Light,
+            Appearance::Dark => egui::ThemePreference::Dark,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    pub appearance: Appearance,
     pub dim_outside_history: bool,
     pub load_avatars: bool,
     pub show_descriptions: bool,
@@ -34,6 +53,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            appearance: Appearance::System,
             dim_outside_history: false,
             load_avatars: true,
             show_descriptions: true,
@@ -94,6 +114,17 @@ impl Settings {
         settings
     }
 
+    pub fn theme_preference(&self) -> egui::ThemePreference {
+        static FORCED: std::sync::OnceLock<Option<egui::ThemePreference>> =
+            std::sync::OnceLock::new();
+        let forced = FORCED.get_or_init(|| match std::env::var("KELP_THEME").as_deref() {
+            Ok("light") => Some(egui::ThemePreference::Light),
+            Ok("dark") => Some(egui::ThemePreference::Dark),
+            _ => None,
+        });
+        forced.unwrap_or_else(|| self.appearance.preference())
+    }
+
     pub fn avatars_enabled(&self) -> bool {
         self.load_avatars && !self.offline
     }
@@ -129,11 +160,11 @@ impl Settings {
         repo: Option<&std::path::Path>,
     ) {
         let before = self.clone();
-        let modal = egui::Modal::new(egui::Id::new("kelp-settings"))
+        let modal = egui::Modal::new(egui::Id::new("kelp-settings")).backdrop_color(theme::backdrop())
             .frame(
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(0x1f, 0x24, 0x2d))
-                    .stroke(Stroke::new(1.0, Color32::from_rgb(0x3a, 0x42, 0x50)))
+                    .fill(theme::modal())
+                    .stroke(Stroke::new(1.0, theme::modal_border()))
                     .corner_radius(10)
                     .inner_margin(Margin::same(22)),
             )
@@ -144,13 +175,26 @@ impl Settings {
                     RichText::new("Settings")
                         .size(17.0)
                         .family(theme::semibold())
-                        .color(theme::TEXT_STRONG),
+                        .color(theme::text_strong()),
                 );
                 let max_height = ui.ctx().content_rect().height() * 0.72;
                 egui::ScrollArea::vertical()
                     .max_height(max_height)
                     .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 12.0;
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Appearance").color(theme::text_strong()));
+                    ui.add_space(8.0);
+                    crate::widgets::segmented(
+                        ui,
+                        &mut self.appearance,
+                        &[
+                            (Appearance::System, "System"),
+                            (Appearance::Light, "Light"),
+                            (Appearance::Dark, "Dark"),
+                        ],
+                    );
+                });
                 option(
                     ui,
                     &mut self.show_descriptions,
@@ -178,7 +222,7 @@ impl Settings {
                 ui.add_enabled_ui(self.auto_fetch, |ui| {
                     ui.horizontal(|ui| {
                         ui.add_space(24.0);
-                        ui.label(RichText::new("Every").color(theme::TEXT));
+                        ui.label(RichText::new("Every").color(theme::text()));
                         egui::ComboBox::from_id_salt("fetch-minutes")
                             .selected_text(format!("{} min", self.fetch_minutes))
                             .show_ui(ui, |ui| {
@@ -194,7 +238,7 @@ impl Settings {
                 });
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 4.0;
-                    ui.label(RichText::new("Open files with").color(theme::TEXT_STRONG));
+                    ui.label(RichText::new("Open files with").color(theme::text_strong()));
                     let detected = crate::open_with::editor_app("");
                     let hint = detected
                         .as_deref()
@@ -207,7 +251,7 @@ impl Settings {
                     ui.label(
                         RichText::new("An app name, like Visual Studio Code. Empty uses the first installed of Cursor, VS Code, Zed and Sublime Text.")
                             .size(12.0)
-                            .color(theme::TEXT_FAINT),
+                            .color(theme::text_faint()),
                     );
                 });
                 ui.separator();
@@ -241,10 +285,10 @@ impl Settings {
 fn option(ui: &mut egui::Ui, value: &mut bool, label: &str, hint: &str) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
-        ui.checkbox(value, RichText::new(label).color(theme::TEXT_STRONG));
+        ui.checkbox(value, RichText::new(label).color(theme::text_strong()));
         ui.horizontal(|ui| {
             ui.add_space(24.0);
-            ui.label(RichText::new(hint).size(12.0).color(theme::TEXT_FAINT));
+            ui.label(RichText::new(hint).size(12.0).color(theme::text_faint()));
         });
     });
 }
@@ -271,8 +315,23 @@ mod tests {
     }
 
     #[test]
+    fn appearance_survives_a_round_trip() {
+        for appearance in [Appearance::System, Appearance::Light, Appearance::Dark] {
+            let settings = Settings {
+                appearance,
+                ..Settings::default()
+            };
+            let json = serde_json::to_string(&settings).unwrap();
+            let back: Settings = serde_json::from_str(&json).unwrap();
+            assert_eq!(back.appearance, appearance);
+        }
+        assert_eq!(Appearance::Light.preference(), egui::ThemePreference::Light);
+    }
+
+    #[test]
     fn settings_from_older_versions_get_defaults() {
         let back: Settings = serde_json::from_str(r#"{"load_avatars": false}"#).unwrap();
+        assert_eq!(back.appearance, Appearance::System);
         assert!(!back.load_avatars);
         assert!(back.recent_repos.is_empty());
         assert_eq!(back.panels, Panels::default());

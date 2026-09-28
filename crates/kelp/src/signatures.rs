@@ -53,10 +53,10 @@ pub fn badge(ui: &mut Ui, signature: &Signature) {
         return;
     };
     let color = match signature {
-        Signature::Verified { .. } => theme::ADDED,
-        Signature::Expired { .. } => theme::MODIFIED,
-        Signature::Unverified { .. } => theme::DELETED,
-        Signature::UnknownKey { .. } | Signature::Unsigned => theme::TEXT_MUTED,
+        Signature::Verified { .. } => theme::added(),
+        Signature::Expired { .. } => theme::modified(),
+        Signature::Unverified { .. } => theme::deleted(),
+        Signature::UnknownKey { .. } | Signature::Unsigned => theme::text_muted(),
     };
     let galley =
         ui.painter()

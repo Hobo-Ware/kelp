@@ -174,6 +174,9 @@ folder if it is a repo.
   filter) with Open folder, Clone (progress, cancel, opens when done) and
   New repository. The sidebar and details panels collapse, and the whole
   app zooms from 80% to 160%; sizes and zoom are remembered.
+- **Light and dark:** a soft light theme and the dark one, built from the
+  same colors. Settings > Appearance picks System (follows macOS as it
+  changes), Light or Dark.
 
 ## Keys
 
@@ -261,6 +264,7 @@ Developer switches (environment variables):
 | `KELP_SCREENSHOT=out.png` | Save the window to a PNG and quit (`KELP_SCREENSHOT_WAIT=2` waits first) |
 | `KELP_BENCH_SCROLL=1` | Print graph frame times for random jumps and smooth scrolling |
 | `KELP_OFFLINE=1` | No avatar downloads |
+| `KELP_THEME=light` (or `dark`) | Use that theme for this run, whatever Settings says |
 | `KELP_HIDE_REFS=a,b`, `KELP_COLUMNS=author,date,hash` | Hide branches or show columns for this run |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
 | `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`, `tag`, `add-remote`, `rename-remote-branch`, `clone`; `KELP_CLONE_URL=<url>` prefills it), `KELP_OPEN_WELCOME=1` (the new tab page; `KELP_RECENTS=<path>,<path>` fakes its list), `KELP_ZOOM=1.25`, `KELP_COLLAPSE=sidebar,details`, `KELP_OPEN_SETTINGS=1`, `KELP_OPEN_PALETTE=<query>`, `KELP_OPEN_SHORTCUTS=1`, `KELP_OPEN_MESSAGE=1` (full commit message), `KELP_PICK=<file>,<file>` (picks unstaged files; add `KELP_OPEN_STASH=1` for the stash prompt), `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`, `sort`), `KELP_SIDEBAR_FILTER=text`, `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu), `KELP_RENAME=<branch>` (inline rename), `KELP_SHOW_STASH=stash@{0}` (a stash's changes), `KELP_OPEN_REFLOG=1` (or a branch name), `KELP_FILE_HISTORY=<path>`, `KELP_BLAME=<path>`, `KELP_OPEN_PULLS=1` (the pull requests page), `KELP_OPEN_CONSOLE=1` (the git console; `bg` also shows background checks) | Open a screen on start |

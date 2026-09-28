@@ -40,6 +40,7 @@ pub struct KelpApp {
     shortcuts_open: bool,
     signing: crate::signing_panel::SigningPanel,
     instance: Option<crate::instance::Listener>,
+    applied_theme: Option<egui::ThemePreference>,
 }
 
 struct Tab {
@@ -133,6 +134,7 @@ impl KelpApp {
                     crate::instance::Listener::start(&crate::instance::socket_path(), ctx.clone())
                 })
                 .flatten(),
+            applied_theme: None,
             ctx: ctx.clone(),
         }
     }
@@ -238,12 +240,12 @@ impl KelpApp {
             .anchor(egui::Align2::CENTER_BOTTOM, vec2(0.0, -40.0))
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(0x23, 0x28, 0x33))
-                    .stroke(Stroke::new(1.0, theme::POPUP_BORDER))
+                    .fill(theme::toast())
+                    .stroke(Stroke::new(1.0, theme::popup_border()))
                     .corner_radius(8)
                     .inner_margin(Margin::symmetric(14, 10))
                     .show(ui, |ui| {
-                        ui.label(RichText::new(text.as_str()).color(theme::TEXT_STRONG));
+                        ui.label(RichText::new(text.as_str()).color(theme::text_strong()));
                     });
             });
     }
@@ -456,6 +458,21 @@ impl KelpApp {
         }
     }
 
+    fn follow_appearance(&mut self, ctx: &egui::Context) {
+        let preference = self.settings.theme_preference();
+        if self.applied_theme != Some(preference) {
+            self.applied_theme = Some(preference);
+            ctx.set_theme(preference);
+            let window = match preference {
+                egui::ThemePreference::System => egui::SystemTheme::SystemDefault,
+                egui::ThemePreference::Light => egui::SystemTheme::Light,
+                egui::ThemePreference::Dark => egui::SystemTheme::Dark,
+            };
+            ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(window));
+        }
+        crate::theme::sync(ctx);
+    }
+
     fn take_handoffs(&mut self, ctx: &egui::Context) {
         let Some(instance) = &self.instance else {
             return;
@@ -492,7 +509,7 @@ impl KelpApp {
             .exact_size(TAB_STRIP_H * native)
             .frame(
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(0x0f, 0x11, 0x15))
+                    .fill(theme::chrome())
                     .inner_margin(Margin::symmetric(10, 0)),
             )
             .show(ui, |ui| {
@@ -517,7 +534,7 @@ impl KelpApp {
                         let galley = ui.painter().layout_no_wrap(
                             title.clone(),
                             FontId::proportional(13.0),
-                            theme::TEXT,
+                            theme::text(),
                         );
                         let w = galley.size().x + 50.0;
                         let (rect, _) = ui.allocate_exact_size(vec2(w, tab_h), Sense::hover());
@@ -539,14 +556,14 @@ impl KelpApp {
                         }
                         let painter = ui.painter_at(rect);
                         if active {
-                            painter.rect_filled(rect, 6.0, theme::PANEL);
+                            painter.rect_filled(rect, 6.0, theme::panel());
                         } else if response.hovered() {
-                            painter.rect_filled(rect, 6.0, theme::with_alpha(Color32::WHITE, 0x08));
+                            painter.rect_filled(rect, 6.0, theme::overlay(0x08));
                         }
                         let color = if active {
-                            theme::TEXT_STRONG
+                            theme::text_strong()
                         } else {
-                            theme::TEXT_MUTED
+                            theme::text_muted()
                         };
                         painter.galley(
                             egui::pos2(rect.left() + 14.0, rect.center().y - galley.size().y / 2.0),
@@ -563,13 +580,9 @@ impl KelpApp {
                             Sense::click(),
                         );
                         if x_response.hovered() {
-                            painter.rect_filled(
-                                x_rect,
-                                4.0,
-                                theme::with_alpha(Color32::WHITE, 0x14),
-                            );
+                            painter.rect_filled(x_rect, 4.0, theme::overlay(0x14));
                         }
-                        paint_cross(&painter, x_rect.center(), 3.5, theme::TEXT_FAINT);
+                        paint_cross(&painter, x_rect.center(), 3.5, theme::text_faint());
                         crate::widgets::focus_ring(ui, &response, 6.0);
                         crate::widgets::describe_selected(
                             &response,
@@ -623,14 +636,14 @@ impl KelpApp {
                         let settings = egui::Button::new(
                             RichText::new("Settings")
                                 .size(12.0)
-                                .color(theme::TEXT_MUTED),
+                                .color(theme::text_muted()),
                         )
                         .frame(false);
                         let response = ui.add(settings);
                         if self.updater.has_news() {
                             let dot =
                                 egui::pos2(response.rect.right() - 2.0, response.rect.top() + 6.0);
-                            ui.painter().circle_filled(dot, 4.0, theme::ACCENT);
+                            ui.painter().circle_filled(dot, 4.0, theme::accent());
                         }
                         if response.clicked() {
                             self.show_settings = true;
@@ -710,19 +723,19 @@ fn paint_drop_hint(ctx: &egui::Context) {
         egui::Id::new("drop-hint"),
     ));
     let screen = ctx.content_rect();
-    painter.rect_filled(screen, 0.0, theme::with_alpha(theme::BG, 0xeb));
+    painter.rect_filled(screen, 0.0, theme::with_alpha(theme::bg(), 0xeb));
     painter.rect_stroke(
         screen.shrink(18.0),
         12.0,
-        Stroke::new(1.5, theme::with_alpha(theme::ACCENT, 0x99)),
+        Stroke::new(1.5, theme::with_alpha(theme::accent(), 0x99)),
         egui::StrokeKind::Inside,
     );
     let center = screen.center();
     painter.rect(
         egui::Rect::from_center_size(center + vec2(0.0, 2.0), vec2(380.0, 96.0)),
         12.0,
-        theme::POPUP,
-        Stroke::new(1.0, theme::POPUP_BORDER),
+        theme::popup(),
+        Stroke::new(1.0, theme::popup_border()),
         egui::StrokeKind::Inside,
     );
     painter.text(
@@ -730,14 +743,14 @@ fn paint_drop_hint(ctx: &egui::Context) {
         egui::Align2::CENTER_CENTER,
         "Drop a folder to open it",
         FontId::new(18.0, theme::semibold()),
-        theme::TEXT_STRONG,
+        theme::text_strong(),
     );
     painter.text(
         center + vec2(0.0, 16.0),
         egui::Align2::CENTER_CENTER,
         "A file opens the repository it belongs to.",
         FontId::proportional(13.0),
-        theme::TEXT_MUTED,
+        theme::text_muted(),
     );
 }
 
@@ -812,11 +825,11 @@ fn kelp_mark(ui: &mut egui::Ui) {
         .map(|i| edge(i, 1.0))
         .chain((0..=24).rev().map(|i| edge(i, -1.0)))
         .collect();
-    let stroke = Stroke::new(1.4, theme::ACCENT);
+    let stroke = Stroke::new(1.4, theme::accent());
     let painter = ui.painter();
     painter.add(egui::Shape::convex_polygon(
         outline,
-        theme::with_alpha(theme::ACCENT, 0x2e),
+        theme::with_alpha(theme::accent(), 0x2e),
         stroke,
     ));
     painter.line_segment([c + vec2(0.0, -5.0), c + vec2(0.0, 8.0)], stroke);
@@ -832,18 +845,18 @@ fn home_tab(ui: &mut egui::Ui) -> bool {
     let galley = ui.painter().layout_no_wrap(
         "New tab".into(),
         FontId::proportional(13.0),
-        theme::TEXT_STRONG,
+        theme::text_strong(),
     );
     let (rect, _) = ui.allocate_exact_size(
         vec2(galley.size().x + 50.0, tab_height(ui.ctx())),
         Sense::hover(),
     );
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 6.0, theme::PANEL);
+    painter.rect_filled(rect, 6.0, theme::panel());
     painter.galley(
         egui::pos2(rect.left() + 14.0, rect.center().y - galley.size().y / 2.0),
         galley,
-        theme::TEXT_STRONG,
+        theme::text_strong(),
     );
     let x_rect = egui::Rect::from_center_size(
         egui::pos2(rect.right() - 16.0, rect.center().y),
@@ -851,9 +864,9 @@ fn home_tab(ui: &mut egui::Ui) -> bool {
     );
     let close = ui.interact(x_rect, egui::Id::new("close-home-tab"), Sense::click());
     if close.hovered() {
-        painter.rect_filled(x_rect, 4.0, theme::with_alpha(Color32::WHITE, 0x14));
+        painter.rect_filled(x_rect, 4.0, theme::overlay(0x14));
     }
-    paint_cross(&painter, x_rect.center(), 3.5, theme::TEXT_FAINT);
+    paint_cross(&painter, x_rect.center(), 3.5, theme::text_faint());
     close.clicked()
 }
 
@@ -866,13 +879,12 @@ fn new_tab_button(ui: &mut egui::Ui) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(vec2(side, side), Sense::click());
     let hovered = response.hovered();
     if hovered {
-        ui.painter()
-            .rect_filled(rect, 6.0, theme::with_alpha(Color32::WHITE, 0x08));
+        ui.painter().rect_filled(rect, 6.0, theme::overlay(0x08));
     }
     let color = if hovered {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_MUTED
+        theme::text_muted()
     };
     let c = rect.center();
     let stroke = Stroke::new(1.4, color);
@@ -896,6 +908,7 @@ impl eframe::App for KelpApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.follow_appearance(&ctx);
         crate::widgets::track_input_mode(&ctx);
         if !self.titlebar_unified {
             crate::macos::unify_titlebar(frame);
@@ -964,7 +977,7 @@ impl eframe::App for KelpApp {
                 let screen = MascotScreen {
                     title: "Loading history",
                     subtitle: path.display().to_string(),
-                    color: theme::TEXT_MUTED,
+                    color: theme::text_muted(),
                     animate: true,
                 };
                 screen.show(ui);
@@ -973,7 +986,7 @@ impl eframe::App for KelpApp {
                 let screen = MascotScreen {
                     title: "Could not open this repository",
                     subtitle: format!("{}: {err}", path.display()),
-                    color: theme::DELETED,
+                    color: theme::deleted(),
                     animate: false,
                 };
                 screen.show(ui);
@@ -1040,7 +1053,7 @@ struct MascotScreen<'a> {
 impl MascotScreen<'_> {
     fn show(self, ui: &mut egui::Ui) {
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::BG))
+            .frame(egui::Frame::new().fill(theme::bg()))
             .show(ui, |ui| {
                 let full = ui.max_rect();
                 let top = full.center().y - MASCOT_SIZE * 0.75;
@@ -1060,12 +1073,12 @@ impl MascotScreen<'_> {
                 let title = painter.layout_no_wrap(
                     self.title.to_string(),
                     FontId::new(22.0, theme::semibold()),
-                    theme::TEXT_STRONG,
+                    theme::text_strong(),
                 );
                 painter.galley(
                     egui::pos2(full.center().x - title.size().x / 2.0, y),
                     title.clone(),
-                    theme::TEXT_STRONG,
+                    theme::text_strong(),
                 );
                 y += title.size().y + 8.0;
                 let sub = painter.layout(

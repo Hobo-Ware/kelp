@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use eframe::egui::{self, Align2, Color32, FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
+use eframe::egui::{self, Align2, FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
 use kelp_core::ops::{Op, ResetMode};
 use kelp_core::refs::{RefKind, RefLabel};
 use kelp_core::submodules::{State as SubmoduleState, Submodule};
@@ -58,23 +58,23 @@ pub fn row(ui: &mut Ui, icon: Option<Icon>, label: &str, hint: Option<&str>, dan
         response.hovered() || (response.has_focus() && crate::widgets::keyboard_mode(ui.ctx()));
     if hovered {
         let fill = if danger {
-            theme::with_alpha(theme::DELETED, 0x22)
+            theme::with_alpha(theme::deleted(), 0x22)
         } else {
-            theme::MENU_HOVER
+            theme::menu_hover()
         };
         painter.rect_filled(rect, 6.0, fill);
     }
     let text = match (danger, hovered) {
-        (true, _) => theme::DELETED,
-        (false, true) => theme::TEXT_STRONG,
-        (false, false) => Color32::from_rgb(0xd5, 0xd7, 0xdc),
+        (true, _) => theme::deleted(),
+        (false, true) => theme::text_strong(),
+        (false, false) => theme::text_control(),
     };
     let icon_color = if danger {
-        theme::DELETED
+        theme::deleted()
     } else if hovered {
-        theme::TEXT_STRONG
+        theme::text_strong()
     } else {
-        theme::TEXT_MUTED
+        theme::text_muted()
     };
     if let Some(icon) = icon {
         let icon_rect =
@@ -94,7 +94,7 @@ pub fn row(ui: &mut Ui, icon: Option<Icon>, label: &str, hint: Option<&str>, dan
             Align2::RIGHT_CENTER,
             hint,
             FontId::proportional(11.5),
-            theme::TEXT_FAINT,
+            theme::text_faint(),
         );
     }
     crate::widgets::focus_ring(ui, &response, 6.0);
@@ -215,13 +215,13 @@ pub fn heading(ui: &mut Ui, text: &str) {
         ui.painter(),
         text.to_string(),
         FontId::monospace(11.0),
-        theme::TEXT_FAINT,
+        theme::text_faint(),
         rect.width() - 20.0,
     );
     ui.painter().galley(
         pos2(rect.left() + 10.0, rect.center().y - g.size().y / 2.0),
         g,
-        theme::TEXT_FAINT,
+        theme::text_faint(),
     );
 }
 
@@ -230,7 +230,7 @@ pub fn separator(ui: &mut Ui) {
     ui.painter().hline(
         rect.left() + 8.0..=rect.right() - 8.0,
         rect.center().y,
-        Stroke::new(1.0, Color32::from_rgb(0x2c, 0x32, 0x3d)),
+        Stroke::new(1.0, theme::separator()),
     );
 }
 
