@@ -181,7 +181,7 @@ impl BlameView {
                         let response = response.clone().on_hover_ui_at_pointer(|ui| {
                             graph_view::commit_tooltip(ui, &tooltip, now)
                         });
-                        response.context_menu(|ui| {
+                        crate::menus::context_menu(&response, |ui| {
                             ui.set_min_width(230.0);
                             ui.spacing_mut().item_spacing.y = 0.0;
                             if let Some((before, path)) = &origin.previous

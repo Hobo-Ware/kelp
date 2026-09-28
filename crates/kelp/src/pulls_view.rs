@@ -300,7 +300,7 @@ fn row(
     if picked.is_none() && response.double_clicked() {
         picked = Some(Event::Command(Command::OpenUrl(pull.url.clone())));
     }
-    response.context_menu(|ui| {
+    crate::menus::context_menu(&response, |ui| {
         menus::menu_width(ui, 220.0);
         if menus::row(ui, Some(Icon::Check), "Check out", None, false) {
             picked = Some(Event::Command(Command::Run(checkout_op(

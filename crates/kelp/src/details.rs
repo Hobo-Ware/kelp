@@ -384,7 +384,7 @@ impl Picks {
         if row.clicked() {
             self.open = Some(path.to_string());
         }
-        row.context_menu(|ui| menus::file(ui, path, &mut self.commands));
+        crate::menus::context_menu(&row, |ui| menus::file(ui, path, &mut self.commands));
     }
 }
 
@@ -560,6 +560,19 @@ fn folder_row(ui: &mut Ui, name: &str, depth: usize, open: bool) -> egui::Respon
         FontId::monospace(12.0),
         Color32::from_rgb(0xb4, 0xb9, 0xc2),
     );
+    crate::widgets::focus_ring(ui, &response, 0.0);
+    crate::focus_areas::offer(
+        ui.ctx(),
+        crate::focus_areas::Area::Details,
+        response.id,
+        false,
+    );
+    let state = if open { "expanded" } else { "collapsed" };
+    crate::widgets::describe(
+        &response,
+        egui::WidgetType::CollapsingHeader,
+        format!("folder {name}, {state}"),
+    );
     response
 }
 
@@ -653,7 +666,33 @@ impl FileRow<'_> {
                 );
             }
         }
+        crate::widgets::focus_ring(ui, &response, 0.0);
+        crate::focus_areas::offer(
+            ui.ctx(),
+            crate::focus_areas::Area::Details,
+            response.id,
+            self.active,
+        );
+        let change = self.kind.map_or("", change_word);
+        crate::widgets::describe_selected(
+            &response,
+            format!(
+                "file {}{}{change}",
+                self.path,
+                if change.is_empty() { "" } else { ", " }
+            ),
+            self.active,
+        );
         response.on_hover_text(self.path)
+    }
+}
+
+fn change_word(kind: ChangeKind) -> &'static str {
+    match kind {
+        ChangeKind::Added => "added",
+        ChangeKind::Modified => "modified",
+        ChangeKind::Deleted => "deleted",
+        ChangeKind::Renamed => "renamed",
     }
 }
 
