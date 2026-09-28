@@ -11,6 +11,7 @@ pub mod preview;
 pub mod pulls;
 pub mod rebase;
 pub mod ref_tree;
+pub mod reflog;
 pub mod refs;
 pub mod review;
 pub mod search;

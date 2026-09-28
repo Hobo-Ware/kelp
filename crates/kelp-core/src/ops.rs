@@ -146,6 +146,7 @@ pub enum ResetMode {
     Soft,
     Mixed,
     Hard,
+    Keep,
 }
 
 impl ResetMode {
@@ -154,6 +155,7 @@ impl ResetMode {
             ResetMode::Soft => "--soft",
             ResetMode::Mixed => "--mixed",
             ResetMode::Hard => "--hard",
+            ResetMode::Keep => "--keep",
         }
     }
 }
