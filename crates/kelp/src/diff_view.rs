@@ -25,6 +25,9 @@ const DISCARD_W: f32 = 76.0;
 const NUM_W: f32 = 46.0;
 const GUTTER_W: f32 = 24.0;
 const HEADER_H: f32 = 48.0;
+const TITLE_STATS_W: f32 = 150.0;
+const TITLE_TOO_NARROW: f32 = 120.0;
+const TITLE_ROOMY: f32 = 320.0;
 const THREAD_INDENT: f32 = NUM_W * 2.0 + GUTTER_W + 10.0;
 const THREAD_W: f32 = 640.0;
 const RESOLVED_H: f32 = 34.0;
@@ -89,6 +92,7 @@ pub struct DiffView {
     replies: HashMap<u64, String>,
     expanded: HashMap<u64, bool>,
     pending: Option<Op>,
+    header_squeeze: u8,
     ask: Option<Dialog>,
     preview: Option<Preview>,
     file_change_starts: Vec<u32>,
@@ -174,6 +178,7 @@ impl DiffView {
             replies: HashMap::new(),
             expanded: HashMap::new(),
             pending: None,
+            header_squeeze: 0,
             ask: None,
             preview,
             file_change_starts,
@@ -205,6 +210,7 @@ impl DiffView {
         self.draft = kept.draft;
         self.replies = kept.replies;
         self.expanded = kept.expanded;
+        self.header_squeeze = kept.header_squeeze;
         self.scroll_y = kept.scroll_y;
         if same_lines(&kept.lines, &self.lines) {
             self.selected_lines = kept.selected_lines;
@@ -378,142 +384,187 @@ impl DiffView {
             .inner_margin(Margin::symmetric(16, 0))
             .show(ui, |ui| {
                 ui.set_height(HEADER_H);
-                ui.horizontal_centered(|ui| {
-                    ui.spacing_mut().item_spacing.x = 12.0;
-                    let path = self.path().to_string();
-                    let (dir, name) = path
-                        .rsplit_once('/')
-                        .map_or(("", path.as_str()), |(d, n)| (d, n));
-                    if !dir.is_empty() {
-                        ui.label(
-                            RichText::new(format!("{dir}/"))
-                                .monospace()
-                                .color(theme::TEXT_FAINT),
-                        );
-                        ui.add_space(-12.0);
-                    }
-                    ui.label(
-                        RichText::new(name)
-                            .monospace()
-                            .family(theme::semibold())
-                            .color(theme::TEXT_STRONG),
-                    );
-                    if self.mode == Mode::Diff {
-                        ui.label(
-                            RichText::new(format!("+{}", self.diff.added))
-                                .size(12.0)
-                                .color(theme::ADDED),
-                        );
-                        ui.label(
-                            RichText::new(format!("−{}", self.diff.removed))
-                                .size(12.0)
-                                .color(theme::DELETED),
-                        );
-                    }
-                    let origin = match self.source {
-                        DiffSource::Commit(id) | DiffSource::File(id) => {
-                            format!("in {}", id.to_hex_with_len(7))
-                        }
-                        DiffSource::Unstaged => "unstaged".into(),
-                        DiffSource::Staged => "staged".into(),
-                    };
-                    ui.label(RichText::new(origin).size(12.0).color(theme::TEXT_FAINT));
-                    let comments = review.count_for(self.path());
-                    if comments > 0 {
-                        ui.label(
-                            RichText::new(format!(
-                                "{comments} comment{}",
-                                if comments == 1 { "" } else { "s" }
-                            ))
-                            .size(12.0)
-                            .color(theme::ACCENT),
-                        );
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if widgets::close_button(ui, "Close (Esc)") {
-                            event = Event::Close;
-                        }
-                        if widgets::icon_button(ui, crate::icons::Icon::Pencil, "Open in editor") {
-                            event = Event::OpenInEditor;
-                        }
-                        ui.add_space(4.0);
-                        if self.mode == Mode::Diff {
-                            widgets::segmented(
+                let row = ui.available_rect_before_wrap();
+                let controls = ui
+                    .scope_builder(
+                        egui::UiBuilder::new()
+                            .max_rect(row)
+                            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+                        |ui| {
+                            ui.spacing_mut().item_spacing.x = 12.0;
+                            if widgets::close_button(ui, "Close (Esc)") {
+                                event = Event::Close;
+                            }
+                            if widgets::icon_button(
                                 ui,
-                                &mut self.layout,
-                                &[(Layout::Split, "Split"), (Layout::Unified, "Unified")],
-                            );
-                        }
-                        let mut modes = Vec::new();
-                        if self.preview.is_some() {
-                            modes.push((Mode::Preview, "Preview"));
-                        }
-                        if matches!(self.diff.body, Body::Text(_)) {
-                            modes.push((Mode::File, "File"));
-                            if !matches!(self.source, DiffSource::File(_)) {
-                                modes.push((Mode::Diff, "Diff"));
+                                crate::icons::Icon::Pencil,
+                                "Open in editor",
+                            ) {
+                                event = Event::OpenInEditor;
                             }
-                        }
-                        if modes.len() > 1 {
-                            widgets::segmented(ui, &mut self.mode, &modes);
-                        }
-                        if self.jump_targets_exist() {
                             ui.add_space(4.0);
-                            if arrow_button(ui, false, "Next change (⌥↓)") {
-                                self.jump = Some(Jump::Next);
-                            }
-                            if arrow_button(ui, true, "Previous change (⌥↑)") {
-                                self.jump = Some(Jump::Previous);
-                            }
-                        }
-                        if self.lines_selectable() && !self.selected_lines.is_empty() {
-                            ui.add_space(4.0);
-                            let count = self.selected_lines.len();
-                            let verb = if self.is_staged() { "Unstage" } else { "Stage" };
-                            let label =
-                                format!("{verb} {count} line{}", if count == 1 { "" } else { "s" });
-                            let button = egui::Button::new(
-                                RichText::new(label)
-                                    .size(12.0)
-                                    .family(theme::semibold())
-                                    .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
-                            )
-                            .fill(theme::ACCENT)
-                            .corner_radius(5);
-                            if ui.add(button).clicked() {
-                                self.stage_selected_lines();
-                            }
-                            if self.can_discard() {
-                                let discard = egui::Button::new(
-                                    RichText::new(format!(
-                                        "Discard {count} line{}",
-                                        if count == 1 { "" } else { "s" }
-                                    ))
-                                    .size(12.0)
-                                    .color(theme::DELETED),
-                                )
-                                .fill(theme::with_alpha(theme::DELETED, 0x1c))
-                                .stroke(Stroke::new(1.0, theme::with_alpha(theme::DELETED, 0x66)))
-                                .corner_radius(5);
-                                let response = ui.add(discard).on_hover_text(
-                                    "Undo these lines in the file. Shift-click skips the question.",
+                            if self.mode == Mode::Diff && self.header_squeeze < 2 {
+                                widgets::segmented(
+                                    ui,
+                                    &mut self.layout,
+                                    &[(Layout::Split, "Split"), (Layout::Unified, "Unified")],
                                 );
-                                if response.clicked() {
-                                    let shift = ui.input(|i| i.modifiers.shift);
-                                    self.discard_selected_lines(shift);
+                            }
+                            let mut modes = Vec::new();
+                            if self.preview.is_some() {
+                                modes.push((Mode::Preview, "Preview"));
+                            }
+                            if matches!(self.diff.body, Body::Text(_)) {
+                                modes.push((Mode::File, "File"));
+                                if !matches!(self.source, DiffSource::File(_)) {
+                                    modes.push((Mode::Diff, "Diff"));
                                 }
                             }
-                            let clear = egui::Button::new(
-                                RichText::new("Clear").size(12.0).color(theme::TEXT_MUTED),
-                            )
-                            .frame(false);
-                            if ui.add(clear).clicked() {
-                                self.selected_lines.clear();
-                                self.select_anchor = None;
+                            if modes.len() > 1 {
+                                widgets::segmented(ui, &mut self.mode, &modes);
                             }
+                            if self.jump_targets_exist() && self.header_squeeze < 1 {
+                                ui.add_space(4.0);
+                                if arrow_button(ui, false, "Next change (⌥↓)") {
+                                    self.jump = Some(Jump::Next);
+                                }
+                                if arrow_button(ui, true, "Previous change (⌥↑)") {
+                                    self.jump = Some(Jump::Previous);
+                                }
+                            }
+                            if self.lines_selectable() && !self.selected_lines.is_empty() {
+                                ui.add_space(4.0);
+                                let count = self.selected_lines.len();
+                                let verb = if self.is_staged() { "Unstage" } else { "Stage" };
+                                let label = format!(
+                                    "{verb} {count} line{}",
+                                    if count == 1 { "" } else { "s" }
+                                );
+                                let button = egui::Button::new(
+                                    RichText::new(label)
+                                        .size(12.0)
+                                        .family(theme::semibold())
+                                        .color(Color32::from_rgb(0x10, 0x13, 0x1a)),
+                                )
+                                .fill(theme::ACCENT)
+                                .corner_radius(5);
+                                if ui.add(button).clicked() {
+                                    self.stage_selected_lines();
+                                }
+                                if self.can_discard() {
+                                    let discard = egui::Button::new(
+                                        RichText::new(format!(
+                                            "Discard {count} line{}",
+                                            if count == 1 { "" } else { "s" }
+                                        ))
+                                        .size(12.0)
+                                        .color(theme::DELETED),
+                                    )
+                                    .fill(theme::with_alpha(theme::DELETED, 0x1c))
+                                    .stroke(Stroke::new(
+                                        1.0,
+                                        theme::with_alpha(theme::DELETED, 0x66),
+                                    ))
+                                    .corner_radius(5);
+                                    let response = ui.add(discard).on_hover_text(
+                                    "Undo these lines in the file. Shift-click skips the question.",
+                                );
+                                    if response.clicked() {
+                                        let shift = ui.input(|i| i.modifiers.shift);
+                                        self.discard_selected_lines(shift);
+                                    }
+                                }
+                                let clear = egui::Button::new(
+                                    RichText::new("Clear").size(12.0).color(theme::TEXT_MUTED),
+                                )
+                                .frame(false);
+                                if ui.add(clear).clicked() {
+                                    self.selected_lines.clear();
+                                    self.select_anchor = None;
+                                }
+                            }
+                        },
+                    )
+                    .response
+                    .rect;
+                let title = Rect::from_min_max(row.min, pos2(controls.left() - 12.0, row.max.y));
+                let squeeze = next_squeeze(self.header_squeeze, title.width());
+                if squeeze != self.header_squeeze {
+                    self.header_squeeze = squeeze;
+                    ui.ctx().request_repaint();
+                }
+                ui.scope_builder(
+                    egui::UiBuilder::new()
+                        .max_rect(title)
+                        .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                    |ui| {
+                        ui.set_clip_rect(title.intersect(ui.clip_rect()));
+                        ui.spacing_mut().item_spacing.x = 12.0;
+                        let path = self.path().to_string();
+                        let (dir, name) = path
+                            .rsplit_once('/')
+                            .map_or(("", path.as_str()), |(d, n)| (d, n));
+                        let width_of = |text: String, family| {
+                            ui.painter()
+                                .layout_no_wrap(text, FontId::new(13.0, family), Color32::WHITE)
+                                .size()
+                                .x
+                        };
+                        let dir_fits = width_of(format!("{dir}/"), egui::FontFamily::Monospace)
+                            + width_of(name.to_string(), theme::semibold())
+                            + TITLE_STATS_W
+                            <= ui.available_width();
+                        if !dir.is_empty() && dir_fits {
+                            ui.label(
+                                RichText::new(format!("{dir}/"))
+                                    .monospace()
+                                    .color(theme::TEXT_FAINT),
+                            );
+                            ui.add_space(-12.0);
                         }
-                    });
-                });
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(name)
+                                    .monospace()
+                                    .family(theme::semibold())
+                                    .color(theme::TEXT_STRONG),
+                            )
+                            .truncate(),
+                        )
+                        .on_hover_text(&path);
+                        if self.mode == Mode::Diff {
+                            ui.label(
+                                RichText::new(format!("+{}", self.diff.added))
+                                    .size(12.0)
+                                    .color(theme::ADDED),
+                            );
+                            ui.label(
+                                RichText::new(format!("−{}", self.diff.removed))
+                                    .size(12.0)
+                                    .color(theme::DELETED),
+                            );
+                        }
+                        let origin = match self.source {
+                            DiffSource::Commit(id) | DiffSource::File(id) => {
+                                format!("in {}", id.to_hex_with_len(7))
+                            }
+                            DiffSource::Unstaged => "unstaged".into(),
+                            DiffSource::Staged => "staged".into(),
+                        };
+                        ui.label(RichText::new(origin).size(12.0).color(theme::TEXT_FAINT));
+                        let comments = review.count_for(self.path());
+                        if comments > 0 {
+                            ui.label(
+                                RichText::new(format!(
+                                    "{comments} comment{}",
+                                    if comments == 1 { "" } else { "s" }
+                                ))
+                                .size(12.0)
+                                .color(theme::ACCENT),
+                            );
+                        }
+                    },
+                );
             });
         let rect = ui.min_rect();
         ui.painter().hline(
@@ -1375,6 +1426,16 @@ fn style(kind: LineKind) -> (Color32, &'static str, Color32) {
     }
 }
 
+fn next_squeeze(level: u8, title_w: f32) -> u8 {
+    if title_w < TITLE_TOO_NARROW {
+        (level + 1).min(2)
+    } else if title_w > TITLE_ROOMY {
+        level.saturating_sub(1)
+    } else {
+        level
+    }
+}
+
 fn notice(ui: &mut Ui, text: &str) {
     ui.centered_and_justified(|ui| ui.label(RichText::new(text).color(theme::TEXT_MUTED)));
 }
@@ -1387,6 +1448,16 @@ fn now() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn header_controls_step_aside_one_at_a_time_and_come_back() {
+        assert_eq!(super::next_squeeze(0, 80.0), 1);
+        assert_eq!(super::next_squeeze(1, 80.0), 2);
+        assert_eq!(super::next_squeeze(2, 80.0), 2);
+        assert_eq!(super::next_squeeze(2, 200.0), 2);
+        assert_eq!(super::next_squeeze(2, 400.0), 1);
+        assert_eq!(super::next_squeeze(0, 400.0), 0);
+    }
+
     use std::path::PathBuf;
 
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, pos2, vec2};
