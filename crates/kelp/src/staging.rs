@@ -7,6 +7,7 @@ use kelp_core::commit::{ChangeKind, FileChange};
 use kelp_core::ops::Op;
 
 use crate::commands::Command;
+use crate::commit_helpers;
 use crate::dialogs::Dialog;
 use crate::icons::Icon;
 use crate::menus;
@@ -633,6 +634,10 @@ fn row_id(section: Section, path: &str) -> egui::Id {
     egui::Id::new(("staging-row", section == Section::Staged, path))
 }
 
+fn summary_id(dir: &std::path::Path) -> egui::Id {
+    egui::Id::new(("commit-summary", dir))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn file_row(
     ui: &mut Ui,
@@ -803,10 +808,13 @@ fn commit_box(ui: &mut Ui, repo: &mut Repo) {
                             .size(11.0)
                             .color(color),
                     );
+                    commit_helpers::conventional_toggle(ui, repo);
                 });
             });
+            commit_helpers::type_row(ui, repo);
             let summary = ui.add(
                 egui::TextEdit::singleline(&mut repo.commit_summary)
+                    .id(summary_id(&repo.dir))
                     .hint_text("Summary (required)")
                     .desired_width(f32::INFINITY)
                     .margin(Margin::symmetric(10, 8)),
@@ -818,6 +826,7 @@ fn commit_box(ui: &mut Ui, repo: &mut Repo) {
                     .desired_width(f32::INFINITY)
                     .margin(Margin::symmetric(10, 8)),
             );
+            commit_helpers::co_author_row(ui, repo);
             let mut amend = repo.amend;
             if ui
                 .checkbox(
@@ -851,15 +860,44 @@ fn commit_box(ui: &mut Ui, repo: &mut Repo) {
                         Color32::from_rgb(0x2b, 0x32, 0x40)
                     })
                     .corner_radius(6)
-                    .min_size(vec2(ui.available_width(), 34.0));
-            let shortcut = (summary.has_focus() || body.has_focus())
-                && ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter));
+                    .min_size(vec2(ui.available_width() - 36.0, 34.0));
+            let (shortcut, push_shortcut) = if summary.has_focus() || body.has_focus() {
+                ui.input(|i| {
+                    let enter = i.modifiers.command && i.key_pressed(Key::Enter);
+                    (enter && !i.modifiers.shift, enter && i.modifiers.shift)
+                })
+            } else {
+                (false, false)
+            };
             let hint = if staged == 0 && !repo.amend {
                 "Stage changes first"
             } else {
                 "Commit (⌘ Enter)"
             };
-            if (ui.add_enabled(ready, button).on_hover_text(hint).clicked() || shortcut) && ready {
+            let mut push = false;
+            let mut clicked = false;
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                clicked = ui.add_enabled(ready, button).on_hover_text(hint).clicked();
+                let more = commit_helpers::more_button(
+                    ui,
+                    commit_helpers::more_button_id(&repo.dir),
+                    ready,
+                )
+                .on_hover_text("More commit options");
+                egui::Popup::menu(&more).show(|ui| {
+                    if ui.button("Commit and push (⌘ Shift Enter)").clicked() {
+                        push = true;
+                        ui.close();
+                    }
+                });
+            });
+            if !ready {
+                return;
+            }
+            if push || push_shortcut {
+                repo.commit_and_push();
+            } else if clicked || shortcut {
                 repo.commit();
             }
         });
@@ -873,7 +911,8 @@ mod tests {
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, vec2};
     use kelp_core::git_cli::run;
 
-    use super::{Picked, Section, row_id};
+    use super::{Picked, Section, row_id, summary_id};
+    use crate::commit_helpers;
     use crate::repo_view::{Repo, Selection};
 
     const LIST: [&str; 4] = ["a.txt", "b.txt", "c.txt", "d.txt"];
@@ -916,8 +955,8 @@ mod tests {
         assert!(picked.in_section(Section::Staged).is_empty());
     }
 
-    fn scratch() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("kelp-staging-ui-{}", std::process::id()));
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         for args in [
@@ -968,7 +1007,7 @@ mod tests {
 
     #[test]
     fn rows_answer_click_command_click_and_shift_click() {
-        let dir = scratch();
+        let dir = scratch("kelp-staging-ui");
         let ctx = egui::Context::default();
         crate::fonts::install(&ctx);
         let (git, history) = kelp_core::history::History::open(&dir).unwrap();
@@ -994,5 +1033,107 @@ mod tests {
             ["a.txt", "c.txt", "d.txt"]
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn click_id(ctx: &egui::Context, repo: &mut Repo, id: egui::Id) {
+        for _ in 0..2 {
+            frame(ctx, repo, vec![], Modifiers::NONE);
+        }
+        let at = ctx
+            .read_response(id)
+            .expect("widget was drawn")
+            .rect
+            .center();
+        let press = |pressed| Event::PointerButton {
+            pos: at,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        frame(ctx, repo, vec![Event::PointerMoved(at)], Modifiers::NONE);
+        frame(ctx, repo, vec![press(true)], Modifiers::NONE);
+        frame(ctx, repo, vec![press(false)], Modifiers::NONE);
+        frame(ctx, repo, vec![], Modifiers::NONE);
+    }
+
+    fn open_with_staged_change(dir: &std::path::Path, ctx: &egui::Context) -> Repo {
+        run(dir, &["add", "a.txt"]).unwrap();
+        let (git, history) = kelp_core::history::History::open(dir).unwrap();
+        let mut repo = Repo::new(ctx, git, history, Duration::ZERO);
+        repo.selected = Some(Selection::Wip);
+        let started = Instant::now();
+        while repo.status.staged.is_empty() && started.elapsed() < Duration::from_secs(5) {
+            repo.poll(ctx, None);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(repo.status.staged.len(), 1);
+        repo
+    }
+
+    #[test]
+    fn the_type_picker_rewrites_the_summary_prefix() {
+        let dir = scratch("kelp-commit-type");
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut repo = open_with_staged_change(&dir, &ctx);
+        repo.commit_prefs.conventional = Some(true);
+        repo.commit_summary = "add arcs".into();
+        frame(&ctx, &mut repo, vec![], Modifiers::NONE);
+
+        click_id(&ctx, &mut repo, commit_helpers::type_button_id(&dir));
+        click_id(&ctx, &mut repo, commit_helpers::type_item_id(&dir, "fix"));
+        assert_eq!(repo.commit_summary, "fix: add arcs");
+
+        click_id(&ctx, &mut repo, commit_helpers::type_button_id(&dir));
+        click_id(&ctx, &mut repo, commit_helpers::type_item_id(&dir, "docs"));
+        assert_eq!(repo.commit_summary, "docs: add arcs");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn command_shift_enter_commits_then_pushes() {
+        let dir = scratch("kelp-commit-push");
+        let remote = dir.with_extension("git");
+        let _ = std::fs::remove_dir_all(&remote);
+        run(&dir, &["init", "-q", "--bare", remote.to_str().unwrap()]).unwrap();
+        run(&dir, &["remote", "add", "origin", remote.to_str().unwrap()]).unwrap();
+        run(&dir, &["push", "-q", "-u", "origin", "main"]).unwrap();
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut repo = open_with_staged_change(&dir, &ctx);
+        repo.commit_summary = "ship it".into();
+        frame(&ctx, &mut repo, vec![], Modifiers::NONE);
+        ctx.memory_mut(|m| m.request_focus(summary_id(&dir)));
+        frame(&ctx, &mut repo, vec![], Modifiers::NONE);
+
+        let chord = Modifiers::COMMAND | Modifiers::SHIFT;
+        let enter = Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: chord,
+        };
+        frame(&ctx, &mut repo, vec![enter], chord);
+        assert!(repo.committing());
+        assert!(repo.push_after_commit);
+
+        let head = || run(&dir, &["rev-parse", "HEAD"]).unwrap();
+        let pushed = || run(&remote, &["rev-parse", "main"]).unwrap();
+        let started = Instant::now();
+        while (repo.committing() || pushed() != head())
+            && started.elapsed() < Duration::from_secs(10)
+        {
+            repo.poll(&ctx, None);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            run(&dir, &["log", "-1", "--format=%s"]).unwrap().trim(),
+            "ship it"
+        );
+        assert_eq!(pushed(), head());
+        assert!(!repo.push_after_commit);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&remote);
     }
 }
