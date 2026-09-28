@@ -31,6 +31,7 @@ use crate::ref_labels::MenuFor;
 use crate::settings::Settings;
 use crate::{details, sidebar, theme, worktrees_view};
 
+mod palette_actions;
 mod undo_actions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

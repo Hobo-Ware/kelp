@@ -7,9 +7,12 @@ use kelp_core::history::History;
 
 use crate::dev_screenshot::DevScreenshot;
 use crate::menus::{self, TabAction};
+use crate::palette::Palette;
 use crate::repo_view::{self, Repo};
 use crate::settings::{self, Settings};
 use crate::{theme, window};
+
+mod palette_glue;
 
 type Loaded = anyhow::Result<(gix::Repository, History, Duration)>;
 
@@ -25,6 +28,8 @@ pub struct KelpApp {
     started: Instant,
     ctx: egui::Context,
     updater: crate::updater::Updater,
+    palette: Palette,
+    shortcuts_open: bool,
 }
 
 struct Tab {
@@ -87,17 +92,21 @@ impl Tab {
 impl KelpApp {
     pub fn open(ctx: egui::Context, paths: Vec<PathBuf>) -> Self {
         let tabs = paths.into_iter().map(|p| Tab::open(&ctx, p)).collect();
+        let settings = Settings::load();
+        let palette = palette_from_env(&settings);
         Self {
             tabs,
             active: 0,
             screenshot: DevScreenshot::from_env(),
-            settings: Settings::load(),
+            settings,
             show_settings: std::env::var_os("KELP_OPEN_SETTINGS").is_some(),
             titlebar_unified: false,
             columns_unsaved: false,
             window: window::Tracker::default(),
             started: Instant::now(),
             updater: crate::updater::Updater::new(ctx.clone()),
+            palette,
+            shortcuts_open: std::env::var_os("KELP_OPEN_SHORTCUTS").is_some(),
             ctx: ctx.clone(),
         }
     }
@@ -180,6 +189,23 @@ impl KelpApp {
         let cmd = |key| KeyboardShortcut::new(Modifiers::COMMAND, key);
         let back = KeyboardShortcut::new(Modifiers::CTRL | Modifiers::SHIFT, Key::Tab);
         let forward = KeyboardShortcut::new(Modifiers::CTRL, Key::Tab);
+        let cmd_shift = |key| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, key);
+        let (palette, sheet, settings) = ctx.input_mut(|i| {
+            (
+                i.consume_shortcut(&cmd(Key::K)) | i.consume_shortcut(&cmd_shift(Key::P)),
+                i.consume_shortcut(&cmd(Key::Slash)),
+                i.consume_shortcut(&cmd(Key::Comma)),
+            )
+        });
+        if palette {
+            self.palette.show("");
+        }
+        if sheet {
+            self.shortcuts_open = !self.shortcuts_open;
+        }
+        if settings {
+            self.show_settings = true;
+        }
         let (open, close, refresh, step, number) = ctx.input_mut(|i| {
             let open = i.consume_shortcut(&cmd(Key::T)) | i.consume_shortcut(&cmd(Key::O));
             let close = i.consume_shortcut(&cmd(Key::W));
@@ -413,6 +439,14 @@ impl KelpApp {
     }
 }
 
+fn palette_from_env(settings: &Settings) -> Palette {
+    let mut palette = Palette::new(settings.recent_actions.clone());
+    if let Ok(query) = std::env::var("KELP_OPEN_PALETTE") {
+        palette.show(&query);
+    }
+    palette
+}
+
 fn tab_for_number(number: usize, count: usize) -> Option<usize> {
     match number {
         _ if count == 0 => None,
@@ -624,6 +658,7 @@ impl eframe::App for KelpApp {
         self.updater
             .tick(self.settings.updates_enabled(), self.settings.auto_update);
         self.handle_shortcuts(&ctx);
+        self.palette_frame(&ctx);
         self.handle_drops(&ctx);
         self.tab_strip(ui);
 

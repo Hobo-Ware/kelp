@@ -1,3 +1,4 @@
+mod actions;
 mod app;
 mod avatars;
 mod columns;
@@ -18,6 +19,7 @@ mod macos;
 mod mascot;
 mod menus;
 mod open_with;
+mod palette;
 mod preview_view;
 mod rebase_view;
 mod ref_labels;

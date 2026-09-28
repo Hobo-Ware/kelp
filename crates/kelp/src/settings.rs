@@ -21,6 +21,7 @@ pub struct Settings {
     pub editor: String,
     pub window: Option<[f32; 4]>,
     pub graph_columns: GraphColumns,
+    pub recent_actions: Vec<String>,
     #[serde(skip)]
     offline: bool,
 }
@@ -39,6 +40,7 @@ impl Default for Settings {
             editor: String::new(),
             window: None,
             graph_columns: GraphColumns::default(),
+            recent_actions: Vec::new(),
             offline: false,
         }
     }
