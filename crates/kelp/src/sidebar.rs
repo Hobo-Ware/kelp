@@ -316,6 +316,36 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                 commands,
                 actions: &mut actions,
             };
+            let worktrees: Vec<_> = view
+                .workspace
+                .worktrees
+                .iter()
+                .filter(|wt| {
+                    let branch = wt.tree.branch.as_deref().unwrap_or("");
+                    ref_tree::fuzzy(&format!("{} {branch}", wt.tree.name()), &query).is_some()
+                })
+                .collect();
+            let mut manage = false;
+            if query.is_empty() || !worktrees.is_empty() {
+                section(
+                    ui,
+                    "WORKTREES",
+                    worktrees.len(),
+                    true,
+                    |ui| {
+                        manage_button(ui, &mut manage);
+                    },
+                    |ui| {
+                        for wt in &worktrees {
+                            worktree_row(ui, view, wt, &query, rows.commands);
+                        }
+                    },
+                );
+            }
+            if manage {
+                rows.commands.push(Command::ShowWorktrees);
+            }
+
             if !trees.pinned.is_empty() {
                 section(
                     ui,
@@ -356,34 +386,6 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                     },
                 );
                 rows.actions.append(header_actions);
-            }
-
-            let worktrees: Vec<_> = view
-                .workspace
-                .worktrees
-                .iter()
-                .filter(|wt| {
-                    let branch = wt.tree.branch.as_deref().unwrap_or("");
-                    ref_tree::fuzzy(&format!("{} {branch}", wt.tree.name()), &query).is_some()
-                })
-                .collect();
-            let mut manage = false;
-            if query.is_empty() || !worktrees.is_empty() {
-                section(
-                    ui,
-                    "WORKTREES",
-                    worktrees.len(),
-                    true,
-                    |ui| manage_button(ui, &mut manage),
-                    |ui| {
-                        for wt in &worktrees {
-                            worktree_row(ui, view, wt, &query, rows.commands);
-                        }
-                    },
-                );
-            }
-            if manage {
-                rows.commands.push(Command::ShowWorktrees);
             }
 
             let stashes: Vec<_> = view
@@ -539,15 +541,27 @@ fn section_menu(
     });
 }
 
-fn manage_button(ui: &mut Ui, manage: &mut bool) {
-    if ui
-        .add(
-            egui::Button::new(RichText::new("Manage").size(11.0).color(theme::ACCENT)).frame(false),
-        )
-        .clicked()
-    {
+fn manage_button(ui: &mut Ui, manage: &mut bool) -> egui::Response {
+    let galley = ui.painter().layout_no_wrap(
+        "Manage".to_string(),
+        FontId::proportional(11.0),
+        theme::ACCENT,
+    );
+    let size = vec2(galley.size().x + 14.0, 20.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let response = response
+        .on_hover_text("Open the worktrees page")
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    if response.hovered() {
+        ui.painter()
+            .rect_filled(rect, 4.0, theme::with_alpha(theme::ACCENT, 0x22));
+    }
+    ui.painter()
+        .galley(rect.center() - galley.size() / 2.0, galley, theme::ACCENT);
+    if response.clicked() {
         *manage = true;
     }
+    response
 }
 
 fn merged_note(ui: &mut Ui, count: usize, actions: &mut Vec<Action>) {
@@ -871,25 +885,35 @@ fn section(
         id,
         open_by_default,
     );
-    state
-        .show_header(ui, |ui| {
+    let mut title_clicked = false;
+    let mut header = state.show_header(ui, |ui| {
+        let title = ui
+            .add(
+                egui::Label::new(
+                    RichText::new(title)
+                        .size(11.0)
+                        .family(theme::semibold())
+                        .color(theme::TEXT_MUTED),
+                )
+                .selectable(false)
+                .sense(Sense::click()),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        title_clicked = title.clicked();
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_space(12.0);
             ui.label(
-                RichText::new(title)
+                RichText::new(count.to_string())
                     .size(11.0)
-                    .family(theme::semibold())
                     .color(theme::TEXT_MUTED),
             );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    RichText::new(count.to_string())
-                        .size(11.0)
-                        .color(theme::TEXT_MUTED),
-                );
-                header_right(ui);
-            });
-        })
-        .body(body);
+            header_right(ui);
+        });
+    });
+    if title_clicked {
+        header.toggle();
+    }
+    header.body(body);
     ui.add_space(6.0);
 }
 
@@ -1057,7 +1081,81 @@ fn highlighted(text: &str, ranges: &[Range<usize>], font: FontId, color: Color32
 
 #[cfg(test)]
 mod tests {
-    use super::highlighted;
+    use eframe::egui::{self, Event, PointerButton, Pos2, RawInput, Rect, vec2};
+
+    use super::{highlighted, manage_button, section};
+
+    struct Probe {
+        body_shown: bool,
+        manage: bool,
+        title: Rect,
+        manage_rect: Rect,
+    }
+
+    fn frame(ctx: &egui::Context, probe: &mut Probe, events: Vec<Event>) {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(300.0, 200.0))),
+            events,
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| {
+            probe.body_shown = false;
+            let top = ui.cursor().top();
+            section(
+                ui,
+                "WORKTREES",
+                3,
+                true,
+                |ui| probe.manage_rect = manage_button(ui, &mut probe.manage).rect,
+                |ui| {
+                    probe.body_shown = true;
+                    ui.label("body");
+                },
+            );
+            probe.title = Rect::from_min_size(egui::pos2(30.0, top), vec2(40.0, 18.0));
+        });
+    }
+
+    fn click(ctx: &egui::Context, probe: &mut Probe, at: Pos2) {
+        let press = |pressed| Event::PointerButton {
+            pos: at,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(ctx, probe, vec![Event::PointerMoved(at)]);
+        frame(ctx, probe, vec![press(true)]);
+        frame(ctx, probe, vec![press(false)]);
+        for _ in 0..30 {
+            frame(ctx, probe, vec![]);
+        }
+    }
+
+    #[test]
+    fn clicking_the_title_collapses_and_manage_fires() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut probe = Probe {
+            body_shown: false,
+            manage: false,
+            title: Rect::NOTHING,
+            manage_rect: Rect::NOTHING,
+        };
+        frame(&ctx, &mut probe, vec![]);
+        assert!(probe.body_shown);
+        let title = probe.title.center();
+        click(&ctx, &mut probe, title);
+        assert!(!probe.body_shown, "title click should collapse the section");
+        click(&ctx, &mut probe, title);
+        assert!(
+            probe.body_shown,
+            "second title click should expand it again"
+        );
+        let manage = probe.manage_rect.center();
+        click(&ctx, &mut probe, manage);
+        assert!(probe.manage);
+        assert!(probe.body_shown, "Manage must not toggle the section");
+    }
     use eframe::egui::{Color32, FontId};
 
     #[test]
