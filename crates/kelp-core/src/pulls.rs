@@ -9,7 +9,11 @@ use serde_json::Value;
 use crate::avatar::GitHubRepo;
 
 pub const FRESH_FOR: Duration = Duration::from_secs(5 * 60);
-const GH_LIMIT: &str = "200";
+const GH_ALL_LIMIT: &str = "200";
+const GH_OPEN_LIMIT: &str = "100";
+const GH_ALL_FIELDS: &str = "number,title,headRefName,headRepositoryOwner,state,isDraft,url";
+const GH_OPEN_FIELDS: &str = "number,title,headRefName,headRepositoryOwner,state,isDraft,url,reviewDecision,statusCheckRollup";
+const GH_TIMEOUT: Duration = Duration::from_secs(20);
 const REST_PAGES_WITH_TOKEN: usize = 2;
 const REST_PAGES_ANONYMOUS: usize = 1;
 
@@ -228,31 +232,65 @@ pub fn fetch(repo: &GitHubRepo) -> anyhow::Result<Vec<Pull>> {
 }
 
 fn fetch_with_gh(repo: &GitHubRepo) -> anyhow::Result<Vec<Pull>> {
-    let output = Command::new("gh")
-        .args([
-            "pr",
-            "list",
-            "--repo",
-            &format!("{}/{}", repo.owner, repo.name),
-            "--state",
-            "all",
-            "--limit",
-            GH_LIMIT,
-            "--json",
-            "number,title,headRefName,headRepositoryOwner,state,isDraft,url,reviewDecision,statusCheckRollup",
-        ])
-        .env("GH_PROMPT_DISABLED", "1")
-        .output()
-        .context("gh is not installed")?;
-    if !output.status.success() {
-        bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
+    let all = parse_gh(&gh_pr_list(repo, "all", GH_ALL_LIMIT, GH_ALL_FIELDS)?)?;
+    let open = parse_gh(&gh_pr_list(repo, "open", GH_OPEN_LIMIT, GH_OPEN_FIELDS)?)?;
+    Ok(with_open_details(all, open))
+}
+
+fn with_open_details(mut all: Vec<Pull>, open: Vec<Pull>) -> Vec<Pull> {
+    for detailed in open {
+        match all.iter_mut().find(|p| p.number == detailed.number) {
+            Some(slot) => *slot = detailed,
+            None => all.push(detailed),
+        }
     }
-    parse_gh(&String::from_utf8_lossy(&output.stdout))
+    all
+}
+
+fn gh_pr_list(repo: &GitHubRepo, state: &str, limit: &str, fields: &str) -> anyhow::Result<String> {
+    use std::process::Stdio;
+    let mut child = Command::new("gh")
+        .args(["pr", "list", "--repo"])
+        .arg(format!("{}/{}", repo.owner, repo.name))
+        .args(["--state", state, "--limit", limit, "--json", fields])
+        .env("GH_PROMPT_DISABLED", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("gh is not installed")?;
+    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut bytes);
+            }
+            bytes
+        })
+    };
+    let stdout = drain(child.stdout.take().map(|p| Box::new(p) as _));
+    let stderr = drain(child.stderr.take().map(|p| Box::new(p) as _));
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if started.elapsed() > GH_TIMEOUT {
+            let _ = child.kill();
+            bail!("gh pr list took longer than {}s", GH_TIMEOUT.as_secs());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let stdout = stdout.join().unwrap_or_default();
+    if !status.success() {
+        let stderr = stderr.join().unwrap_or_default();
+        bail!("{}", String::from_utf8_lossy(&stderr).trim());
+    }
+    Ok(String::from_utf8_lossy(&stdout).into_owned())
 }
 
 fn fetch_with_rest(repo: &GitHubRepo, token: Option<String>) -> anyhow::Result<Vec<Pull>> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(10)))
+        .timeout_global(Some(Duration::from_secs(20)))
         .user_agent("kelp-git-client")
         .build()
         .into();
@@ -438,5 +476,20 @@ mod tests {
             compare_url(&repo(), "main", "feat/x"),
             "https://github.com/Hobo-Ware/kelp/compare/main...feat/x?expand=1"
         );
+    }
+
+    #[test]
+    fn open_details_replace_the_light_rows() {
+        let light = parse_gh(GH).unwrap();
+        let mut detailed = light[0].clone();
+        detailed.review = Some("APPROVED".into());
+        let extra = Pull {
+            number: 999,
+            ..detailed.clone()
+        };
+        let merged = with_open_details(light.clone(), vec![detailed, extra]);
+        assert_eq!(merged.len(), light.len() + 1);
+        assert_eq!(merged[0].review.as_deref(), Some("APPROVED"));
+        assert!(merged.iter().any(|p| p.number == 999));
     }
 }
