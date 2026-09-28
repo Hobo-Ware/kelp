@@ -33,6 +33,23 @@ pub fn upstream_remote(repo: &gix::Repository, branch: &str) -> Option<String> {
         .map(|r| r.to_string())
 }
 
+pub fn upstreams<'a>(
+    repo: &gix::Repository,
+    branches: impl IntoIterator<Item = &'a str>,
+) -> Vec<(String, String)> {
+    let config = repo.config_snapshot();
+    branches
+        .into_iter()
+        .filter_map(|branch| {
+            let remote = config.string(format!("branch.{branch}.remote").as_str())?;
+            let merge = config.string(format!("branch.{branch}.merge").as_str())?;
+            let merge = merge.to_string();
+            let target = merge.strip_prefix("refs/heads/").unwrap_or(&merge);
+            Some((branch.to_string(), format!("{remote}/{target}")))
+        })
+        .collect()
+}
+
 pub fn default_push_remote(remotes: &[String]) -> Option<String> {
     match remotes {
         [only] => Some(only.clone()),

@@ -310,7 +310,7 @@ fn open_diff_path(repo: &Repo) -> Option<String> {
     match &repo.center {
         Center::Diff(view) => Some(view.path().to_string()),
         Center::Conflict(view) => Some(view.path.clone()),
-        Center::Graph | Center::Worktrees | Center::Rebase(_) => None,
+        Center::Graph | Center::Worktrees | Center::Rebase(_) | Center::Stash(_) => None,
     }
 }
 
@@ -570,12 +570,7 @@ impl FileRow<'_> {
         let font = FontId::monospace(12.0);
         let left = rect.left() + 14.0 + self.depth as f32 * INDENT;
         if let Some(kind) = self.kind {
-            let (mark, color) = match kind {
-                ChangeKind::Added => ("A", theme::ADDED),
-                ChangeKind::Deleted => ("D", theme::DELETED),
-                ChangeKind::Modified => ("M", theme::MODIFIED),
-                ChangeKind::Renamed => ("R", theme::MODIFIED),
-            };
+            let (mark, color) = change_letter(kind);
             painter.text(
                 pos2(left + 6.0, y),
                 Align2::CENTER_CENTER,
@@ -713,4 +708,13 @@ fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64)
+}
+
+pub fn change_letter(kind: ChangeKind) -> (&'static str, Color32) {
+    match kind {
+        ChangeKind::Added => ("A", theme::ADDED),
+        ChangeKind::Deleted => ("D", theme::DELETED),
+        ChangeKind::Modified => ("M", theme::MODIFIED),
+        ChangeKind::Renamed => ("R", theme::MODIFIED),
+    }
 }

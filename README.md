@@ -68,22 +68,27 @@ folder if it is a repo.
   Threads support replies and resolving, and follow their line when code
   above them changes. Comments live in `.git/kelp/comments.json`, are
   never pushed, and can be copied as Markdown.
-- **Branches:** check out, create, rename, delete (local and remote),
-  merge, rebase, fetch, pull, push. Every action shows the git command
-  it runs.
+- **Branches:** check out, create, rename in place (F2, or Rename in any
+  branch menu), delete (local and remote), rename on the remote (pushes
+  the new name, deletes the old one, moves the upstream), merge, rebase,
+  fetch, pull, push. Every action shows the git command it runs.
+- **Tags and remotes:** create lightweight or annotated tags from any
+  commit, push one or all, delete locally or on the remote. Add, rename,
+  repoint, fetch, prune and remove remotes from the Remote section.
 - **Sidebar:** branches, remotes and tags grouped into folders by their
   `/` prefix (a folder with one branch folds into it), a filter box that
   also matches worktrees and stashes, pinned branches on top, "Hide
   merged branches" and sort by name or last commit from each section's
   `...` menu. Kept per repo in `.git/kelp/sidebar.json`.
-- **Worktrees:** list, create (new or existing branch), remove, prune,
-  open in a new tab or a terminal.
+- **Worktrees:** list, create (new or existing branch), move, remove,
+  prune, open in a new tab or a terminal.
 - **Staging:** unstaged and staged lists, stage or unstage files, single hunks or
   single lines (click line numbers, Shift-click for a range), discard files,
   hunks or lines (Cmd+Z brings them back), commit and amend (hooks run as usual).
   Cmd-click or Shift-click files to stage, stash or discard several at once.
 - **Stashes:** stash everything, chosen files or only the staged changes (with an
-  optional message), pop, apply, drop.
+  optional message), pop, apply, drop, rename, and see a stash's changes file
+  by file.
 - **Undo:** Cmd+Z undoes the last thing Kelp did (commit, amend, checkout,
   branch create/rename/delete, merge, rebase, pull, stash, discard,
   stage, interactive rebase, message edits), and Cmd+Shift+Z redoes it. Undo refuses rather than lose work
@@ -135,6 +140,7 @@ folder if it is a repo.
 | Up / Down, J / K | Move through commits |
 | Cmd+F | Search; Enter / Shift+Enter for next / previous |
 | Cmd+Opt+F | Filter the sidebar; Esc clears |
+| F2 | Rename the selected branch; Enter saves, Esc cancels |
 | Esc | Back to the graph, close search or dialogs |
 | Cmd+T | New tab: recent repositories, open, clone or create one |
 | Cmd+O | Open a folder in a new tab |
@@ -199,7 +205,7 @@ Developer switches (environment variables):
 | `KELP_OFFLINE=1` | No avatar downloads |
 | `KELP_HIDE_REFS=a,b`, `KELP_COLUMNS=author,date,hash` | Hide branches or show columns for this run |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
-| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`, `clone`; `KELP_CLONE_URL=<url>` prefills it), `KELP_OPEN_WELCOME=1` (the new tab page; `KELP_RECENTS=<path>,<path>` fakes its list), `KELP_ZOOM=1.25`, `KELP_COLLAPSE=sidebar,details`, `KELP_OPEN_SETTINGS=1`, `KELP_OPEN_PALETTE=<query>`, `KELP_OPEN_SHORTCUTS=1`, `KELP_OPEN_MESSAGE=1` (full commit message), `KELP_PICK=<file>,<file>` (picks unstaged files; add `KELP_OPEN_STASH=1` for the stash prompt), `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`, `sort`), `KELP_SIDEBAR_FILTER=text`, `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu) | Open a screen on start |
+| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`, `tag`, `add-remote`, `rename-remote-branch`, `clone`; `KELP_CLONE_URL=<url>` prefills it), `KELP_OPEN_WELCOME=1` (the new tab page; `KELP_RECENTS=<path>,<path>` fakes its list), `KELP_ZOOM=1.25`, `KELP_COLLAPSE=sidebar,details`, `KELP_OPEN_SETTINGS=1`, `KELP_OPEN_PALETTE=<query>`, `KELP_OPEN_SHORTCUTS=1`, `KELP_OPEN_MESSAGE=1` (full commit message), `KELP_PICK=<file>,<file>` (picks unstaged files; add `KELP_OPEN_STASH=1` for the stash prompt), `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`, `sort`), `KELP_SIDEBAR_FILTER=text`, `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu), `KELP_RENAME=<branch>` (inline rename), `KELP_SHOW_STASH=stash@{0}` (a stash's changes) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
 | `KELP_FAKE_PULLS=<file>` | Load pull requests from a `gh pr list --json` file instead of GitHub |

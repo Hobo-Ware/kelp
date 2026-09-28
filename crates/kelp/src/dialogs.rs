@@ -33,6 +33,128 @@ pub enum Dialog {
         remote: String,
         remotes: Vec<String>,
     },
+    Text(TextDialog),
+    NewTag {
+        commit: String,
+        commit_label: String,
+        name: String,
+        annotated: bool,
+        message: String,
+    },
+    AddRemote {
+        name: String,
+        url: String,
+    },
+}
+
+pub enum TextAction {
+    RenameRemoteBranch {
+        remote: String,
+        from: String,
+        tracking: Option<String>,
+    },
+    RenameStash {
+        stash: String,
+    },
+    MoveWorktree {
+        from: String,
+    },
+    RenameRemote {
+        from: String,
+    },
+    SetRemoteUrl {
+        name: String,
+    },
+}
+
+pub struct TextDialog {
+    pub action: TextAction,
+    pub value: String,
+}
+
+impl TextDialog {
+    pub fn open(action: TextAction, value: impl Into<String>) -> Dialog {
+        Dialog::Text(Self {
+            action,
+            value: value.into(),
+        })
+    }
+
+    fn op(&self) -> Op {
+        let value = self.value.trim().to_string();
+        match &self.action {
+            TextAction::RenameRemoteBranch {
+                remote,
+                from,
+                tracking,
+            } => Op::RenameRemoteBranch {
+                remote: remote.clone(),
+                from: from.clone(),
+                to: value,
+                tracking: tracking.clone(),
+            },
+            TextAction::RenameStash { stash } => Op::StashRename {
+                stash: stash.clone(),
+                message: value,
+            },
+            TextAction::MoveWorktree { from } => Op::WorktreeMove {
+                from: from.clone(),
+                to: value,
+            },
+            TextAction::RenameRemote { from } => Op::RenameRemote {
+                from: from.clone(),
+                to: value,
+            },
+            TextAction::SetRemoteUrl { name } => Op::SetRemoteUrl {
+                name: name.clone(),
+                url: value,
+            },
+        }
+    }
+
+    fn valid(&self) -> bool {
+        let value = self.value.trim();
+        match &self.action {
+            TextAction::RenameRemoteBranch { from, .. } => {
+                valid_branch_name(value) && value != from
+            }
+            TextAction::RenameStash { .. } | TextAction::SetRemoteUrl { .. } => !value.is_empty(),
+            TextAction::MoveWorktree { from } => !value.is_empty() && value != from,
+            TextAction::RenameRemote { from } => valid_remote_name(value) && value != from,
+        }
+    }
+
+    fn texts(&self) -> (String, &'static str, &'static str, Option<String>) {
+        match &self.action {
+            TextAction::RenameRemoteBranch { remote, from, .. } => (
+                format!("Rename {remote}/{from}"),
+                "New name on the remote",
+                "Rename",
+                Some(format!(
+                    "Pushes the new name, then deletes {from} on {remote}. Anyone else using it \
+                     needs to switch to the new name."
+                )),
+            ),
+            TextAction::RenameStash { stash } => {
+                (format!("Rename {stash}"), "Message", "Rename", None)
+            }
+            TextAction::MoveWorktree { .. } => (
+                "Move worktree".into(),
+                "New folder",
+                "Move",
+                Some("The worktree must have no untracked changes Kelp would lose.".into()),
+            ),
+            TextAction::RenameRemote { from } => (
+                format!("Rename remote {from}"),
+                "New name",
+                "Rename",
+                Some("Remote branches and upstreams follow the new name.".into()),
+            ),
+            TextAction::SetRemoteUrl { name } => {
+                (format!("Change the URL of {name}"), "URL", "Save", None)
+            }
+        }
+    }
 }
 
 pub fn reset_hard_dialog(branch: &str, commit: &str, dropped: usize, dirty: usize) -> Dialog {
@@ -220,6 +342,15 @@ pub fn show(ctx: &egui::Context, dialog: &mut Dialog) -> Outcome {
                     remote,
                     remotes,
                 } => push_to(ui, branch, remote, remotes),
+                Dialog::Text(state) => text_dialog(ui, state),
+                Dialog::NewTag {
+                    commit,
+                    commit_label,
+                    name,
+                    annotated,
+                    message,
+                } => new_tag(ui, commit, commit_label, name, annotated, message),
+                Dialog::AddRemote { name, url } => add_remote(ui, name, url),
             };
         });
     if modal.should_close() {
@@ -329,6 +460,85 @@ fn valid_branch_name(name: &str) -> bool {
         && !name
             .chars()
             .any(|c| matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
+}
+
+fn valid_remote_name(name: &str) -> bool {
+    valid_branch_name(name) && !name.contains('/')
+}
+
+fn text_dialog(ui: &mut Ui, state: &mut TextDialog) -> Outcome {
+    let (heading, label, confirm_label, note) = state.texts();
+    title(ui, &heading);
+    field(ui, label, &mut state.value, true);
+    if let TextAction::MoveWorktree { from } = &state.action
+        && ui.button("Choose folder…").clicked()
+        && let Some(parent) = rfd::FileDialog::new()
+            .set_title("Move the worktree into")
+            .pick_folder()
+    {
+        let name = std::path::Path::new(from)
+            .file_name()
+            .map(|n| n.to_owned())
+            .unwrap_or_default();
+        state.value = parent.join(name).to_string_lossy().into_owned();
+    }
+    if let Some(note) = note {
+        ui.label(RichText::new(note).size(12.0).color(theme::TEXT_MUTED));
+    }
+    let op = state.op();
+    preview(ui, &op);
+    with(buttons(ui, confirm_label, state.valid(), false), || {
+        vec![Command::Run(op)]
+    })
+}
+
+fn new_tag(
+    ui: &mut Ui,
+    commit: &str,
+    commit_label: &str,
+    name: &mut String,
+    annotated: &mut bool,
+    message: &mut String,
+) -> Outcome {
+    title(ui, "New tag");
+    field(ui, "Tag name", name, true);
+    ui.label(
+        RichText::new(format!("On {commit_label}"))
+            .size(12.0)
+            .color(theme::TEXT_MUTED),
+    );
+    ui.checkbox(annotated, "Annotated, with a message");
+    if *annotated {
+        field(ui, "Message", message, false);
+    }
+    let op = Op::CreateTag {
+        name: name.trim().to_string(),
+        commit: commit.to_string(),
+        message: annotated.then(|| message.trim().to_string()),
+    };
+    preview(ui, &op);
+    let enabled = valid_branch_name(name) && (!*annotated || !message.trim().is_empty());
+    with(buttons(ui, "Create tag", enabled, false), || {
+        vec![Command::Run(op)]
+    })
+}
+
+fn add_remote(ui: &mut Ui, name: &mut String, url: &mut String) -> Outcome {
+    title(ui, "Add remote");
+    field(ui, "Name", name, true);
+    field(ui, "URL", url, false);
+    let op = Op::AddRemote {
+        name: name.trim().to_string(),
+        url: url.trim().to_string(),
+    };
+    preview(ui, &op);
+    let enabled = valid_remote_name(name) && !url.trim().is_empty();
+    with(buttons(ui, "Add remote", enabled, false), || {
+        vec![
+            Command::Run(op),
+            Command::Run(Op::FetchRemote(name.trim().to_string())),
+        ]
+    })
 }
 
 fn new_branch(

@@ -26,6 +26,7 @@ pub enum Icon {
     Eye,
     EyeOff,
     Pin,
+    Tag,
 }
 
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -236,6 +237,17 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             if icon == Icon::EyeOff {
                 line(&[(4.0, 20.0), (20.0, 4.0)]);
             }
+        }
+        Icon::Tag => {
+            line(&[
+                (4.0, 4.0),
+                (12.0, 4.0),
+                (20.0, 12.0),
+                (12.0, 20.0),
+                (4.0, 12.0),
+                (4.0, 4.0),
+            ]);
+            circle(8.5, 8.5, 1.5);
         }
         Icon::Pin => {
             line(&[(9.0, 4.0), (15.0, 4.0)]);
