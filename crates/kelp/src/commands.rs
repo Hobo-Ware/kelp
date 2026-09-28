@@ -27,6 +27,8 @@ pub enum Command {
     ShowAllRefs,
     TogglePanel(crate::panels::Side),
     OpenUrl(String),
+    OpenChecks(gix::ObjectId),
+    ShowPulls,
     CreatePullRequest(String),
     StartRename(String),
     ShowStash(String),

@@ -55,6 +55,7 @@ pub enum JobOutput {
     AutoFetch(anyhow::Result<String>),
     Opened(Result<(), String>),
     Pulls(Vec<kelp_core::pulls::Pull>),
+    Checks(crate::checks_ui::Fetched),
     Op {
         label: String,
         quiet: bool,
@@ -143,6 +144,7 @@ pub enum Center {
     Stash(Box<StashView>),
     Reflog(Box<crate::reflog_view::ReflogView>),
     FileHistory(Box<FileHistoryView>),
+    Pulls(Box<crate::pulls_view::PullsView>),
 }
 
 pub struct Toast {
@@ -174,6 +176,7 @@ pub struct Repo {
     pub signatures: crate::signatures::Signatures,
     github: Option<kelp_core::avatar::GitHubRepo>,
     pub pulls: kelp_core::pulls::Pulls,
+    checks: crate::checks_ui::ChecksState,
     pub dialog: Option<Dialog>,
     message_editor: Option<crate::message_editor::MessageEditor>,
     pub outbox: Vec<PathBuf>,
@@ -264,6 +267,7 @@ impl Repo {
             toast: None,
             avatars,
             signatures: crate::signatures::Signatures::default(),
+            checks: crate::checks_ui::ChecksState::new(github.as_ref()),
             github,
             pulls: kelp_core::pulls::Pulls::default(),
             dialog: None,
@@ -334,6 +338,9 @@ impl Repo {
                 reference
             };
             ready.execute(ctx, vec![Command::ShowReflog(reference)]);
+        }
+        if std::env::var_os("KELP_OPEN_PULLS").is_some() {
+            ready.execute(ctx, vec![Command::ShowPulls]);
         }
         if let Ok(path) = std::env::var("KELP_FILE_HISTORY") {
             ready.execute(ctx, vec![Command::FileHistory(path)]);
@@ -757,6 +764,21 @@ impl Repo {
                         self.notify(format!("Could not open {url}: {e}"), true);
                     }
                 }
+                Command::OpenChecks(id) => {
+                    if let Some(github) = &self.github {
+                        let url = kelp_core::checks::checks_url(github, &id.to_string());
+                        if let Err(e) = crate::pulls_ui::open_url(&url) {
+                            self.notify(format!("Could not open {url}: {e}"), true);
+                        }
+                    }
+                }
+                Command::ShowPulls => match self.github.clone() {
+                    Some(github) => {
+                        let view = crate::pulls_view::PullsView::open(ctx, github);
+                        self.center = Center::Pulls(Box::new(view));
+                    }
+                    None => self.notify("This repository is not on GitHub", true),
+                },
                 Command::CreatePullRequest(branch) => self.create_pull_request(branch),
                 Command::StartRename(branch) => self.sidebar.start_rename(ctx, &branch),
                 Command::ShowReflog(reference) => {
@@ -1021,6 +1043,21 @@ impl Repo {
             .to_string()
     }
 
+    fn request_checks(&mut self, ctx: &egui::Context, visible: &[gix::ObjectId]) {
+        if let Some(wait) = self.checks.recheck_after(visible) {
+            ctx.request_repaint_after(wait);
+        }
+        let Some(batch) = self.checks.next_batch(visible, unix_now()) else {
+            return;
+        };
+        let Some(github) = self.github.clone() else {
+            return;
+        };
+        self.jobs.spawn("Checking CI", move || {
+            JobOutput::Checks(crate::checks_ui::ChecksState::fetch(&github, &batch))
+        });
+    }
+
     pub fn current_pull(&self) -> Option<&kelp_core::pulls::Pull> {
         self.pulls.for_branch(self.current_branch()?)
     }
@@ -1137,8 +1174,10 @@ impl Repo {
                         Ok(history) => {
                             self.replace_history(*history);
                             self.refresh_workspace();
-                            if let Center::Reflog(view) = &mut self.center {
-                                view.reload(ctx);
+                            match &mut self.center {
+                                Center::Reflog(view) => view.reload(ctx),
+                                Center::Pulls(view) => view.reload(ctx),
+                                _ => {}
                             }
                         }
                         Err(e) => self.notify(format!("Reload failed: {e:#}"), true),
@@ -1149,6 +1188,11 @@ impl Repo {
                 }
                 JobOutput::Opened(Ok(())) => {}
                 JobOutput::Opened(Err(e)) => self.notify(e, true),
+                JobOutput::Checks(fetched) => {
+                    if let Some(note) = self.checks.apply(fetched, unix_now()) {
+                        self.notify(note, true);
+                    }
+                }
                 JobOutput::Pulls(list) => {
                     if let Some(github) = &self.github {
                         self.pulls = kelp_core::pulls::Pulls::new(github, list);
@@ -1481,6 +1525,41 @@ impl Repo {
                         crate::reflog_view::Event::Diff(_) | crate::reflog_view::Event::None => {}
                     }
                 }
+                Center::Pulls(view) => {
+                    let local: Vec<String> = self
+                        .history
+                        .refs
+                        .of_kind(RefKind::Local)
+                        .map(|l| l.name.clone())
+                        .collect();
+                    let remote: Vec<String> = self
+                        .history
+                        .refs
+                        .of_kind(RefKind::Remote)
+                        .map(|l| l.name.clone())
+                        .collect();
+                    match view.ui(ui, &local, &remote) {
+                        crate::pulls_view::Event::Close => self.center = Center::Graph,
+                        crate::pulls_view::Event::Command(command) => commands.push(command),
+                        crate::pulls_view::Event::ShowBranch(branch) => {
+                            let row = self
+                                .history
+                                .refs
+                                .labels
+                                .iter()
+                                .filter(|l| {
+                                    l.name == branch
+                                        || l.name.split_once('/').is_some_and(|(_, b)| b == branch)
+                                })
+                                .find_map(|l| l.row);
+                            match row {
+                                Some(row) => self.reveal(Selection::Commit(row as usize)),
+                                None => self.notify(format!("{branch} is not in the graph"), true),
+                            }
+                        }
+                        crate::pulls_view::Event::None => {}
+                    }
+                }
                 Center::Graph => self.graph_center(ui, &mut commands, settings),
             });
         let mid_x = central.response.rect.center().x;
@@ -1542,6 +1621,7 @@ impl Repo {
             head_reach,
             workspace,
             columns_changed,
+            checks,
             ..
         } = self;
         let wip = (!changes.is_empty()).then(|| graph_view::Wip {
@@ -1579,6 +1659,7 @@ impl Repo {
             compare: compare_marks,
             picking,
             filter_active,
+            checks: &checks.statuses,
         };
         let action = graph.ui(ui, input, avatars, |ui, target| match target {
             MenuFor::Worktree(tree) => menus::worktree(ui, tree, commands),
@@ -1601,9 +1682,15 @@ impl Repo {
         if let Some(columns) = graph.columns_changed.take() {
             *columns_changed = Some(columns);
         }
+        let visible: Vec<gix::ObjectId> = graph
+            .visible_commits
+            .iter()
+            .map(|&row| history.id(row))
+            .collect();
         if std::mem::take(&mut graph.filter_clicked) {
             self.filter.toggle();
         }
+        self.request_checks(ui.ctx(), &visible);
         match action {
             Some(graph_view::Action::Select(selection)) => {
                 if self.compare.is_some() || self.compare_pick.is_some() {
@@ -2232,4 +2319,10 @@ fn panel_toggle(ui: &egui::Ui, rect: egui::Rect, side: Side, open: bool) -> bool
     };
     painter.rect_filled(strip.shrink(1.5), 1.0, fill);
     response.clicked()
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
