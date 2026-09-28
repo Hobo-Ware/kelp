@@ -194,6 +194,7 @@ impl IgnoreCache {
     fn check_ignore(&self, paths: &[String]) -> Option<HashSet<String>> {
         use std::io::Write;
         use std::process::{Command, Stdio};
+        let log = crate::console::start("git", &["check-ignore", "--stdin", "-z"], &self.workdir);
         let mut child = Command::new("git")
             .current_dir(&self.workdir)
             .args(["check-ignore", "--stdin", "-z"])
@@ -205,6 +206,7 @@ impl IgnoreCache {
         let input: String = paths.iter().map(|p| format!("{p}\0")).collect();
         child.stdin.take()?.write_all(input.as_bytes()).ok()?;
         let output = child.wait_with_output().ok()?;
+        log.finish_output(&output);
         let none_ignored = output.status.code() == Some(1);
         if !output.status.success() && !none_ignored {
             return None;

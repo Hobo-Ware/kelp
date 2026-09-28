@@ -4,6 +4,7 @@ pub mod checks;
 pub mod commit;
 pub mod compare;
 pub mod conflict;
+pub mod console;
 pub mod diff;
 pub mod file_history;
 pub mod filter;

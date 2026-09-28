@@ -85,9 +85,11 @@ pub fn brew_upgrade() -> anyhow::Result<()> {
         .output()?;
     let tap_dir = String::from_utf8_lossy(&tap.stdout).trim().to_string();
     if tap.status.success() && Path::new(&tap_dir).exists() {
-        let _ = Command::new("git")
-            .args(["-C", &tap_dir, "pull", "--quiet", "--ff-only"])
-            .status();
+        let args = ["-C", tap_dir.as_str(), "pull", "--quiet", "--ff-only"];
+        let log = crate::console::start("git", &args, Path::new(&tap_dir));
+        if let Ok(output) = Command::new("git").args(args).output() {
+            log.finish_output(&output);
+        }
     }
     let out = Command::new(&brew)
         .args(["upgrade", "--cask", CASK])

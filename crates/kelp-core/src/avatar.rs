@@ -219,10 +219,12 @@ enum Lookup {
 }
 
 pub fn gh_token() -> Option<String> {
+    let log = crate::console::start("gh", &["auth", "token"], Path::new(""));
     let output = std::process::Command::new("gh")
         .args(["auth", "token"])
         .output()
         .ok()?;
+    log.finish(output.status.code(), b"(token hidden)", &output.stderr);
     let token = String::from_utf8(output.stdout).ok()?.trim().to_string();
     (output.status.success() && !token.is_empty()).then_some(token)
 }

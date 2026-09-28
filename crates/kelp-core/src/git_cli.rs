@@ -3,13 +3,17 @@ use std::process::Command;
 
 use anyhow::{Context, bail};
 
+use crate::console;
+
 pub fn run(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
+    let log = console::start("git", args, dir);
     let output = Command::new("git")
         .current_dir(dir)
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .with_context(|| format!("could not start git {}", args.join(" ")))?;
+    log.finish_output(&output);
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         bail!("git {} failed: {stderr}", args.join(" "));
@@ -20,6 +24,7 @@ pub fn run(dir: &Path, args: &[&str]) -> anyhow::Result<String> {
 pub fn run_with_stdin(dir: &Path, args: &[&str], input: &str) -> anyhow::Result<String> {
     use std::io::Write;
     use std::process::Stdio;
+    let log = console::start("git", args, dir);
     let mut child = Command::new("git")
         .current_dir(dir)
         .args(args)
@@ -35,6 +40,7 @@ pub fn run_with_stdin(dir: &Path, args: &[&str], input: &str) -> anyhow::Result<
         .context("git stdin unavailable")?
         .write_all(input.as_bytes())?;
     let output = child.wait_with_output()?;
+    log.finish_output(&output);
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         bail!("git {} failed: {stderr}", args.join(" "));

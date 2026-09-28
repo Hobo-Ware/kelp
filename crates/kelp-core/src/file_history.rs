@@ -85,6 +85,12 @@ pub fn stream(
     cancel: &AtomicBool,
     mut on_batch: impl FnMut(Vec<Entry>),
 ) -> anyhow::Result<()> {
+    let log = crate::console::start(
+        "git",
+        &["log", "--follow", "-M", "--numstat", FORMAT, "--", path],
+        dir,
+    );
+    let mut records = 0usize;
     let mut child = Command::new("git")
         .current_dir(dir)
         .args(["log", "--follow", "-M", "--numstat", FORMAT, "--"])
@@ -114,10 +120,16 @@ pub fn stream(
         if cancel.load(Ordering::Relaxed) {
             let _ = child.kill();
             let _ = child.wait();
+            log.finish(
+                None,
+                format!("{records} commits read").as_bytes(),
+                b"cancelled",
+            );
             return Ok(());
         }
         match rx.recv_timeout(POLL) {
             Ok(record) => {
+                records += 1;
                 batch.extend(parse_record(&record));
                 let size = if sent_first { BATCH } else { FIRST_BATCH };
                 if batch.len() >= size {
@@ -138,11 +150,16 @@ pub fn stream(
         on_batch(batch);
     }
     let status = child.wait()?;
+    let mut message = String::new();
+    if let Some(mut stderr) = stderr {
+        let _ = std::io::Read::read_to_string(&mut stderr, &mut message);
+    }
+    log.finish(
+        status.code(),
+        format!("{records} commits read").as_bytes(),
+        message.as_bytes(),
+    );
     if !status.success() {
-        let mut message = String::new();
-        if let Some(mut stderr) = stderr {
-            let _ = std::io::Read::read_to_string(&mut stderr, &mut message);
-        }
         bail!("git log failed: {}", message.trim());
     }
     Ok(())
