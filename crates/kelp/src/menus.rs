@@ -131,16 +131,76 @@ fn menu_width(ui: &mut Ui, width: f32) {
 pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Command>) {
     menu_width(ui, 230.0);
     heading(ui, &label.name);
+    branch_items(&mut UiSink { ui, out }, label, ctx);
+}
+
+pub fn branch_entries(label: &RefLabel, ctx: &MenuContext) -> Vec<Entry> {
+    let mut entries = Vec::new();
+    branch_items(&mut entries, label, ctx);
+    entries
+}
+
+pub struct Entry {
+    pub icon: Icon,
+    pub label: String,
+    pub danger: bool,
+    pub command: Command,
+}
+
+trait Sink {
+    fn add(&mut self, icon: Icon, label: &str, danger: bool, command: &dyn Fn() -> Command);
+    fn separator(&mut self);
+
+    fn item(&mut self, icon: Icon, label: &str, command: &dyn Fn() -> Command) {
+        self.add(icon, label, false, command);
+    }
+
+    fn danger(&mut self, icon: Icon, label: &str, command: &dyn Fn() -> Command) {
+        self.add(icon, label, true, command);
+    }
+}
+
+struct UiSink<'a> {
+    ui: &'a mut Ui,
+    out: &'a mut Vec<Command>,
+}
+
+impl Sink for UiSink<'_> {
+    fn add(&mut self, icon: Icon, label: &str, danger: bool, command: &dyn Fn() -> Command) {
+        if row(self.ui, Some(icon), label, None, danger) {
+            self.out.push(command());
+        }
+    }
+
+    fn separator(&mut self) {
+        separator(self.ui);
+    }
+}
+
+impl Sink for Vec<Entry> {
+    fn add(&mut self, icon: Icon, label: &str, danger: bool, command: &dyn Fn() -> Command) {
+        self.push(Entry {
+            icon,
+            label: label.to_string(),
+            danger,
+            command: command(),
+        });
+    }
+
+    fn separator(&mut self) {}
+}
+
+fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
     let name = label.name.clone();
     let current = ctx.current_branch.as_deref();
     match label.kind {
         RefKind::Local => {
             if current != Some(name.as_str()) {
-                item(ui, Icon::Check, "Check out", out, || {
+                sink.item(Icon::Check, "Check out", &|| {
                     Command::Run(Op::Switch(name.clone()))
                 });
             }
-            item(ui, Icon::Worktree, "Open in new worktree…", out, || {
+            sink.item(Icon::Worktree, "Open in new worktree…", &|| {
                 Command::Open(Dialog::NewWorktree(NewWorktree::new(
                     ctx.repo_dir_name.to_string(),
                     name.clone(),
@@ -148,37 +208,29 @@ pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Co
                     ctx.local_branches.clone(),
                 )))
             });
-            item(ui, Icon::Branch, "New branch from here…", out, || {
+            sink.item(Icon::Branch, "New branch from here…", &|| {
                 new_branch(&name, &name)
             });
-            item(ui, Icon::Pencil, "Rename…", out, || {
+            sink.item(Icon::Pencil, "Rename…", &|| {
                 Command::Open(Dialog::RenameBranch {
                     from: name.clone(),
                     to: name.clone(),
                 })
             });
-            separator(ui);
+            sink.separator();
             if let Some(current) = current.filter(|c| *c != name) {
-                item(
-                    ui,
-                    Icon::Merge,
-                    &format!("Merge into {current}"),
-                    out,
-                    || {
-                        confirm(
-                            format!("Merge {name} into {current}?"),
-                            "",
-                            Op::Merge(name.clone()),
-                            false,
-                        )
-                    },
-                );
-                item(
-                    ui,
+                sink.item(Icon::Merge, &format!("Merge into {current}"), &|| {
+                    confirm(
+                        format!("Merge {name} into {current}?"),
+                        "",
+                        Op::Merge(name.clone()),
+                        false,
+                    )
+                });
+                sink.item(
                     Icon::Rebase,
                     &format!("Rebase {current} onto this"),
-                    out,
-                    || {
+                    &|| {
                         confirm(
                             format!("Rebase {current} onto {name}?"),
                             "Rewrites the commits on your current branch.",
@@ -189,30 +241,30 @@ pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Co
                 );
             }
             if current == Some(name.as_str()) {
-                item(ui, Icon::Pull, "Pull", out, || Command::Run(Op::Pull));
+                sink.item(Icon::Pull, "Pull", &|| Command::Run(Op::Pull));
             }
-            item(ui, Icon::Push, "Push", out, || Command::Push(name.clone()));
-            item(ui, Icon::Copy, "Copy branch name", out, || {
+            sink.item(Icon::Push, "Push", &|| Command::Push(name.clone()));
+            sink.item(Icon::Copy, "Copy branch name", &|| {
                 Command::Copy(name.clone())
             });
             if current != Some(name.as_str()) {
-                separator(ui);
+                sink.separator();
                 let remote = label.has_remote.then(|| "origin".to_string());
-                danger(ui, Icon::Trash, "Delete branch…", out, || {
+                sink.danger(Icon::Trash, "Delete branch…", &|| {
                     Command::Open(Dialog::DeleteBranch {
                         name: name.clone(),
                         force: false,
-                        remote,
+                        remote: remote.clone(),
                         delete_remote: false,
                     })
                 });
             }
         }
         RefKind::Remote => {
-            item(ui, Icon::Check, "Check out", out, || {
+            sink.item(Icon::Check, "Check out", &|| {
                 Command::Run(Op::SwitchTrack(name.clone()))
             });
-            item(ui, Icon::Branch, "New branch from here…", out, || {
+            sink.item(Icon::Branch, "New branch from here…", &|| {
                 let local = name
                     .split_once('/')
                     .map_or(name.as_str(), |(_, b)| b)
@@ -220,28 +272,22 @@ pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Co
                 new_branch(&local, &name)
             });
             if let Some(current) = current {
-                item(
-                    ui,
-                    Icon::Merge,
-                    &format!("Merge into {current}"),
-                    out,
-                    || {
-                        confirm(
-                            format!("Merge {name} into {current}?"),
-                            "",
-                            Op::Merge(name.clone()),
-                            false,
-                        )
-                    },
-                );
+                sink.item(Icon::Merge, &format!("Merge into {current}"), &|| {
+                    confirm(
+                        format!("Merge {name} into {current}?"),
+                        "",
+                        Op::Merge(name.clone()),
+                        false,
+                    )
+                });
             }
-            item(ui, Icon::Copy, "Copy branch name", out, || {
+            sink.item(Icon::Copy, "Copy branch name", &|| {
                 Command::Copy(name.clone())
             });
-            separator(ui);
+            sink.separator();
             if let Some((remote, branch)) = name.split_once('/') {
                 let (remote, branch) = (remote.to_string(), branch.to_string());
-                danger(ui, Icon::Trash, "Delete remote branch…", out, || {
+                sink.danger(Icon::Trash, "Delete remote branch…", &|| {
                     confirm(
                         format!("Delete {name} on {remote}?"),
                         "This removes the branch for everyone using this remote.",
@@ -255,15 +301,13 @@ pub fn branch(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Co
             }
         }
         RefKind::Tag => {
-            item(ui, Icon::Check, "Check out", out, || {
+            sink.item(Icon::Check, "Check out", &|| {
                 Command::Run(Op::SwitchDetached(name.clone()))
             });
-            item(ui, Icon::Branch, "New branch from here…", out, || {
+            sink.item(Icon::Branch, "New branch from here…", &|| {
                 new_branch("", &name)
             });
-            item(ui, Icon::Copy, "Copy tag name", out, || {
-                Command::Copy(name.clone())
-            });
+            sink.item(Icon::Copy, "Copy tag name", &|| Command::Copy(name.clone()));
         }
     }
 }
