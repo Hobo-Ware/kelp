@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FAQ - Kelp</title>
+<meta name="description" content="Answers about Kelp's speed, privacy (no telemetry), every network request it makes, where it keeps its files, Linux support and how to report a bug.">
+<link rel="canonical" href="https://kelp.hoboware.dev/docs/faq.html">
+<meta name="theme-color" content="#15181e">
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta property="og:site_name" content="Kelp">
+<meta property="og:title" content="FAQ - Kelp">
+<meta property="og:description" content="Speed, privacy, network requests, where Kelp keeps its files, Linux and bug reports.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://kelp.hoboware.dev/docs/faq.html">
+<meta property="og:image" content="https://kelp.hoboware.dev/kelp-og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="../index.html"><img src="../mascot.svg" alt="" width="30" height="30">Kelp</a>
+  <span class="version">v0.7.0</span>
+  <div class="navlinks">
+    <a href="getting-started.html">Docs</a>
+    <a href="shortcuts.html">Shortcuts</a>
+    <a href="faq.html" aria-current="page">FAQ</a>
+    <a href="../changelog.html">Changelog</a>
+    <a class="gh" href="https://github.com/Hobo-Ware/kelp">GitHub</a>
+  </div>
+</div></nav>
+
+<main class="doc"><div class="wrap">
+  <p class="eyebrow">Docs</p>
+  <h1>Frequently asked questions</h1>
+  <p class="lede">Short answers about speed, privacy and where things live.</p>
+  <div class="toc"><a href="#speed">Speed</a><a href="#privacy">Privacy</a><a href="#network">Network requests</a><a href="#data">Where Kelp keeps things</a><a href="#linux">Linux</a><a href="#bugs">Reporting a bug</a></div>
+
+  <h2 id="speed">How fast is it?</h2>
+  <p>Measured on an Apple silicon Mac with a release build:</p>
+  <ul>
+    <li>git/git, with 86,000 commits, opens in about 150 ms. A 6,000 commit repository opens in about 20 ms.</li>
+    <li>The Linux kernel, with almost 1.5 million commits, opens in about a second and a half and adds roughly 250 MB of memory.</li>
+    <li>A frame takes well under a millisecond to draw while you scroll, because Kelp only draws the rows you can see.</li>
+    <li>When you are not using it, Kelp uses 0% CPU. It only redraws when you do something or when background work finishes.</li>
+  </ul>
+  <p>If a repository has no commit-graph file, Kelp writes one in the background with <code>git commit-graph write</code>. That makes every later open much faster. The full numbers are in the <a href="https://github.com/Hobo-Ware/kelp/blob/main/LEDGER.md">ledger</a>.</p>
+
+  <h2 id="privacy">Does Kelp collect any data?</h2>
+  <p>No. Kelp has no telemetry, no analytics and no crash reporting. It never sends your code, file names or commit messages anywhere. The only network requests it makes are the ones listed below.</p>
+
+  <h2 id="network">What network requests does Kelp make?</h2>
+  <dl>
+    <dt>Avatars</dt>
+    <dd><p>To show faces next to commits, Kelp asks GitHub for the avatar of commit authors (<code>avatars.githubusercontent.com</code>, and <code>api.github.com</code> to match a commit to its author on GitHub repositories), then Gravatar, which receives a SHA-256 hash of the email address, not the address itself. Only authors of commits on screen are looked up, and images are cached on disk. Turn this off with Settings &gt; Load avatars from GitHub and Gravatar; you get generated initials instead.</p></dd>
+    <dt>The update check</dt>
+    <dd><p>Five seconds after launch and then every six hours, Kelp asks <code>api.github.com</code> for the latest release of Kelp. If you installed with Homebrew, it can install the update with <code>brew upgrade</code> in the background. Both are switches in Settings.</p></dd>
+    <dt>Pull requests and CI checks</dt>
+    <dd><p>On repositories hosted on GitHub, Kelp shows pull requests on your branches and a CI status dot on commits. Pull requests come through the <a href="https://cli.github.com">GitHub CLI</a> (<code>gh</code>) when it is installed, using your own <code>gh</code> login, and from the public GitHub API otherwise. CI status needs <code>gh</code>. Results are cached for five minutes and refreshed after you fetch, pull or push. Repositories not on GitHub make no such requests.</p></dd>
+    <dt>Your own git remotes</dt>
+    <dd><p>Kelp fetches from your remotes in the background every 5 minutes, the same as running <code>git fetch</code>. Change the interval or turn it off in Settings. Pull, push and clone talk to your remotes only when you ask.</p></dd>
+  </dl>
+  <p>Every git and <code>gh</code> command Kelp runs shows up in the git console (<kbd>Cmd+Opt+L</kbd>), with its output.</p>
+
+  <h2 id="data">Where does Kelp keep its files?</h2>
+  <table>
+    <thead><tr><th>What</th><th>Where</th></tr></thead>
+    <tbody>
+      <tr><td>Settings, open tabs, recent repositories, window size, panel sizes and zoom</td><td><code>~/Library/Application Support/kelp/settings.json</code></td></tr>
+      <tr><td>Avatar, pull request and CI caches</td><td><code>~/Library/Caches/kelp</code></td></tr>
+      <tr><td>Review comments</td><td><code>&lt;repo&gt;/.git/kelp/comments.json</code></td></tr>
+      <tr><td>Per-repository preferences: sidebar layout, hidden branches, commit box options</td><td><code>&lt;repo&gt;/.git/kelp/</code></td></tr>
+      <tr><td>Undo snapshots, removed the next time the repository opens</td><td><code>refs/kelp/undo</code> inside the repository</td></tr>
+    </tbody>
+  </table>
+  <p>Files inside <code>.git</code> are never committed or pushed. To reset Kelp, quit it and delete the <code>kelp</code> folders above.</p>
+
+  <h2 id="linux">Does Kelp run on Linux?</h2>
+  <p>Not yet. Kelp is built and tested for macOS 12 or later. The code has Linux paths for fonts, caches, settings and opening a terminal, and it may build from source, but nobody has tested it there, so expect rough edges. Windows would be nice to have, but it is not a target for now.</p>
+
+  <h2 id="bugs">How do I report a bug?</h2>
+  <p><a href="https://github.com/Hobo-Ware/kelp/issues/new">Open an issue on GitHub</a>. You can also get there from Settings &gt; Help &gt; Report a bug, or by typing "report a bug" in the command palette. These help us find the cause:</p>
+  <ul>
+    <li>Your Kelp version (<code>kelp --version</code>) and macOS version.</li>
+    <li>What you did, what you expected and what happened instead.</li>
+    <li>If a git command failed, the lines from the git console (<kbd>Cmd+Opt+L</kbd>).</li>
+    <li>A screenshot, if it's something you can see.</li>
+  </ul>
+  <p>Please don't paste anything private from your repository. A small public repository that shows the problem is the best report.</p>
+</div></main>
+
+<footer><div class="wrap">
+  <span>Kelp is MIT licensed. Made by <a href="https://github.com/Hobo-Ware">Hoboware</a>.</span>
+  <span><a href="getting-started.html">Getting started</a> · <a href="shortcuts.html">Shortcuts</a> · <a href="undo.html">Undo</a> · <a href="faq.html">FAQ</a> · <a href="../changelog.html">Changelog</a> · <a href="https://github.com/Hobo-Ware/kelp">GitHub</a></span>
+</div></footer>
+</body>
+</html>

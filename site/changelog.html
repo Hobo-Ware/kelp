@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Changelog - Kelp</title>
+<meta name="description" content="Every Kelp release, newest first: new features, speed-ups and fixes in the fast native git client for macOS.">
+<link rel="canonical" href="https://kelp.hoboware.dev/changelog.html">
+<meta name="theme-color" content="#15181e">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:site_name" content="Kelp">
+<meta property="og:title" content="Changelog - Kelp">
+<meta property="og:description" content="What changed in each Kelp release, newest first.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://kelp.hoboware.dev/changelog.html">
+<meta property="og:image" content="https://kelp.hoboware.dev/kelp-og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="alternate" type="text/markdown" href="https://github.com/Hobo-Ware/kelp/blob/main/CHANGELOG.md">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="brand" href="index.html"><img src="mascot.svg" alt="" width="30" height="30">Kelp</a>
+  <span class="version">v0.7.0</span>
+  <div class="navlinks">
+    <a href="docs/getting-started.html">Docs</a>
+    <a href="docs/shortcuts.html">Shortcuts</a>
+    <a href="docs/faq.html">FAQ</a>
+    <a href="changelog.html" aria-current="page">Changelog</a>
+    <a class="gh" href="https://github.com/Hobo-Ware/kelp">GitHub</a>
+  </div>
+</div></nav>
+
+<main class="doc"><div class="wrap">
+  <p class="eyebrow">Changelog</p>
+  <h1>What's new in Kelp</h1>
+  <p class="lede">Everything that changed in Kelp, newest first. Kelp updates itself, so you usually have the newest one already.</p>
+  <section class="release" id="v0-7-0">
+    <h2>v0.7.0 <time datetime="2026-09-28">2026-09-28</time></h2>
+    <ul>
+      <li>A light theme. Kelp follows your Mac's appearance by default, and Settings lets you pick Light or Dark instead.</li>
+      <li>A git console (Cmd+Opt+L) lists every git command Kelp ran, with its output, how long it took and whether it worked. Error messages link straight to the command that failed.</li>
+      <li>The commit box can add a Conventional Commit type (feat, fix, docs and more), add co-authors from people in your history, and commit and push in one go (Cmd+Shift+Enter).</li>
+      <li>Everything works from the keyboard: every action has a shortcut or a palette entry, F6 moves between the sidebar, graph and details, and Shift+F10 opens the menu for the focused row.</li>
+      <li>VoiceOver can read branches, commits and buttons.</li>
+      <li>Huge repositories open much faster and use far less memory. The Linux kernel, with almost 1.5 million commits, opens in about a second and a half.</li>
+      <li>The rebase warning no longer runs under the buttons.</li>
+    </ul>
+  </section>
+  <section class="release" id="v0-6-0">
+    <h2>v0.6.0 <time datetime="2026-09-28">2026-09-28</time></h2>
+    <ul>
+      <li>Commits show a small dot for their CI status: green passed, red failed, amber still running. Hover to see which checks failed.</li>
+      <li>A Pull requests page lists open pull requests, yours, and the ones waiting for your review. Check one out, open it, or find its branch in the graph.</li>
+      <li>Signed commits show a Verified badge, and Settings can set up commit signing with GPG or SSH.</li>
+      <li>Submodules get their own sidebar section, and a changed submodule shows which commits it moved between.</li>
+      <li>Git LFS files show as LFS files instead of pointer text, and images preview when the file is on your Mac.</li>
+    </ul>
+  </section>
+  <section class="release" id="v0-5-1">
+    <h2>v0.5.1 <time datetime="2026-09-28">2026-09-28</time></h2>
+    <ul>
+      <li>The app icon turns to glass and tints with your Dock on macOS 26.</li>
+    </ul>
+  </section>
+  <section class="release" id="v0-5-0">
+    <h2>v0.5.0 <time datetime="2026-09-28">2026-09-28</time></h2>
+    <ul>
+      <li>File history: every commit that touched a file, following renames, with its changes beside the list.</li>
+      <li>Blame shows who last changed each line. Click a line to jump to that commit, or blame the version before it.</li>
+      <li>Compare any two commits: Cmd-click a second one, or compare with your current branch or your working files.</li>
+      <li>Filter the graph by author, file path, time span or only your own commits. Everything else fades.</li>
+      <li>The reflog page is a safety net for commits that look lost, with a one-click restore you can undo.</li>
+      <li>Stashes show the untracked files they hold.</li>
+      <li>Menus keep a sensible width instead of stretching.</li>
+    </ul>
+  </section>
+  <section class="release" id="v0-4-0">
+    <h2>v0.4.0 <time datetime="2026-09-28">2026-09-28</time></h2>
+    <ul>
+      <li>Rename a branch right in the sidebar with F2. Renaming a branch on the remote is one confirm away.</li>
+      <li>Edit the message of any commit, not just the last one.</li>
+      <li>Undo covers interactive rebases and message edits too.</li>
+      <li>The interactive rebase can stop at a commit so you can change it, and it handles merge commits.</li>
+      <li>Discard a single hunk or just the lines you picked, and bring them back with Cmd+Z.</li>
+      <li>Pick several files in the staging panel to stage, stash or discard them together, or stash just one file.</li>
+      <li>Rename stashes and see their changes, move worktrees, create and push tags, and manage remotes.</li>
+      <li>Typing <code>kelp &lt;folder&gt;</code> in the terminal opens it in the running Kelp and gives your prompt back right away.</li>
+    </ul>
+  </section>
+  <section class="release" id="v0-3-1">
+    <h2>v0.3.1 <time datetime="2026-09-28">2026-09-28</time></h2>
+    <ul>
+      <li>Branches show their pull request number and state, with a dot for CI. Click it to open the pull request.</li>
+      <li>Open or create a pull request from any branch menu.</li>
+      <li>Worktrees come first in the sidebar, and clicking a section title opens or closes it.</li>
+      <li>Long commit descriptions fold after a few lines, with a Show full message viewer.</li>
+      <li>The halo around the selected avatar is a full circle again.</li>
+    </ul>
+  </section>
+  <section class="release" id="v0-3-0">
+    <h2>v0.3.0 <time datetime="2026-09-28">2026-09-28</time></h2>
+    <ul>
+      <li>A command palette (Cmd+K) finds any action, branch, commit, file or tab.</li>
+      <li>A shortcut sheet (Cmd+/) lists every shortcut.</li>
+      <li>Branches fold into folders like feat/ and fix/, with a filter box, pinned branches, a way to hide merged ones, and sorting by name or date.</li>
+      <li>A new tab page with your recent repositories, plus Clone and New repository.</li>
+      <li>Collapse the sidebar and details panel, and zoom the whole window.</li>
+    </ul>
+  </section>
+  <section class="release" id="v0-2-0">
+    <h2>v0.2.0 <time datetime="2026-09-28">2026-09-28</time></h2>
+    <ul>
+      <li>Click the +N chip on a commit to see every branch and tag on it.</li>
+      <li>Click, right-click or double-click branch labels in the graph, and drag one onto a commit to merge, rebase or reset.</li>
+      <li>Hover a commit to trace its branch and see its details.</li>
+      <li>Uncommitted changes from your other worktrees show in the graph, each with an Open button.</li>
+      <li>Hide a branch from the graph, or show only one.</li>
+      <li>Add author, date and hash columns next to the commit message.</li>
+    </ul>
+  </section>
+  <section class="release" id="v0-1-2">
+    <h2>v0.1.2 <time datetime="2026-09-27">2026-09-27</time></h2>
+    <ul>
+      <li>Undo (Cmd+Z) for commits, checkouts, resets, merges, discards and more.</li>
+      <li>An interactive rebase view: reorder, reword, squash, fixup or drop commits without an editor.</li>
+      <li>A conflict view with ours and theirs side by side, and Continue or Abort in one place.</li>
+      <li>Cherry-pick, revert and reset from the commit menu. Pushes set their upstream and offer a safe force push.</li>
+      <li>Word-level highlights, jump between changes, and stage single lines.</li>
+      <li>Open files in your editor or reveal them in Finder.</li>
+      <li>Tab shortcuts, drag to reorder tabs, drop a folder onto the window, and Kelp remembers its window size.</li>
+    </ul>
+  </section>
+  <section class="release" id="v0-1-1">
+    <h2>v0.1.1 <time datetime="2026-09-27">2026-09-27</time></h2>
+    <ul>
+      <li>The window buttons sit in the tab strip, and the Dock shows the Kelp icon.</li>
+      <li>Previews for images, SVGs and Markdown.</li>
+      <li>Split and Unified diffs switch reliably and remember your choice.</li>
+    </ul>
+  </section>
+  <section class="release" id="v0-1-0">
+    <h2>v0.1.0 <time datetime="2026-09-27">2026-09-27</time></h2>
+    <ul>
+      <li>The first release: a fast commit graph with avatars, branches, worktrees, stashes, diffs, inline review comments, staging and committing.</li>
+      <li>Kelp updates itself through Homebrew, refreshes when files change, and fetches in the background.</li>
+    </ul>
+  </section>
+</div></main>
+
+<footer><div class="wrap">
+  <span>Kelp is MIT licensed. Made by <a href="https://github.com/Hobo-Ware">Hoboware</a>.</span>
+  <span><a href="docs/getting-started.html">Getting started</a> · <a href="docs/shortcuts.html">Shortcuts</a> · <a href="docs/undo.html">Undo</a> · <a href="docs/faq.html">FAQ</a> · <a href="changelog.html">Changelog</a> · <a href="https://github.com/Hobo-Ware/kelp">GitHub</a></span>
+</div></footer>
+</body>
+</html>
