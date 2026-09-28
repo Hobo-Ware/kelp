@@ -79,6 +79,10 @@ folder if it is a repo.
   dragging, and pick, reword, squash, fixup or drop each one. Messages are edited
   inline; no editor opens.
 - **Search:** Cmd+F across messages, authors, emails and hash prefixes.
+- **Command palette:** Cmd+K (or Cmd+Shift+P) finds any action, branch,
+  commit, changed file or tab. Prefix with `>` for actions, `@` for
+  branches, `#` for commits and `/` for files; Cmd+Enter on a branch lists
+  its actions. Cmd+/ shows every shortcut.
 - **Files:** right-click any file for Open in editor, Reveal in Finder and
   Copy path; the diff header has an editor button too. Pick the editor in
   Settings (empty uses the first installed of Cursor, VS Code, Zed and
@@ -91,21 +95,24 @@ folder if it is a repo.
 
 | Key | Action |
 |---|---|
+| Cmd+K / Cmd+Shift+P | Command palette: actions, branches, commits, files and tabs |
+| Cmd+/ | Keyboard shortcuts |
 | Up / Down, J / K | Move through commits |
 | Cmd+F | Search; Enter / Shift+Enter for next / previous |
 | Esc | Back to the graph, close search or dialogs |
-| Cmd+Enter | Save a review comment or reply |
 | Cmd+T / Cmd+O | Open a repository in a new tab |
 | Cmd+W | Close the tab |
 | Cmd+1 ... Cmd+9 | Go to a tab (Cmd+9 is the last one) |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
-| Cmd+R | Refresh the graph, changes and worktrees |
-| Cmd+Z / Cmd+Shift+Z | Undo / redo the last action |
-| Alt+Up / Alt+Down | Previous / next change in a diff |
-| Right-click | Actions for commits, branches, tags, stashes, worktrees and tabs |
 | Middle-click a tab | Close it |
 | Drag a tab | Reorder tabs |
 | Drop a folder on the window | Open it (a file opens the repository it is in) |
+| Alt+Up / Alt+Down | Previous / next change in a diff |
+| Cmd+Enter | Save a review comment or reply |
+| Cmd+R | Refresh the graph, changes and worktrees |
+| Cmd+Z / Cmd+Shift+Z | Undo / redo the last action |
+| Cmd+, | Settings |
+| Right-click | Actions for commits, branches, tags, stashes, worktrees and tabs |
 | Double-click a branch | Check it out |
 | Double-click a graph label | Check out that branch |
 | Drag a graph label onto a commit | Merge, rebase or reset |
@@ -152,7 +159,7 @@ Developer switches (environment variables):
 | `KELP_OFFLINE=1` | No avatar downloads |
 | `KELP_HIDE_REFS=a,b`, `KELP_COLUMNS=author,date,hash` | Hide branches or show columns for this run |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
-| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`), `KELP_OPEN_SETTINGS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`), `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu) | Open a screen on start |
+| `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`), `KELP_OPEN_SETTINGS=1`, `KELP_OPEN_PALETTE=<query>`, `KELP_OPEN_SHORTCUTS=1`, `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`), `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu) | Open a screen on start |
 | `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
 | `KELP_HOVER_ROW=<row>` | Draw the graph as if that commit row were hovered |

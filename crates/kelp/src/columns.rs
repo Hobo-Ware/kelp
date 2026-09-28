@@ -82,6 +82,11 @@ impl GraphColumns {
         }
     }
 
+    pub fn toggle(&mut self, column: Column) {
+        let shown = self.shown_mut(column);
+        *shown = !*shown;
+    }
+
     fn shown_mut(&mut self, column: Column) -> &mut bool {
         match column {
             Column::Author => &mut self.author,
