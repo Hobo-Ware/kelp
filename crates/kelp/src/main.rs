@@ -7,6 +7,7 @@ mod cli;
 mod clone;
 mod columns;
 mod commands;
+mod commit_helpers;
 mod compare_view;
 mod conflict_view;
 mod console_view;

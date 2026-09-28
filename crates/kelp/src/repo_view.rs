@@ -185,6 +185,10 @@ pub struct Repo {
     pub commit_body: String,
     pub amend: bool,
     commit_in_flight: bool,
+    pub push_after_commit: bool,
+    pub commit_prefs: kelp_core::commit_message::Prefs,
+    pub conventional_detected: Option<bool>,
+    pub co_author_people: Option<Vec<kelp_core::commit_message::Person>>,
     pub workspace: WorkspaceInfo,
     pub graph: GraphView,
     pub center: Center,
@@ -243,6 +247,7 @@ impl Repo {
         let github = kelp_core::avatar::GitHubRepo::from_repo(&repo);
         let avatars = AvatarStore::new(ctx.clone(), github.clone());
         let review = Review::load(repo.common_dir());
+        let commit_prefs = kelp_core::commit_message::Prefs::load(repo.common_dir());
         let view = ViewFilter::load(repo.common_dir());
         let sidebar = sidebar::State::new(repo.common_dir());
         let stale_undo_dir = dir.clone();
@@ -278,6 +283,10 @@ impl Repo {
             commit_body: String::new(),
             amend: false,
             commit_in_flight: false,
+            push_after_commit: false,
+            commit_prefs,
+            conventional_detected: None,
+            co_author_people: None,
             workspace: WorkspaceInfo::default(),
             graph: GraphView::new(),
             center: Center::Graph,
@@ -636,6 +645,54 @@ impl Repo {
             message,
             amend: self.amend,
         });
+    }
+
+    pub fn commit_and_push(&mut self) {
+        if self.current_branch().is_none() {
+            self.notify("Check out a branch to push after committing", true);
+            return;
+        }
+        self.push_after_commit = true;
+        self.commit();
+        if !self.commit_in_flight {
+            self.push_after_commit = false;
+        }
+    }
+
+    pub fn uses_conventional(&mut self) -> bool {
+        if let Some(choice) = self.commit_prefs.conventional {
+            return choice;
+        }
+        *self.conventional_detected.get_or_insert_with(|| {
+            let ids: Vec<_> = self.history.ids().iter().take(50).copied().collect();
+            kelp_core::commit_message::uses_conventional(&kelp_core::commit_message::subjects(
+                &self.dir, &ids,
+            ))
+        })
+    }
+
+    pub fn set_conventional(&mut self, on: bool) {
+        self.commit_prefs.conventional = Some(on);
+        if !crate::settings::is_dev_run() {
+            self.commit_prefs.save(self.repo.common_dir());
+        }
+    }
+
+    pub fn people(&mut self) -> &[kelp_core::commit_message::Person] {
+        if self.co_author_people.is_none() {
+            let ids: Vec<_> = self.history.ids().iter().take(1000).copied().collect();
+            let me = self
+                .repo
+                .config_snapshot()
+                .string("user.email")
+                .map(|email| email.to_string());
+            self.co_author_people = Some(kelp_core::commit_message::people(
+                &self.dir,
+                &ids,
+                me.as_deref(),
+            ));
+        }
+        self.co_author_people.as_deref().unwrap_or_default()
     }
 
     pub fn toggle_amend(&mut self) {
@@ -1162,6 +1219,7 @@ impl Repo {
     pub fn poll(&mut self, ctx: &egui::Context, fetch_every: Option<Duration>) {
         self.avatars.poll();
         self.filter.poll(&self.dir, self.history.ids(), ctx);
+        let mut push_after = Vec::new();
         for output in self.jobs.finished() {
             match output {
                 JobOutput::Status(Ok(working)) => {
@@ -1272,6 +1330,7 @@ impl Repo {
                     if commit {
                         self.commit_in_flight = false;
                     }
+                    let push_next = commit && std::mem::take(&mut self.push_after_commit);
                     self.keep_undo(undo);
                     let remote_changed = ["Fetching", "Pulling", "Pushing"]
                         .iter()
@@ -1285,6 +1344,11 @@ impl Repo {
                                 self.commit_summary.clear();
                                 self.commit_body.clear();
                                 self.amend = false;
+                            }
+                            if push_next
+                                && let Some(branch) = self.current_branch().map(str::to_string)
+                            {
+                                push_after.push(Command::Push(branch));
                             }
                             if !quiet {
                                 self.notify(format!("{label} done"), false);
@@ -1306,6 +1370,9 @@ impl Repo {
                     self.refresh_status();
                 }
             }
+        }
+        if !push_after.is_empty() {
+            self.execute(ctx, push_after);
         }
         self.watch_focus(ctx);
         self.apply_watch_events();

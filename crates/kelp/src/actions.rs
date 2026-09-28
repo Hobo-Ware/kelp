@@ -323,6 +323,7 @@ pub static KEYS: &[KeyRow] = &[
     key("Drop a folder on the window", "Open it (a file opens the repository it is in)", Group::Tabs),
     key("Alt+Up / Alt+Down", "Previous / next change in a diff", Group::Diff),
     key("Cmd+Enter", "Save a review comment or reply", Group::Diff),
+    key("Cmd+Shift+Enter", "Commit and push, from the commit box", Group::Actions),
     key("Cmd+R", "Refresh the graph, changes and worktrees", Group::Actions),
     key("Cmd+Shift+R", "Fetch", Group::Actions),
     key("Cmd+Shift+L / Cmd+Shift+U", "Pull / push", Group::Actions),

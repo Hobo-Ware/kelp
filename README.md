@@ -91,6 +91,11 @@ folder if it is a repo.
   single lines (click line numbers, Shift-click for a range), discard files,
   hunks or lines (Cmd+Z brings them back), commit and amend (hooks run as usual).
   Cmd-click or Shift-click files to stage, stash or discard several at once.
+- **Commit box helpers:** a Conventional Commit type picker (type, scope and a
+  breaking-change toggle) that shows up when the recent history uses that style
+  and can be turned on or off per repository; a co-author picker that adds
+  `Co-authored-by` trailers as removable chips; and Commit and push
+  (Cmd+Shift+Enter), which pushes the new commit the same way the Push button does.
 - **Git console:** Cmd+Opt+L, the palette or the status bar button lists every git
   and gh command Kelp ran, newest first, with its exit status, duration and output
   (tokens and passwords are masked). Error toasts link to the failing command.
@@ -198,6 +203,7 @@ folder if it is a repo.
 | Drop a folder on the window | Open it (a file opens the repository it is in) |
 | Alt+Up / Alt+Down | Previous / next change in a diff |
 | Cmd+Enter | Save a review comment or reply |
+| Cmd+Shift+Enter | Commit and push, from the commit box |
 | Cmd+R | Refresh the graph, changes and worktrees |
 | Cmd+Shift+R | Fetch |
 | Cmd+Shift+L / Cmd+Shift+U | Pull / push |
@@ -222,6 +228,7 @@ folder if it is a repo.
 | Settings, open tabs, recent repositories, window size and position, panel sizes, zoom | `~/Library/Application Support/kelp/settings.json` |
 | Avatar cache | `~/Library/Caches/kelp/avatars` |
 | Review comments | `<repo>/.git/kelp/comments.json` |
+| Whether the commit type picker is on | `<repo>/.git/kelp/commit.json` |
 
 If a repo has no commit-graph file, Kelp writes one in the background
 (`git commit-graph write --reachable --changed-paths`), which makes
