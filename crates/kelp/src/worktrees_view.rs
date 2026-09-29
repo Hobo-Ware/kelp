@@ -1,5 +1,5 @@
 use eframe::egui::{
-    self, Align2, Color32, FontId, Margin, RichText, Sense, Stroke, Ui, pos2, vec2,
+    self, Align2, Color32, FontId, Key, Margin, RichText, Sense, Stroke, Ui, pos2, vec2,
 };
 use kelp_core::commit;
 use kelp_core::ops::Op;
@@ -15,10 +15,39 @@ const BRANCH_ROW_H: f32 = 44.0;
 const WORKTREE_COLS: [f32; 5] = [0.17, 0.2, 0.27, 0.11, 0.25];
 const BRANCH_COLS: [f32; 5] = [0.26, 0.13, 0.33, 0.15, 0.13];
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Picked {
+    Worktree(std::path::PathBuf),
+    Branch(String),
+}
+
+enum Enter {
+    Open(std::path::PathBuf),
+    Reveal(usize),
+    Nothing,
+}
+
+fn picked_id(repo: &Repo) -> egui::Id {
+    egui::Id::new(("worktrees-picked", &repo.dir))
+}
+
+fn paint_row_state(ui: &Ui, response: &egui::Response, picked: bool) {
+    let painter = ui.painter_at(response.rect);
+    if picked {
+        painter.rect_filled(response.rect, 0.0, theme::sidebar_selected());
+    } else if response.hovered() {
+        painter.rect_filled(response.rect, 0.0, theme::overlay(0x06));
+    }
+    crate::widgets::focus_ring(ui, response, 0.0);
+}
+
 pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
+    let mut picked: Option<Picked> = ui.data(|d| d.get_temp(picked_id(repo)));
+    let mut rows: Vec<(egui::Id, egui::Rect)> = Vec::new();
+    let mut items: Vec<(Picked, Enter)> = Vec::new();
     egui::ScrollArea::vertical()
         .auto_shrink(false)
         .show(ui, |ui| {
@@ -72,10 +101,25 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                     Sense::click(),
                                 );
                                 let cols = columns(rect, &WORKTREE_COLS);
-                                let painter = ui.painter_at(rect);
-                                if response.hovered() {
-                                    painter.rect_filled(rect, 0.0, theme::overlay(0x06));
+                                let item = Picked::Worktree(wt.tree.path.clone());
+                                paint_row_state(ui, &response, picked.as_ref() == Some(&item));
+                                let openable = !current && !wt.tree.prunable;
+                                if response.clicked() {
+                                    picked = Some(item.clone());
                                 }
+                                if openable && response.double_clicked() {
+                                    commands.push(Command::OpenRepo(wt.tree.path.clone()));
+                                }
+                                rows.push((response.id, rect));
+                                items.push((
+                                    item,
+                                    if openable {
+                                        Enter::Open(wt.tree.path.clone())
+                                    } else {
+                                        Enter::Nothing
+                                    },
+                                ));
+                                let painter = ui.painter_at(rect);
                                 painter.hline(
                                     rect.x_range(),
                                     rect.bottom() - 0.5,
@@ -212,10 +256,16 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                     Sense::click(),
                                 );
                                 let cols = columns(rect, &BRANCH_COLS);
+                                let item = Picked::Branch(label.name.clone());
+                                paint_row_state(ui, &response, picked.as_ref() == Some(&item));
+                                rows.push((response.id, rect));
+                                items.push((
+                                    item,
+                                    label
+                                        .row
+                                        .map_or(Enter::Nothing, |r| Enter::Reveal(r as usize)),
+                                ));
                                 let painter = ui.painter_at(rect);
-                                if response.hovered() {
-                                    painter.rect_filled(rect, 0.0, theme::overlay(0x06));
-                                }
                                 painter.hline(
                                     rect.x_range(),
                                     rect.bottom() - 0.5,
@@ -301,8 +351,32 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                             }
                         },
                     );
+                    let at = picked
+                        .as_ref()
+                        .and_then(|p| items.iter().position(|(item, _)| item == p));
+                    let ctx = ui.ctx().clone();
+                    let free = crate::list_keys::nothing_focused(&ctx);
+                    if let Some(next) = crate::list_keys::step(ui, &rows, at, free) {
+                        picked = Some(items[next].0.clone());
+                    } else if let Some(at) = crate::list_keys::current(&ctx, &rows, at, free)
+                        && crate::list_keys::pressed(&ctx, Key::Enter)
+                    {
+                        match &items[at].1 {
+                            Enter::Open(path) => commands.push(Command::OpenRepo(path.clone())),
+                            Enter::Reveal(row) => {
+                                commands.push(Command::Reveal(Selection::Commit(*row)))
+                            }
+                            Enter::Nothing => {}
+                        }
+                    }
                 });
         });
+    ui.data_mut(|d| match picked {
+        Some(p) => {
+            d.insert_temp(picked_id(repo), p);
+        }
+        None => d.remove::<Picked>(picked_id(repo)),
+    });
 }
 
 fn lane_of(repo: &Repo, branch: Option<&str>) -> Color32 {
@@ -409,4 +483,90 @@ fn accent_button(text: &str) -> egui::Button<'_> {
     .fill(theme::accent())
     .corner_radius(5)
     .min_size(vec2(0.0, 30.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use eframe::egui::{self, Event, Key, Modifiers, Pos2, RawInput, Rect, vec2};
+    use kelp_core::git_cli::run;
+
+    use super::Picked;
+    use crate::commands::Command;
+    use crate::repo_view::Repo;
+
+    fn press(ctx: &egui::Context, repo: &mut Repo, key: Option<Key>) -> Vec<Command> {
+        let events = key
+            .map(|key| {
+                [true, false]
+                    .map(|pressed| Event::Key {
+                        key,
+                        physical_key: None,
+                        pressed,
+                        repeat: false,
+                        modifiers: Modifiers::NONE,
+                    })
+                    .to_vec()
+            })
+            .unwrap_or_default();
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1100.0, 900.0))),
+            events,
+            ..Default::default()
+        };
+        let mut commands = Vec::new();
+        let _ = ctx.run_ui(input, |ui| super::ui(ui, repo, &mut commands));
+        commands
+    }
+
+    fn picked(ctx: &egui::Context, repo: &Repo) -> Option<Picked> {
+        ctx.data(|d| d.get_temp(super::picked_id(repo)))
+    }
+
+    #[test]
+    fn arrows_walk_worktrees_then_branches_and_enter_opens_a_worktree() {
+        let root = std::env::temp_dir().join(format!("kelp-wt-keys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("main");
+        std::fs::create_dir_all(&dir).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "T"],
+            &["commit", "-q", "--allow-empty", "-m", "one"],
+            &["worktree", "add", "-q", "-b", "side", "../side"],
+        ] {
+            run(&dir, args).unwrap();
+        }
+        let side = std::fs::canonicalize(root.join("side")).unwrap();
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let (git, history) = kelp_core::history::History::open(&dir).unwrap();
+        let mut repo = Repo::new(&ctx, git, history, Duration::ZERO);
+        let started = Instant::now();
+        while repo.workspace.worktrees.len() < 2 && started.elapsed() < Duration::from_secs(5) {
+            repo.poll(&ctx, None);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(repo.workspace.worktrees.len(), 2);
+        press(&ctx, &mut repo, None);
+
+        press(&ctx, &mut repo, Some(Key::ArrowDown));
+        press(&ctx, &mut repo, Some(Key::ArrowDown));
+        let second = match picked(&ctx, &repo) {
+            Some(Picked::Worktree(path)) => std::fs::canonicalize(path).unwrap(),
+            other => panic!("expected the second worktree, got {other:?}"),
+        };
+        assert_eq!(second, side);
+        let opened = press(&ctx, &mut repo, Some(Key::Enter));
+        let opens_side = |c: &Command| matches!(c, Command::OpenRepo(p) if std::fs::canonicalize(p).ok().as_ref() == Some(&side));
+        assert!(opened.iter().any(opens_side));
+
+        press(&ctx, &mut repo, Some(Key::ArrowDown));
+        assert!(matches!(picked(&ctx, &repo), Some(Picked::Branch(_))));
+        press(&ctx, &mut repo, Some(Key::Home));
+        assert!(matches!(picked(&ctx, &repo), Some(Picked::Worktree(_))));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
