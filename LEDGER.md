@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.6 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.7 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,11 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-29
+
+- **v0.8.7: branch switching fixes.** `checkout_remote` only reuses the
+  same-name local branch (a branch created from origin/main tracks it and
+  used to win). `switch_or_open_worktree` opens the worktree that holds a
+  branch instead of running a switch git refuses. 428 tests pass.
 
 - **v0.8.6: lock retries, side-branch worktree rows.** `git_cli` retries
   lock failures (index.lock, "could not write index") with 50-800 ms

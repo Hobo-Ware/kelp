@@ -2,6 +2,11 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.7 - 2026-09-29
+
+- Double-clicking a remote branch like origin/main checks out your local main, not some other branch that happens to track origin/main.
+- Switching to a branch that is checked out in another worktree opens that worktree instead of showing an error.
+
 ## v0.8.6 - 2026-09-29
 
 - Switching branches no longer fails with "could not write index" when another git process is busy in the same repository: Kelp waits a moment and tries again.
