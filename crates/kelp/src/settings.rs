@@ -339,6 +339,7 @@ mod tests {
         settings.recent_repos.push(Recent {
             path: PathBuf::from("/nope/kelp"),
             opened: 42,
+            tip: None,
         });
         settings.panels.sidebar_open = false;
         settings.panels.details_width = 410.0;

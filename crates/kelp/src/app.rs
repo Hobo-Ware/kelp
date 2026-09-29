@@ -42,11 +42,14 @@ pub struct KelpApp {
     signing: crate::signing_panel::SigningPanel,
     instance: Option<crate::instance::Listener>,
     applied_theme: Option<egui::ThemePreference>,
+    relocate_confirm: Option<PathBuf>,
 }
 
 struct Tab {
     path: PathBuf,
     state: State,
+    finder: Option<Receiver<Option<PathBuf>>>,
+    suggestion: Option<PathBuf>,
 }
 
 enum State {
@@ -70,6 +73,8 @@ impl Tab {
         Self {
             path,
             state: State::Loading(rx),
+            finder: None,
+            suggestion: None,
         }
     }
 
@@ -138,6 +143,7 @@ impl KelpApp {
                 })
                 .flatten(),
             applied_theme: None,
+            relocate_confirm: None,
             ctx: ctx.clone(),
         }
     }
@@ -168,8 +174,11 @@ impl KelpApp {
         self.settings.save();
     }
 
-    fn remember_recent(&mut self, dir: &Path) {
+    fn remember_recent(&mut self, dir: &Path, tip: Option<String>) {
         recents::remember(&mut self.settings.recent_repos, dir, recents::now());
+        if let Some(tip) = tip {
+            recents::set_tip(&mut self.settings.recent_repos, dir, tip);
+        }
         self.settings.save();
     }
 
@@ -686,6 +695,34 @@ impl KelpApp {
         }
     }
 
+    fn relocate_active(&mut self, ctx: &egui::Context, new: PathBuf) {
+        let Some(old) = self.tabs.get(self.active).map(|t| t.path.clone()) else {
+            return;
+        };
+        if let Some(i) = self
+            .tabs
+            .iter()
+            .position(|t| t.same_repo(&new))
+            .filter(|&i| i != self.active)
+        {
+            self.close_tab(self.active);
+            self.active = i.min(self.tabs.len().saturating_sub(1));
+            return;
+        }
+        for (i, tab) in self.tabs.iter_mut().enumerate() {
+            if i == self.active {
+                *tab = Tab::open(ctx, new.clone());
+            } else if let Some(path) = recents::relocated(&tab.path, &old, &new)
+                && !tab.path.exists()
+            {
+                *tab = Tab::open(ctx, path);
+            }
+        }
+        recents::relocate(&mut self.settings.recent_repos, &old, &new);
+        self.settings.save();
+        self.notify(format!("Now using {}", recents::tilde(&new)));
+    }
+
     fn pick_folder(&mut self) {
         if let Some(folder) = rfd::FileDialog::new()
             .set_title("Open a repository")
@@ -958,6 +995,12 @@ impl eframe::App for KelpApp {
         self.take_handoffs(&ctx);
         let mut loaded = Vec::new();
         for tab in &mut self.tabs {
+            if let Some(rx) = &tab.finder
+                && let Ok(found) = rx.try_recv()
+            {
+                tab.suggestion = found;
+                tab.finder = None;
+            }
             if let State::Loading(rx) = &tab.state
                 && let Ok(result) = rx.try_recv()
             {
@@ -968,12 +1011,31 @@ impl eframe::App for KelpApp {
                     Err(e) => State::Failed(format!("{e:#}")),
                 };
                 if let State::Ready(repo) = &tab.state {
-                    loaded.push(repo.dir.clone());
+                    let tip = repo.repo.head_id().ok().map(|id| id.to_string());
+                    loaded.push((repo.dir.clone(), tip));
+                } else if !tab.path.exists() {
+                    let missing = tab.path.clone();
+                    let tip =
+                        recents::tip_of(&self.settings.recent_repos, &missing).map(str::to_string);
+                    let mut known: Vec<PathBuf> = self
+                        .settings
+                        .recent_repos
+                        .iter()
+                        .map(|r| r.path.clone())
+                        .collect();
+                    known.push(missing.clone());
+                    let (tx, rx) = mpsc::channel();
+                    let ctx = ctx.clone();
+                    std::thread::spawn(move || {
+                        let _ = tx.send(recents::find_moved(&missing, tip.as_deref(), &known));
+                        ctx.request_repaint();
+                    });
+                    tab.finder = Some(rx);
                 }
             }
         }
-        for dir in loaded {
-            self.remember_recent(&dir);
+        for (dir, tip) in loaded {
+            self.remember_recent(&dir, tip);
         }
         let active_ready = self.tabs.is_empty()
             || self
@@ -1004,6 +1066,11 @@ impl eframe::App for KelpApp {
         }
         let showing_home = self.home || self.tabs.is_empty();
         let mut welcome_action = None;
+        let mut relocation = None;
+        let suggestion = self
+            .tabs
+            .get(self.active)
+            .and_then(|t| t.suggestion.clone());
         match self
             .tabs
             .get_mut(self.active)
@@ -1024,13 +1091,50 @@ impl eframe::App for KelpApp {
                 screen.show(ui);
             }
             Some((path, State::Failed(err))) => {
+                let missing = !path.exists();
                 let screen = MascotScreen {
-                    title: "Could not open this repository",
+                    title: if missing {
+                        "This repository moved or was deleted"
+                    } else {
+                        "Could not open this repository"
+                    },
                     subtitle: format!("{}: {err}", path.display()),
                     color: theme::deleted(),
                     animate: false,
                 };
-                screen.show(ui);
+                let confirm = &mut self.relocate_confirm;
+                relocation = screen.show_with(ui, |ui| {
+                    if !missing {
+                        return None;
+                    }
+                    let mut chosen = None;
+                    if let Some(found) = &suggestion {
+                        if confirm.as_ref() == Some(found) {
+                            ui.label(format!("Use {}?", found.display()));
+                            if ui.button("Use this folder").clicked() {
+                                chosen = Some(found.clone());
+                            }
+                            if ui.button("Cancel").clicked() {
+                                *confirm = None;
+                            }
+                            return chosen;
+                        }
+                        let name = found.file_name().map_or_else(
+                            || found.display().to_string(),
+                            |n| n.to_string_lossy().to_string(),
+                        );
+                        let button = ui.add(egui::Button::new(format!("Use {name}...")).truncate());
+                        if button.on_hover_text(found.display().to_string()).clicked() {
+                            *confirm = Some(found.clone());
+                        }
+                    }
+                    if ui.button("Locate folder...").clicked() {
+                        chosen = rfd::FileDialog::new()
+                            .set_title("Locate the moved repository")
+                            .pick_folder();
+                    }
+                    chosen
+                });
             }
             Some((_, State::Ready(repo))) => {
                 repo.ui(ui, &self.settings);
@@ -1047,6 +1151,10 @@ impl eframe::App for KelpApp {
         }
         if let Some(action) = welcome_action {
             self.run_welcome(&ctx, action);
+        }
+        if let Some(new) = relocation {
+            self.relocate_confirm = None;
+            self.relocate_active(&ctx, new);
         }
         if let Some(dialog) = &mut self.clone {
             match dialog.show(&ctx) {
@@ -1102,6 +1210,15 @@ struct MascotScreen<'a> {
 
 impl MascotScreen<'_> {
     fn show(self, ui: &mut egui::Ui) {
+        self.show_with(ui, |_| None::<()>);
+    }
+
+    fn show_with<R>(
+        self,
+        ui: &mut egui::Ui,
+        controls: impl FnOnce(&mut egui::Ui) -> Option<R>,
+    ) -> Option<R> {
+        let mut result = None;
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::bg()))
             .show(ui, |ui| {
@@ -1142,11 +1259,23 @@ impl MascotScreen<'_> {
                     sub.clone(),
                     self.color,
                 );
+                y += sub.size().y + 16.0;
+                let row = egui::Rect::from_min_size(
+                    egui::pos2(full.center().x - full.width().min(560.0) / 2.0, y),
+                    vec2(full.width().min(560.0), 80.0),
+                );
+                ui.scope_builder(
+                    egui::UiBuilder::new()
+                        .max_rect(row)
+                        .layout(egui::Layout::top_down(egui::Align::Center)),
+                    |ui| result = controls(ui),
+                );
             });
         if self.animate {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(16));
         }
+        result
     }
 }
 
