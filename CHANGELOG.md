@@ -2,6 +2,11 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.9 - 2026-09-29
+
+- With many tabs open, the tab strip scrolls and the + button and Settings stay on screen. Thanks @tysonkerridge.
+- A tab whose repository was moved or renamed offers to use the new folder, or to locate it, instead of showing an error. Thanks @tysonkerridge.
+
 ## v0.8.8 - 2026-09-29
 
 - The update check works on its own again: it no longer runs into GitHub's hourly limit, retries quietly when it can't reach GitHub, and notices an update installed outside Kelp, so the restart prompt shows up without opening Settings.
