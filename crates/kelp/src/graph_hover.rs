@@ -26,9 +26,15 @@ impl HoverPath {
         let mut segments = Vec::new();
         let mut current = start;
         while !has_ref(current) {
-            let Some(child) = (0..current)
-                .rev()
-                .find(|&c| first_parent(c) == Some(current as u32))
+            let lane = node_lane(current);
+            let children = || {
+                (0..current)
+                    .rev()
+                    .filter(|&c| first_parent(c) == Some(current as u32))
+            };
+            let Some(child) = children()
+                .find(|&c| node_lane(c) == lane)
+                .or_else(|| children().next())
             else {
                 break;
             };
@@ -107,6 +113,41 @@ mod tests {
     #[test]
     fn stops_at_the_nearest_ref() {
         let path = trace(&[&[1], &[2], &[]], &[1], &[0, 0, 0], 2);
+        assert_eq!(path.rows, [1, 2]);
+    }
+
+    #[test]
+    fn a_fork_continues_on_the_commits_own_lane_not_into_the_nearest_branch() {
+        let parents: &[&[u32]] = &[&[2], &[2], &[3], &[]];
+        let lanes = [0, 1, 0, 0];
+        let path = trace(parents, &[0, 1], &lanes, 3);
+        assert_eq!(path.rows, [0, 2, 3]);
+        assert!(path.segments.iter().all(|s| s.lane == 0));
+    }
+
+    #[test]
+    fn a_side_branch_commit_walks_up_its_own_branch() {
+        let parents: &[&[u32]] = &[&[3], &[3], &[3], &[]];
+        let lanes = [0, 2, 1, 0];
+        let path = trace(parents, &[0, 1, 2], &lanes, 3);
+        assert_eq!(path.rows, [0, 3]);
+        let side = trace(parents, &[0, 1, 2], &lanes, 2);
+        assert_eq!(side.rows, [2]);
+    }
+
+    #[test]
+    fn a_merge_on_the_same_lane_is_the_continuation() {
+        let parents: &[&[u32]] = &[&[2, 1], &[3], &[3], &[]];
+        let lanes = [0, 1, 0, 0];
+        let path = trace(parents, &[0], &lanes, 3);
+        assert_eq!(path.rows, [0, 2, 3]);
+    }
+
+    #[test]
+    fn falls_back_to_the_nearest_child_when_none_shares_the_lane() {
+        let parents: &[&[u32]] = &[&[2], &[2], &[]];
+        let lanes = [1, 2, 0];
+        let path = trace(parents, &[0, 1], &lanes, 2);
         assert_eq!(path.rows, [1, 2]);
     }
 
