@@ -120,25 +120,28 @@ impl Resolver {
     }
 
     pub fn resolve(&self, email: &str, commit: &str) -> Option<Image> {
-        self.cached(&normalize(email), || self.download(email, commit))
-    }
-
-    pub fn resolve_owner(&self, owner: &str) -> Option<Image> {
-        self.cached(&format!("github-owner:{}", normalize(owner)), || match self
-            .get(&github_owner_url(owner))
-        {
-            Ok(Some(bytes)) => Lookup::Found(bytes),
-            Ok(None) => Lookup::NotFound,
-            Err(()) => Lookup::Failed,
+        self.cached(&normalize(email), Shape::Circle, || {
+            self.download(email, commit)
         })
     }
 
-    fn cached(&self, name: &str, download: impl FnOnce() -> Lookup) -> Option<Image> {
+    pub fn resolve_owner(&self, owner: &str) -> Option<Image> {
+        let key = format!("github-owner:{}", normalize(owner));
+        self.cached(&key, Shape::RoundedSquare, || {
+            match self.get(&github_owner_url(owner)) {
+                Ok(Some(bytes)) => Lookup::Found(bytes),
+                Ok(None) => Lookup::NotFound,
+                Err(()) => Lookup::Failed,
+            }
+        })
+    }
+
+    fn cached(&self, name: &str, shape: Shape, download: impl FnOnce() -> Lookup) -> Option<Image> {
         let key = sha256_hex(name);
         let hit = self.cache_dir.join(format!("{key}.img"));
         let miss = self.cache_dir.join(format!("{key}.none"));
         if fresh(&hit, HIT_TTL)
-            && let Some(image) = std::fs::read(&hit).ok().and_then(|b| decode_round(&b))
+            && let Some(image) = std::fs::read(&hit).ok().and_then(|b| decode(&b, shape))
         {
             return Some(image);
         }
@@ -154,7 +157,7 @@ impl Resolver {
             }
             Lookup::Failed => return None,
         };
-        let image = decode_round(&bytes)?;
+        let image = decode(&bytes, shape)?;
         let _ = std::fs::create_dir_all(&self.cache_dir);
         let _ = std::fs::write(&hit, &bytes);
         let _ = std::fs::remove_file(&miss);
@@ -269,18 +272,37 @@ pub fn cache_dir() -> PathBuf {
     }
 }
 
-pub fn decode_round(bytes: &[u8]) -> Option<Image> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shape {
+    Circle,
+    RoundedSquare,
+}
+
+const SQUARE_CORNER: f32 = SIZE as f32 * 0.2;
+
+impl Shape {
+    fn corner(self) -> f32 {
+        match self {
+            Shape::Circle => SIZE as f32 / 2.0,
+            Shape::RoundedSquare => SQUARE_CORNER,
+        }
+    }
+}
+
+pub fn decode(bytes: &[u8], shape: Shape) -> Option<Image> {
     let image = image::load_from_memory(bytes).ok()?;
     let square = image
         .resize_to_fill(SIZE, SIZE, image::imageops::FilterType::Lanczos3)
         .to_rgba8();
     let mut rgba = square.into_raw();
-    let r = SIZE as f32 / 2.0;
+    let half = SIZE as f32 / 2.0;
+    let corner = shape.corner();
     for y in 0..SIZE {
         for x in 0..SIZE {
-            let dx = x as f32 + 0.5 - r;
-            let dy = y as f32 + 0.5 - r;
-            let coverage = (r - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0);
+            let qx = (x as f32 + 0.5 - half).abs() - (half - corner);
+            let qy = (y as f32 + 0.5 - half).abs() - (half - corner);
+            let outside = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - corner;
+            let coverage = (0.5 - outside).clamp(0.0, 1.0);
             let i = ((y * SIZE + x) * 4 + 3) as usize;
             rgba[i] = (rgba[i] as f32 * coverage) as u8;
         }
@@ -291,6 +313,29 @@ pub fn decode_round(bytes: &[u8]) -> Option<Image> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn solid_png() -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(SIZE, SIZE, image::Rgba([200, 40, 60, 255]));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        bytes.into_inner()
+    }
+
+    fn alpha(image: &Image, x: u32, y: u32) -> u8 {
+        image.rgba[((y * image.size + x) * 4 + 3) as usize]
+    }
+
+    #[test]
+    fn a_rounded_square_keeps_more_of_the_corners_than_a_circle() {
+        let png = solid_png();
+        let circle = decode(&png, Shape::Circle).unwrap();
+        let square = decode(&png, Shape::RoundedSquare).unwrap();
+        assert_eq!(alpha(&circle, 6, 6), 0);
+        assert_eq!(alpha(&square, 6, 6), 255);
+        assert_eq!(alpha(&square, 0, 0), 0);
+        assert_eq!(alpha(&square, SIZE / 2, 0), 255);
+        assert_eq!(alpha(&circle, SIZE / 2, SIZE / 2), 255);
+    }
 
     #[test]
     fn initials_use_first_and_last_word() {
@@ -352,7 +397,7 @@ mod tests {
         image::RgbaImage::from_pixel(8, 8, image::Rgba([200, 100, 50, 255]))
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
-        let img = decode_round(&png).unwrap();
+        let img = decode(&png, Shape::Circle).unwrap();
         let alpha = |x: u32, y: u32| img.rgba[((y * SIZE + x) * 4 + 3) as usize];
         assert_eq!(alpha(0, 0), 0);
         assert_eq!(alpha(SIZE / 2, SIZE / 2), 255);
