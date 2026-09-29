@@ -209,7 +209,7 @@ impl Op {
         let v = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         match self {
             Op::Fetch => v(&["fetch", "--all", "--prune"]),
-            Op::Pull => v(&["pull"]),
+            Op::Pull => v(&["pull", "--autostash"]),
             Op::Push {
                 branch,
                 remote,
@@ -245,9 +245,9 @@ impl Op {
                 v(&["branch", if *force { "-D" } else { "-d" }, name])
             }
             Op::DeleteRemoteBranch { remote, branch } => v(&["push", remote, "--delete", branch]),
-            Op::Merge(what) => v(&["merge", what]),
+            Op::Merge(what) => v(&["merge", "--autostash", what]),
             Op::CheckoutAndMerge { branch, .. } => v(&["switch", branch]),
-            Op::Rebase(onto) => v(&["rebase", onto]),
+            Op::Rebase(onto) => v(&["rebase", "--autostash", onto]),
             Op::StashPush => v(&["stash", "push", "--include-untracked"]),
             Op::StashPop => v(&["stash", "pop"]),
             Op::StashApply(stash) => v(&["stash", "apply", stash]),
@@ -459,7 +459,7 @@ impl Op {
         let v = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         match self {
             Op::CheckoutAndMerge { branch, source } => {
-                vec![v(&["switch", branch]), v(&["merge", source])]
+                vec![v(&["switch", branch]), v(&["merge", "--autostash", source])]
             }
             Op::SwitchFastForward { branch, upstream } => {
                 vec![v(&["switch", branch]), v(&["merge", "--ff-only", upstream])]
@@ -884,6 +884,24 @@ mod tests {
         assert_eq!(stash_count(&dir), 1);
         let page = std::fs::read_to_string(dir.join("page.txt")).unwrap();
         assert_eq!(page, "one\ntwo\nthree\nfour\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn merging_with_local_changes_stashes_and_restores_them() {
+        let dir = on_two_branches("kelp-merge-autostash");
+        std::fs::write(dir.join("notes.txt"), "mine\n").unwrap();
+        git_cli::run(&dir, &["add", "notes.txt"]).unwrap();
+        git_cli::run(&dir, &["commit", "-q", "-m", "notes"]).unwrap();
+        std::fs::write(dir.join("notes.txt"), "mine, edited\n").unwrap();
+
+        Op::Merge("other".into()).run(&dir).unwrap();
+
+        let page = std::fs::read_to_string(dir.join("page.txt")).unwrap();
+        assert_eq!(page, "one\ntwo\nthree\nfour\n");
+        let notes = std::fs::read_to_string(dir.join("notes.txt")).unwrap();
+        assert_eq!(notes, "mine, edited\n");
+        assert_eq!(stash_count(&dir), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

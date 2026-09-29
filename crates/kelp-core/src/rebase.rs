@@ -350,7 +350,14 @@ fn run_plan(
     let todo_path = work.join("todo");
     std::fs::write(&todo_path, &todo.text)?;
     let base = plan.base.to_string();
-    let mut args = vec!["-c", "core.abbrev=40", "rebase", "-i", "--no-autosquash"];
+    let mut args = vec![
+        "-c",
+        "core.abbrev=40",
+        "rebase",
+        "-i",
+        "--no-autosquash",
+        "--autostash",
+    ];
     if merges {
         args.push("--rebase-merges");
     }

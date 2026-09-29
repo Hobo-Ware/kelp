@@ -22,7 +22,10 @@ fn checkout_and_merge_lands_on_the_target_branch() {
         branch: "release".into(),
         source: "feat/x".into(),
     };
-    assert_eq!(op.command_line(), "git switch release && git merge feat/x");
+    assert_eq!(
+        op.command_line(),
+        "git switch release && git merge --autostash feat/x"
+    );
     op.run(repo.path()).unwrap();
     assert_eq!(repo.git(&["branch", "--show-current"]).trim(), "release");
     assert!(repo.path().join("x.txt").exists());
