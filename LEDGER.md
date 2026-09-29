@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.2 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.3 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,14 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-29
+
+- **v0.8.3: autostash, pinned WIP, owner badges.** Branch-switching ops
+  stash local changes (untracked included), switch and pop with
+  `--index`; a conflict keeps a named stash, and a switch that stashed
+  nothing never pops an older stash. The current worktree's WIP row is
+  pinned to display row 0 with a dashed gutter link into HEAD
+  (`RowMap::wip_link`). Remote labels on GitHub show the owner avatar
+  (`github.com/<owner>.png`, cached like author avatars). 421 tests pass.
 
 - **v0.8.2: keyboard all around.** Shared `list_keys` helper (Up, Down,
   Home, End; a focused row keeps the arrows, otherwise the list whose
