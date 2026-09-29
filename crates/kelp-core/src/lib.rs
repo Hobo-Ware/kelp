@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod avatar;
 pub mod blame;
 pub mod checks;

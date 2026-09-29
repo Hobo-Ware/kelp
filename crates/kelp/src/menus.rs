@@ -896,6 +896,18 @@ pub fn push_all_tags(ctx: &MenuContext) -> Option<Command> {
         .map(|remote| Command::Run(Op::PushTags(remote)))
 }
 
+pub fn remove_worktree_body(agents: &[kelp_core::agents::Agent]) -> String {
+    let lost = "Deletes the folder. Uncommitted changes in it are lost.";
+    if agents.is_empty() {
+        lost.to_string()
+    } else {
+        format!(
+            "{}. Deleting the folder ends their work there. {lost}",
+            crate::agent_watch::summary(agents)
+        )
+    }
+}
+
 pub fn remove_worktree(path: &Path) -> Command {
     confirm(
         format!(
@@ -904,7 +916,11 @@ pub fn remove_worktree(path: &Path) -> Command {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default()
         ),
-        "Deletes the folder. Uncommitted changes in it are lost.",
+        &remove_worktree_body(
+            crate::agent_watch::in_worktrees(&[path.to_path_buf()])
+                .get(path)
+                .map_or(&[][..], Vec::as_slice),
+        ),
         Op::WorktreeRemove {
             path: path.display().to_string(),
             force: false,
@@ -991,6 +1007,24 @@ pub fn view_items(ui: &mut Ui, label: &RefLabel, filtering: bool, out: &mut Vec<
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn removing_a_worktree_with_an_agent_says_so() {
+        use kelp_core::agents::Agent;
+        assert_eq!(
+            super::remove_worktree_body(&[]),
+            "Deletes the folder. Uncommitted changes in it are lost."
+        );
+        let body = super::remove_worktree_body(&[Agent::Claude, Agent::Claude]);
+        assert!(
+            body.starts_with("Claude x2 running in this worktree."),
+            "{body}"
+        );
+        assert!(
+            body.ends_with("Uncommitted changes in it are lost."),
+            "{body}"
+        );
+    }
+
     use kelp_core::pulls::{Pull, State};
     use kelp_core::refs::{RefKind, RefLabel};
 

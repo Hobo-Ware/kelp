@@ -89,7 +89,11 @@ folder if it is a repo.
   merged branches" and sort by name or last commit from each section's
   `...` menu. Kept per repo in `.git/kelp/sidebar.json`.
 - **Worktrees:** list, create (new or existing branch), move, remove,
-  prune, open in a new tab or a terminal.
+  prune, open in a new tab or a terminal. Clicking one in the sidebar
+  scrolls the graph to it. A worktree with an AI agent running in it
+  (Claude, Codex, Gemini, Copilot, Aider or Cursor) shows that tool's mark
+  and a session count, so the ones with nothing running stand out, and the
+  remove confirm mentions a running agent.
 - **Staging:** unstaged and staged lists, stage or unstage files, single hunks or
   single lines (click line numbers, Shift-click for a range), discard files,
   hunks or lines (Cmd+Z brings them back), commit and amend (hooks run as usual).
@@ -290,6 +294,7 @@ Developer switches (environment variables):
 | `KELP_COMPARE=<a>..<b>` (`<b>` can be `worktree`), `KELP_FILTER=author:<name>,path:<prefix>,period:day\|week\|month,mine` | Start comparing or filtering |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |
 | `KELP_FAKE_PULLS=<file>` | Load pull requests from a `gh pr list --json` file instead of GitHub |
+| `KELP_FAKE_AGENTS=<path>:<tool>,...` | Pretend those AI agent sessions are running (`claude`, `codex`, `gemini`, `copilot`, `aider`, `cursor`) |
 | `KELP_FAKE_CHECKS=<file>` | CI dots from a JSON map of commit prefix to `{state, failing, pending}` instead of GitHub |
 | `KELP_HOVER_ROW=<row>` | Draw the graph as if that commit row were hovered |
 | `KELP_POINTER=<x>,<y>` | Keep the mouse pointer at that spot, in points, to capture hover states |
