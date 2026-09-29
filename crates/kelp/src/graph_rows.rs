@@ -23,15 +23,31 @@ enum WipKind {
     Other(usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WipLink {
+    None,
+    Pass,
+    Join,
+}
+
 pub struct RowMap {
     wips: Vec<(usize, WipKind)>,
+    heads: Vec<usize>,
+    pinned_head: Option<usize>,
     commits: usize,
 }
 
 impl RowMap {
     pub fn new(commits: usize, current: Option<usize>, others: &[usize]) -> Self {
+        let in_history = |head: &usize| *head < commits.max(1);
+        let pinned_head = current.filter(in_history).filter(|&head| head > 0);
         let mut wips: Vec<(usize, WipKind)> = current
-            .map(|head| (head, WipKind::Current))
+            .map(|head| {
+                (
+                    if pinned_head.is_some() { 0 } else { head },
+                    WipKind::Current,
+                )
+            })
             .into_iter()
             .chain(
                 others
@@ -39,10 +55,37 @@ impl RowMap {
                     .enumerate()
                     .map(|(i, &head)| (head, WipKind::Other(i))),
             )
-            .filter(|(head, _)| *head < commits.max(1))
+            .filter(|(at, _)| in_history(at))
             .collect();
-        wips.sort_by_key(|&(head, kind)| (head, kind != WipKind::Current));
-        Self { wips, commits }
+        wips.sort_by_key(|&(at, kind)| (at, kind != WipKind::Current));
+        let heads = wips
+            .iter()
+            .filter(|(_, kind)| pinned_head.is_none() || *kind != WipKind::Current)
+            .map(|&(at, _)| at)
+            .collect();
+        Self {
+            wips,
+            heads,
+            pinned_head,
+            commits,
+        }
+    }
+
+    pub fn pinned_head(&self) -> Option<usize> {
+        self.pinned_head
+    }
+
+    pub fn wip_link(&self, display: usize) -> WipLink {
+        let Some(head) = self.pinned_head else {
+            return WipLink::None;
+        };
+        let head_display = self.display(Row::Commit(head));
+        match display {
+            0 => WipLink::None,
+            d if d < head_display => WipLink::Pass,
+            d if d == head_display => WipLink::Join,
+            _ => WipLink::None,
+        }
     }
 
     pub fn total(&self) -> usize {
@@ -85,7 +128,7 @@ impl RowMap {
     }
 
     pub fn has_wip_above(&self, commit: usize) -> bool {
-        self.wips.iter().any(|(head, _)| *head == commit)
+        self.heads.contains(&commit)
     }
 
     fn wip_display(&self, wanted: WipKind) -> Option<usize> {
@@ -111,15 +154,15 @@ mod tests {
     }
 
     #[test]
-    fn wip_rows_sit_above_their_heads() {
+    fn other_worktrees_sit_above_their_heads() {
         let map = RowMap::new(5, Some(2), &[0, 4]);
         assert_eq!(
             all(&map),
             [
+                Row::CurrentWip,
                 Row::OtherWip(0),
                 Row::Commit(0),
                 Row::Commit(1),
-                Row::CurrentWip,
                 Row::Commit(2),
                 Row::Commit(3),
                 Row::OtherWip(1),
@@ -130,13 +173,13 @@ mod tests {
 
     #[test]
     fn the_current_worktree_comes_first_on_a_shared_head() {
-        let map = RowMap::new(2, Some(1), &[1]);
+        let map = RowMap::new(2, Some(0), &[0]);
         assert_eq!(
             all(&map),
             [
-                Row::Commit(0),
                 Row::CurrentWip,
                 Row::OtherWip(0),
+                Row::Commit(0),
                 Row::Commit(1)
             ]
         );
@@ -151,6 +194,38 @@ mod tests {
         assert_eq!(map.display_of(Selection::Wip), map.display(Row::CurrentWip));
         assert!(map.has_wip_above(3));
         assert!(!map.has_wip_above(1));
+    }
+
+    #[test]
+    fn the_current_worktree_is_pinned_to_the_top_and_linked_to_its_head() {
+        let map = RowMap::new(4, Some(2), &[1]);
+        assert_eq!(
+            all(&map),
+            [
+                Row::CurrentWip,
+                Row::Commit(0),
+                Row::OtherWip(0),
+                Row::Commit(1),
+                Row::Commit(2),
+                Row::Commit(3),
+            ]
+        );
+        assert_eq!(map.pinned_head(), Some(2));
+        let links: Vec<WipLink> = (0..map.total()).map(|d| map.wip_link(d)).collect();
+        use WipLink::*;
+        assert_eq!(links, [None, Pass, Pass, Pass, Join, None]);
+        assert!(!map.has_wip_above(0));
+        assert!(map.has_wip_above(1));
+        assert!(!map.has_wip_above(2));
+    }
+
+    #[test]
+    fn a_head_at_the_top_needs_no_link() {
+        let map = RowMap::new(3, Some(0), &[]);
+        assert_eq!(all(&map)[0], Row::CurrentWip);
+        assert_eq!(map.pinned_head(), None);
+        assert!(map.has_wip_above(0));
+        assert_eq!(map.wip_link(1), WipLink::None);
     }
 
     #[test]
