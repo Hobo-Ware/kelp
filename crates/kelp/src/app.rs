@@ -1098,7 +1098,11 @@ impl eframe::App for KelpApp {
                     } else {
                         "Could not open this repository"
                     },
-                    subtitle: format!("{}: {err}", path.display()),
+                    subtitle: if missing {
+                        path.display().to_string()
+                    } else {
+                        format!("{}: {err}", path.display())
+                    },
                     color: theme::deleted(),
                     animate: false,
                 };
@@ -1123,12 +1127,12 @@ impl eframe::App for KelpApp {
                             || found.display().to_string(),
                             |n| n.to_string_lossy().to_string(),
                         );
-                        let button = ui.add(egui::Button::new(format!("Use {name}...")).truncate());
+                        let button = ui.add(egui::Button::new(format!("Use {name}…")).truncate());
                         if button.on_hover_text(found.display().to_string()).clicked() {
                             *confirm = Some(found.clone());
                         }
                     }
-                    if ui.button("Locate folder...").clicked() {
+                    if ui.button("Locate folder…").clicked() {
                         chosen = rfd::FileDialog::new()
                             .set_title("Locate the moved repository")
                             .pick_folder();
