@@ -2,6 +2,12 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.10 - 2026-09-29
+
+- Removing a worktree that has changes asks whether to delete them, instead of failing.
+- Deleting a branch that isn't merged asks whether to delete it anyway (Undo brings it back).
+- Merge, rebase and pull work with uncommitted changes: they're set aside and put back afterwards.
+
 ## v0.8.9 - 2026-09-29
 
 - With many tabs open, the tab strip scrolls and the + button and Settings stay on screen. Thanks @tysonkerridge.
