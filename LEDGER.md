@@ -13,16 +13,15 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
-## 2026-09-30
-
-- **Moved or renamed repositories can be re-located.** A tab whose
-  folder is gone says so and offers "Use <folder>..." (confirms with the
-  full path) and "Locate folder...". The guess is a parent that is now
-  the repository, or a sibling holding the commit HEAD was on when the
-  repo was last opened (`Recent::tip`); recents and other dead tabs under
-  the old path follow. 426 tests pass.
-
 ## 2026-09-29
+
+- **Moved or renamed repositories can be re-located** (PR #3 by
+  tysonkerridge). A tab whose folder is gone says so and offers "Use
+  <folder>…" (confirms with the full path) and "Locate folder…". The
+  guess is the direct parent when it is now the repository (and holds
+  the last HEAD, when known), or a sibling holding the commit HEAD was on
+  when the repo was last opened (`Recent::tip`); recents and other dead
+  tabs under the old path follow.
 
 - **v0.8.8: update checker.** Latest version from the
   `github.com/<repo>/releases/latest` redirect instead of the rate-limited
