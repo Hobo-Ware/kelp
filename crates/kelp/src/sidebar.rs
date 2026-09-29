@@ -471,16 +471,6 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                 commands,
                 actions: &mut actions,
             };
-            let worktrees: Vec<_> = view
-                .workspace
-                .worktrees
-                .iter()
-                .filter(|wt| {
-                    let branch = wt.tree.branch.as_deref().unwrap_or("");
-                    ref_tree::fuzzy(&format!("{} {branch}", wt.tree.name()), &query).is_some()
-                })
-                .collect();
-            let mut manage = false;
             let all_paths: Vec<_> = view
                 .workspace
                 .worktrees
@@ -489,6 +479,23 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                 .collect();
             crate::agent_watch::set_wanted(all_paths.len() > 1);
             let agents = crate::agent_watch::in_worktrees(&all_paths);
+            let mut worktrees: Vec<_> = view
+                .workspace
+                .worktrees
+                .iter()
+                .filter(|wt| {
+                    let branch = wt.tree.branch.as_deref().unwrap_or("");
+                    ref_tree::fuzzy(&format!("{} {branch}", wt.tree.name()), &query).is_some()
+                })
+                .collect();
+            worktrees.sort_by_key(|wt| {
+                worktree_rank(
+                    wt.current,
+                    agents.get(&wt.tree.path).map_or(0, Vec::len),
+                    wt.changes,
+                )
+            });
+            let mut manage = false;
             if query.is_empty() || !worktrees.is_empty() {
                 section(
                     ui,
@@ -1181,6 +1188,18 @@ impl RefRows<'_> {
     }
 }
 
+fn worktree_rank(current: bool, agents: usize, changes: Option<usize>) -> u8 {
+    if current {
+        0
+    } else if agents > 0 {
+        1
+    } else if changes.is_some_and(|n| n > 0) {
+        2
+    } else {
+        3
+    }
+}
+
 fn worktree_row(
     ui: &mut Ui,
     repo: &Repo,
@@ -1216,7 +1235,7 @@ fn worktree_row(
     }
     .show(ui);
     if (response.double_clicked() || crate::widgets::enter_pressed(&response)) && !current {
-        commands.push(Command::OpenRepo(wt.tree.path.clone()));
+        commands.push(Command::OpenWorktree(wt.tree.path.clone()));
     } else if response.clicked() {
         commands.push(Command::RevealWorktree(wt.tree.path.clone()));
     }
@@ -1502,7 +1521,32 @@ fn highlighted(text: &str, ranges: &[Range<usize>], font: FontId, color: Color32
 mod tests {
     use eframe::egui::{self, Event, PointerButton, Pos2, RawInput, Rect, vec2};
 
-    use super::{highlighted, manage_button, section};
+    use super::{highlighted, manage_button, section, worktree_rank};
+
+    #[test]
+    fn worktrees_sort_yours_then_agents_then_changes_then_idle() {
+        let mut trees = [
+            ("idle", worktree_rank(false, 0, Some(0))),
+            ("dirty", worktree_rank(false, 0, Some(3))),
+            ("agent", worktree_rank(false, 1, Some(0))),
+            ("mine", worktree_rank(true, 0, None)),
+            ("agent-and-dirty", worktree_rank(false, 2, Some(5))),
+            ("unknown", worktree_rank(false, 0, None)),
+        ];
+        trees.sort_by_key(|(_, rank)| *rank);
+        let order: Vec<_> = trees.iter().map(|(name, _)| *name).collect();
+        assert_eq!(
+            order,
+            [
+                "mine",
+                "agent",
+                "agent-and-dirty",
+                "dirty",
+                "idle",
+                "unknown"
+            ]
+        );
+    }
 
     struct Probe {
         body_shown: bool,

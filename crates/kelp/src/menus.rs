@@ -825,6 +825,9 @@ pub fn stash(ui: &mut Ui, stash: &Stash, out: &mut Vec<Command>) {
 pub fn worktree(ui: &mut Ui, tree: &Worktree, out: &mut Vec<Command>) {
     menu_width(ui, 220.0);
     heading(ui, &tree.name());
+    item(ui, Icon::Folder, "Open", out, || {
+        Command::OpenWorktree(tree.path.clone())
+    });
     item(ui, Icon::Folder, "Open in new tab", out, || {
         Command::OpenRepo(tree.path.clone())
     });

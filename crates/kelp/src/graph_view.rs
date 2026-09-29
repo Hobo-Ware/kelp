@@ -595,7 +595,7 @@ impl GraphView {
             if let Some((_, path)) =
                 clicked_at.and_then(|pos| open_buttons.iter().find(|(r, _)| r.contains(pos)))
             {
-                action = Some(Action::Command(Command::OpenRepo(path.clone())));
+                action = Some(Action::Command(Command::OpenWorktree(path.clone())));
             } else if let Some((_, row)) = clicked_at
                 .filter(|_| response.clicked())
                 .and_then(|pos| check_dots.iter().find(|(r, _)| r.contains(pos)))
@@ -622,7 +622,7 @@ impl GraphView {
                 && let Some(pos) = response.interact_pointer_pos()
                 && let Row::OtherWip(i) = row_at(pos.y)
             {
-                action = Some(Action::Command(Command::OpenRepo(
+                action = Some(Action::Command(Command::OpenWorktree(
                     other_wips[i].tree.path.clone(),
                 )));
             }
