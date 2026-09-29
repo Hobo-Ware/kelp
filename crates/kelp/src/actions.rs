@@ -316,6 +316,8 @@ pub static KEYS: &[KeyRow] = &[
     key("Enter / Space", "Activate the focused control; Enter on a branch checks it out", Group::Navigation),
     key("Shift+F10", "Open the menu of the focused row or commit", Group::Navigation),
     key("Up / Down, J / K", "Move through commits", Group::Navigation),
+    key("Up / Down, Home / End", "Move through the files of a commit or of Changes; the diff follows", Group::Navigation),
+    key("S / U", "Stage / unstage the open or focused file in Changes", Group::Actions),
     key("Cmd+F", "Search; Enter / Shift+Enter for next / previous", Group::Navigation),
     key("Cmd+Shift+F", "Filter commits by author, path or date; Esc closes", Group::Navigation),
     key("Cmd+Opt+F", "Filter the sidebar; Esc clears", Group::Navigation),

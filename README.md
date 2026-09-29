@@ -193,6 +193,8 @@ folder if it is a repo.
 | Enter / Space | Activate the focused control; Enter on a branch checks it out |
 | Shift+F10 | Open the menu of the focused row or commit |
 | Up / Down, J / K | Move through commits |
+| Up / Down, Home / End | Move through the files of a commit or of Changes; the diff follows |
+| S / U | Stage / unstage the open or focused file in Changes |
 | Cmd+F | Search; Enter / Shift+Enter for next / previous |
 | Cmd+Shift+F | Filter commits by author, path or date; Esc closes |
 | Cmd+Opt+F | Filter the sidebar; Esc clears |
