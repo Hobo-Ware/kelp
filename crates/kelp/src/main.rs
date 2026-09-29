@@ -27,6 +27,7 @@ mod help;
 mod icons;
 mod instance;
 mod jobs;
+mod list_keys;
 mod macos;
 mod mascot;
 mod menus;

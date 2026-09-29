@@ -214,6 +214,8 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                     None,
                     &mut actions,
                 );
+                let mut nav_rows = Vec::new();
+                let mut nav_items: Vec<(Section, usize, String)> = Vec::new();
                 let chosen = picked.in_section(Section::Unstaged);
                 for (index, change) in repo.status.unstaged.iter().enumerate() {
                     let untracked = repo.status.untracked.contains(&change.path);
@@ -231,6 +233,8 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                         Some("Stage"),
                         None,
                     );
+                    nav_rows.push((row.id, row.rect));
+                    nav_items.push((Section::Unstaged, index, change.path.clone()));
                     if staged {
                         actions.push(Action::Run(Op::Stage(vec![change.path.clone()])));
                     } else if row.clicked()
@@ -316,6 +320,8 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                         Some("Unstage"),
                         None,
                     );
+                    nav_rows.push((row.id, row.rect));
+                    nav_items.push((Section::Staged, index, change.path.clone()));
                     if unstaged {
                         actions.push(Action::Run(Op::Unstage {
                             paths: vec![change.path.clone()],
@@ -356,6 +362,38 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                 }
                 if repo.status.staged.is_empty() {
                     empty_note(ui, "Stage files or hunks to commit them");
+                }
+                let open = active.as_ref().and_then(|(path, staged)| {
+                    nav_items
+                        .iter()
+                        .position(|(s, _, p)| p == path && (*s == Section::Staged) == *staged)
+                });
+                let owns_keys = open.is_some() && crate::list_keys::nothing_focused(ui.ctx());
+                let ctx = ui.ctx().clone();
+                if let Some(at) = crate::list_keys::current(&ctx, &nav_rows, open, owns_keys) {
+                    let (section, _, path) = &nav_items[at];
+                    let path = vec![path.clone()];
+                    match section {
+                        Section::Unstaged if crate::list_keys::pressed(&ctx, Key::S) => {
+                            actions.push(Action::Run(Op::Stage(path)));
+                        }
+                        Section::Staged if crate::list_keys::pressed(&ctx, Key::U) => {
+                            actions.push(Action::Run(Op::Unstage {
+                                paths: path,
+                                has_head,
+                            }));
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(at) = crate::list_keys::step(ui, &nav_rows, open, owns_keys) {
+                    let (section, index, path) = &nav_items[at];
+                    let list = match section {
+                        Section::Unstaged => &unstaged_paths,
+                        Section::Staged => &staged_paths,
+                    };
+                    picked.click(*section, *index, list, Modifiers::NONE);
+                    actions.push(Action::Open(path.clone(), *section == Section::Staged));
                 }
             });
     });
@@ -1039,6 +1077,63 @@ mod tests {
             picked.in_section(Section::Unstaged),
             ["a.txt", "c.txt", "d.txt"]
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn press(ctx: &egui::Context, repo: &mut Repo, key: egui::Key) {
+        let event = |pressed| Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        frame(ctx, repo, vec![event(true), event(false)], Modifiers::NONE);
+        frame(ctx, repo, vec![], Modifiers::NONE);
+    }
+
+    fn open_path(repo: &Repo) -> Option<(String, bool)> {
+        match &repo.center {
+            crate::repo_view::Center::Diff(view) => {
+                Some((view.path().to_string(), view.is_staged()))
+            }
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn arrows_walk_the_changed_files_and_s_stages_the_open_one() {
+        let dir = scratch("kelp-staging-keys");
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let (git, history) = kelp_core::history::History::open(&dir).unwrap();
+        let mut repo = Repo::new(&ctx, git, history, Duration::ZERO);
+        repo.selected = Some(Selection::Wip);
+        let started = Instant::now();
+        while repo.status.unstaged.len() < LIST.len() && started.elapsed() < Duration::from_secs(5)
+        {
+            repo.poll(&ctx, None);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        frame(&ctx, &mut repo, vec![], Modifiers::NONE);
+        click_row(&ctx, &mut repo, "a.txt", Modifiers::NONE);
+        assert_eq!(open_path(&repo), Some(("a.txt".into(), false)));
+
+        press(&ctx, &mut repo, egui::Key::ArrowDown);
+        assert_eq!(open_path(&repo), Some(("b.txt".into(), false)));
+        press(&ctx, &mut repo, egui::Key::End);
+        assert_eq!(open_path(&repo), Some(("d.txt".into(), false)));
+        press(&ctx, &mut repo, egui::Key::ArrowUp);
+        assert_eq!(open_path(&repo), Some(("c.txt".into(), false)));
+
+        press(&ctx, &mut repo, egui::Key::S);
+        let started = Instant::now();
+        while repo.status.staged.is_empty() && started.elapsed() < Duration::from_secs(5) {
+            repo.poll(&ctx, None);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let staged: Vec<&str> = repo.status.staged.iter().map(|c| c.path.as_str()).collect();
+        assert_eq!(staged, ["c.txt"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

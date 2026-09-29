@@ -61,6 +61,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                 if repo.show_all_files {
                     all_files(ui, repo, &changes, active.as_deref(), &mut picks);
                 }
+                picks.follow_keys(ui, active.as_deref());
             });
     });
     if !repo.review.threads.is_empty() {
@@ -382,6 +383,8 @@ fn path_list(
 struct Picks {
     open: Option<String>,
     commands: Vec<Command>,
+    rows: Vec<(egui::Id, egui::Rect)>,
+    paths: Vec<String>,
 }
 
 impl Picks {
@@ -389,7 +392,17 @@ impl Picks {
         if row.clicked() {
             self.open = Some(path.to_string());
         }
+        self.rows.push((row.id, row.rect));
+        self.paths.push(path.to_string());
         crate::menus::context_menu(&row, |ui| menus::file(ui, path, &mut self.commands));
+    }
+
+    fn follow_keys(&mut self, ui: &Ui, active: Option<&str>) {
+        let active = active.and_then(|a| self.paths.iter().position(|p| p == a));
+        let owns_keys = active.is_some() && crate::list_keys::nothing_focused(ui.ctx());
+        if let Some(index) = crate::list_keys::step(ui, &self.rows, active, owns_keys) {
+            self.open = Some(self.paths[index].clone());
+        }
     }
 }
 
@@ -776,5 +789,84 @@ pub fn change_letter(kind: ChangeKind) -> (&'static str, Color32) {
         ChangeKind::Deleted => ("D", theme::deleted()),
         ChangeKind::Modified => ("M", theme::modified()),
         ChangeKind::Renamed => ("R", theme::modified()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use eframe::egui::{self, Event, Modifiers, Pos2, RawInput, Rect, vec2};
+    use kelp_core::git_cli::run;
+
+    use crate::repo_view::{Center, Repo, Selection};
+
+    fn frame(ctx: &egui::Context, repo: &mut Repo, events: Vec<Event>) {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 900.0))),
+            events,
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| super::ui(ui, repo));
+    }
+
+    fn press(ctx: &egui::Context, repo: &mut Repo, key: egui::Key) {
+        let event = |pressed| Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        frame(ctx, repo, vec![event(true), event(false)]);
+        frame(ctx, repo, vec![]);
+    }
+
+    fn open_path(repo: &Repo) -> Option<String> {
+        match &repo.center {
+            Center::Diff(view) => Some(view.path().to_string()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn arrows_walk_the_files_of_the_selected_commit() {
+        let dir = std::env::temp_dir().join(format!("kelp-details-keys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "T"],
+        ] {
+            run(&dir, args).unwrap();
+        }
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(dir.join(name), "one\n").unwrap();
+        }
+        run(&dir, &["add", "."]).unwrap();
+        run(&dir, &["commit", "-q", "-m", "three files"]).unwrap();
+
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let (git, history) = kelp_core::history::History::open(&dir).unwrap();
+        let mut repo = Repo::new(&ctx, git, history, Duration::ZERO);
+        repo.select(Selection::Commit(0));
+        let started = Instant::now();
+        while repo.details.is_none() && started.elapsed() < Duration::from_secs(5) {
+            repo.poll(&ctx, None);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        repo.open_diff("a.txt");
+        frame(&ctx, &mut repo, vec![]);
+
+        press(&ctx, &mut repo, egui::Key::ArrowDown);
+        assert_eq!(open_path(&repo).as_deref(), Some("b.txt"));
+        press(&ctx, &mut repo, egui::Key::ArrowDown);
+        press(&ctx, &mut repo, egui::Key::ArrowDown);
+        assert_eq!(open_path(&repo).as_deref(), Some("c.txt"));
+        press(&ctx, &mut repo, egui::Key::Home);
+        assert_eq!(open_path(&repo).as_deref(), Some("a.txt"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
