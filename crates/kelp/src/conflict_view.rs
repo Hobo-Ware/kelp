@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use eframe::egui::{
-    self, Align, Color32, CornerRadius, CursorIcon, FontId, Margin, Rect, RichText, Sense, Stroke,
-    Ui, vec2,
+    self, Align, Color32, CornerRadius, CursorIcon, FontId, Key, Margin, Modifiers, Rect, RichText,
+    Sense, Stroke, Ui, vec2,
 };
 use kelp_core::conflict::{
     self, Choice, InProgress, Operation, Parsed, Region, Side, Stages, Step,
@@ -150,7 +150,59 @@ impl ConflictView {
         }
     }
 
+    fn step(&mut self, forward: bool) {
+        let total = self.choices.len();
+        if total == 0 {
+            return;
+        }
+        self.current = if forward {
+            (self.current + 1) % total
+        } else {
+            (self.current + total - 1) % total
+        };
+        self.focus = Some(self.current);
+        self.mode = Mode::Conflicts;
+    }
+
+    fn pick(&mut self, index: usize, choice: Option<Choice>) {
+        self.choices[index] = choice;
+        self.current = self
+            .choices
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(index);
+    }
+
+    fn keys(&mut self, ctx: &egui::Context) {
+        if self.choices.is_empty() || crate::list_keys::is_typing(ctx) {
+            return;
+        }
+        let (next, previous) = ctx.input_mut(|i| {
+            (
+                i.consume_key(Modifiers::ALT, Key::ArrowDown),
+                i.consume_key(Modifiers::ALT, Key::ArrowUp),
+            )
+        });
+        if next || previous {
+            self.step(next);
+        }
+        let choice = [
+            (Key::O, Choice::Ours),
+            (Key::T, Choice::Theirs),
+            (Key::B, Choice::Both),
+        ]
+        .into_iter()
+        .find(|(key, _)| crate::list_keys::pressed(ctx, *key));
+        if let Some((_, choice)) = choice {
+            let at = self.current.min(self.choices.len() - 1);
+            self.pick(at, Some(choice));
+            self.focus = Some(self.current);
+            self.mode = Mode::Conflicts;
+        }
+    }
+
     pub fn ui(&mut self, ui: &mut Ui) -> Event {
+        self.keys(ui.ctx());
         let mut event = self.header(ui);
         match &self.body {
             Body::Text(_) if self.mode == Mode::Result => self.result(ui),
@@ -270,15 +322,11 @@ impl ConflictView {
                             );
                         }
                         if total > 1 {
-                            if arrow_button(ui, false, "Next conflict").clicked() {
-                                self.current = (self.current + 1) % total;
-                                self.focus = Some(self.current);
-                                self.mode = Mode::Conflicts;
+                            if arrow_button(ui, false, "Next conflict (Alt+Down)").clicked() {
+                                self.step(true);
                             }
-                            if arrow_button(ui, true, "Previous conflict").clicked() {
-                                self.current = (self.current + total - 1) % total;
-                                self.focus = Some(self.current);
-                                self.mode = Mode::Conflicts;
+                            if arrow_button(ui, true, "Previous conflict (Alt+Up)").clicked() {
+                                self.step(false);
                             }
                         }
                     });
@@ -369,11 +417,7 @@ impl ConflictView {
                             ],
                         );
                         if picked != choice {
-                            self.choices[index] = picked;
-                            self.current = index;
-                            if let Some(next) = self.choices.iter().position(Option::is_none) {
-                                self.current = next;
-                            }
+                            self.pick(index, picked);
                         }
                     });
                 });
@@ -753,4 +797,63 @@ fn accent_button(text: &str) -> egui::Button<'_> {
     .fill(theme::accent())
     .corner_radius(5)
     .min_size(vec2(0.0, 30.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use eframe::egui::{self, Event, Key, Modifiers, Pos2, RawInput, Rect, vec2};
+    use kelp_core::conflict::Choice;
+
+    use super::ConflictView;
+
+    const TWO_CONFLICTS: &str = "top\n<<<<<<< ours\na\n=======\nb\n>>>>>>> theirs\nmid\n<<<<<<< ours\nc\n=======\nd\n>>>>>>> theirs\n";
+
+    fn press(ctx: &egui::Context, view: &mut ConflictView, key: Key, modifiers: Modifiers) {
+        let event = |pressed| Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers,
+        };
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 700.0))),
+            events: vec![event(true), event(false)],
+            modifiers,
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| {
+            let _ = view.ui(ui);
+        });
+    }
+
+    #[test]
+    fn keys_pick_sides_and_jump_between_conflicts() {
+        let dir = std::env::temp_dir().join(format!("kelp-conflict-keys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("f.txt"), TWO_CONFLICTS).unwrap();
+        let mut view = ConflictView::load(&dir, "f.txt").unwrap();
+        assert_eq!(view.choices.len(), 2);
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+
+        press(&ctx, &mut view, Key::T, Modifiers::NONE);
+        assert_eq!(view.choices, [Some(Choice::Theirs), None]);
+        assert_eq!(
+            view.current, 1,
+            "picking moves on to the next open conflict"
+        );
+
+        press(&ctx, &mut view, Key::B, Modifiers::NONE);
+        assert_eq!(view.choices, [Some(Choice::Theirs), Some(Choice::Both)]);
+
+        press(&ctx, &mut view, Key::ArrowUp, Modifiers::ALT);
+        assert_eq!(view.current, 0);
+        press(&ctx, &mut view, Key::O, Modifiers::NONE);
+        assert_eq!(view.choices, [Some(Choice::Ours), Some(Choice::Both)]);
+        press(&ctx, &mut view, Key::ArrowDown, Modifiers::ALT);
+        assert_eq!(view.current, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
