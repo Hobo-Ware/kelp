@@ -2,6 +2,11 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.6 - 2026-09-29
+
+- Switching branches no longer fails with "could not write index" when another git process is busy in the same repository: Kelp waits a moment and tries again.
+- Another worktree's uncommitted changes branch off the commit they're based on, instead of sitting on the line like a commit.
+
 ## v0.8.5 - 2026-09-29
 
 - A commit with several branches or tags stacks its labels when you hover or select it, so you can reach each one.

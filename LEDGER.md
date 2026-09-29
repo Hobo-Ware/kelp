@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.5 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.6 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,12 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-29
+
+- **v0.8.6: lock retries, side-branch worktree rows.** `git_cli` retries
+  lock failures (index.lock, "could not write index") with 50-800 ms
+  waits and explains a lock that never frees. Other worktrees' WIP rows
+  sit in the first free lane beside their head with a dashed curve into
+  it (`side_lane`). 425 tests pass.
 
 - **v0.8.5: label stacks, icon counts, square owner avatars.** Hovered or
   selected commits with several refs draw `ref_labels::paint_stack` over
