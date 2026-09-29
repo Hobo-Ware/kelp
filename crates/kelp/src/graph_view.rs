@@ -55,6 +55,7 @@ pub struct GraphView {
     pub visible_commits: Vec<usize>,
     pub focus_id: Option<egui::Id>,
     remote_owners: Option<Vec<(String, String)>>,
+    stack: Option<(usize, Rect)>,
 }
 
 pub struct GraphInput<'a> {
@@ -79,6 +80,7 @@ struct RowStyle {
     dashed_top: bool,
     faded: bool,
     descriptions: bool,
+    labels_stacked: bool,
 }
 
 pub struct Wip<'a> {
@@ -121,6 +123,7 @@ impl GraphView {
             visible_commits: Vec::new(),
             focus_id: None,
             remote_owners: None,
+            stack: None,
         }
     }
 
@@ -207,6 +210,7 @@ impl GraphView {
         let visible_commits = &mut self.visible_commits;
         visible_commits.clear();
         let focus_id = &mut self.focus_id;
+        let stack = &mut self.stack;
         scroll.show_rows(ui, ROW_H, map.total(), |ui, rows| {
             for display in rows.clone() {
                 if let Row::Commit(row) = map.resolve(display) {
@@ -267,6 +271,21 @@ impl GraphView {
                 None => *hover = None,
                 _ => {}
             }
+            let pointer = ui.ctx().pointer_hover_pos().filter(|p| rect.contains(*p));
+            let stacked = |row: usize| history.refs.at_row(row).nth(1).is_some();
+            let under_pointer = pointer.and_then(|p| match row_at(p.y) {
+                Row::Commit(row) => Some(row),
+                _ => None,
+            });
+            let expanded = stack
+                .filter(|(_, area)| pointer.is_some_and(|p| area.contains(p)))
+                .map(|(row, _)| row)
+                .or(under_pointer.filter(|&row| stacked(row)))
+                .or(match selected {
+                    Some(Selection::Commit(row)) if stacked(row) => Some(row),
+                    _ => None,
+                });
+            let mut expanded_geo = None;
             let first_commit = (rows.start..rows.end)
                 .find_map(|d| match map.resolve(d) {
                     Row::Commit(row) => Some(row),
@@ -373,6 +392,7 @@ impl GraphView {
                             dashed_top: map.has_wip_above(row),
                             faded: is_faded(lit, row),
                             descriptions,
+                            labels_stacked: expanded == Some(row),
                         };
                         let placed = paint_row(
                             &painter,
@@ -400,12 +420,15 @@ impl GraphView {
                         let force_open = open_refs
                             .as_deref()
                             .is_some_and(|rev| history.id(row).to_string().starts_with(rev));
-                        for spot in &placed {
+                        let lane = theme::lane(history.layout.node_color(row));
+                        if expanded == Some(row) {
+                            expanded_geo = Some((row, geo.top, lane));
+                        }
+                        for spot in placed.iter().filter(|_| expanded != Some(row)) {
                             if let ref_labels::Slot::Label(i) = spot.slot {
                                 label_hits.push((spot.rect, row, labels[i].clone()));
                             }
                         }
-                        let lane = theme::lane(history.layout.node_color(row));
                         if is_selected {
                             let center = pos2(geo.lane_x(history.layout.node_lane(row)), geo.mid());
                             let graph_x = geo.graph_left()..=geo.msg_left();
@@ -415,10 +438,12 @@ impl GraphView {
                             let spot = pos2(geo.msg_left() - MARK_INSET, geo.mid());
                             crate::compare_view::paint_mark(&painter, spot, mark);
                         }
-                        let events = ref_labels::interact(
-                            ui, row, &labels, &placed, lane, force_open, &mut menu,
-                        );
-                        label_events.extend(events.into_iter().map(|e| (row, e)));
+                        if expanded != Some(row) {
+                            let events = ref_labels::interact(
+                                ui, row, &labels, &placed, lane, force_open, &mut menu,
+                            );
+                            label_events.extend(events.into_iter().map(|e| (row, e)));
+                        }
                     }
                     (Row::CurrentWip, None) => {}
                 }
@@ -429,6 +454,32 @@ impl GraphView {
             for (center, lane, graph_x) in halos {
                 let clip = Rect::from_x_y_ranges(graph_x, rect.y_range());
                 selection_halo(&painter.with_clip_rect(clip), center, AVATAR_R, lane);
+            }
+            *stack = None;
+            if let Some((row, top, lane)) = expanded_geo {
+                let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
+                let placed = ref_labels::paint_stack(
+                    &painter,
+                    rect.left() + LABELS_END,
+                    rect.left() + 8.0,
+                    top + ROW_H / 2.0,
+                    &labels,
+                    &badges,
+                    lane,
+                );
+                for spot in &placed {
+                    if let ref_labels::Slot::Label(i) = spot.slot {
+                        label_hits.push((spot.rect, row, labels[i].clone()));
+                    }
+                }
+                let area = placed
+                    .iter()
+                    .fold(Rect::NOTHING, |area, spot| area.union(spot.rect))
+                    .expand(4.0);
+                *stack = Some((row, area));
+                let events =
+                    ref_labels::interact(ui, row, &labels, &placed, lane, false, &mut menu);
+                label_events.extend(events.into_iter().map(|e| (row, e)));
             }
             let commit_at = |pos: Pos2| -> Option<usize> {
                 if !rect.contains(pos) {
@@ -912,6 +963,7 @@ fn paint_row(
         dashed_top,
         faded,
         descriptions,
+        labels_stacked,
     } = style;
     let mut soft = painter.clone();
     if faded {
@@ -1001,7 +1053,11 @@ fn paint_row(
     let mut placed = Vec::new();
     if node.x >= geo.graph_left() {
         let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
-        placed = paint_labels(&soft, geo, &labels, badges, node, color);
+        let shown = if labels_stacked { &[][..] } else { &labels[..] };
+        placed = paint_labels(&soft, geo, shown, badges, node, color);
+        if labels_stacked {
+            paint_label_link(&soft, geo, node, color);
+        }
     }
     if faded {
         graph.circle_filled(node, AVATAR_R + 1.0, theme::bg());
@@ -1422,16 +1478,20 @@ fn paint_labels(
         lane,
     );
     if !labels.is_empty() {
-        let stroke = Stroke::new(1.0, theme::with_alpha(lane, 0x66));
-        painter.line_segment(
-            [
-                pos2(geo.left + LABELS_END, node.y),
-                pos2(node.x - AVATAR_R, node.y),
-            ],
-            stroke,
-        );
+        paint_label_link(painter, geo, node, lane);
     }
     placed
+}
+
+fn paint_label_link(painter: &egui::Painter, geo: &RowGeo, node: Pos2, lane: Color32) {
+    let stroke = Stroke::new(1.0, theme::with_alpha(lane, 0x66));
+    painter.line_segment(
+        [
+            pos2(geo.left + LABELS_END, node.y),
+            pos2(node.x - AVATAR_R, node.y),
+        ],
+        stroke,
+    );
 }
 
 fn drop_menu_id() -> egui::Id {
