@@ -2,6 +2,12 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.5 - 2026-09-29
+
+- A commit with several branches or tags stacks its labels when you hover or select it, so you can reach each one.
+- Change counts show as icons with numbers (pencil, plus, minus) instead of words.
+- GitHub org and owner avatars keep their square shape with rounded corners instead of being cropped to a circle.
+
 ## v0.8.4 - 2026-09-29
 
 - Text buttons like Stash, Stage all and Unstage all light up when you hover them, so it's clear they can be clicked.
