@@ -159,6 +159,104 @@ fn remote_badge<'a>(
     Some((*badges.get(remote)?, branch))
 }
 
+struct Laid<'a> {
+    label: &'a RefLabel,
+    galley: std::sync::Arc<egui::Galley>,
+    badge: Option<egui::TextureId>,
+    pill_w: f32,
+    width: f32,
+}
+
+fn lay<'a>(
+    painter: &egui::Painter,
+    label: &'a RefLabel,
+    badges: &RemoteBadges,
+    text_limit: f32,
+) -> Laid<'a> {
+    let pill_w = label.pull.as_ref().map_or(0.0, |pull| {
+        crate::pulls_ui::pill_width(painter, pull) + PILL_GAP
+    });
+    let badge = remote_badge(label, badges);
+    let badge_w = if badge.is_some() {
+        BADGE_SIZE + BADGE_GAP
+    } else {
+        0.0
+    };
+    let text_room = (text_limit - LABEL_PAD - pill_w - badge_w).min(LABEL_MAX_TEXT_W);
+    let text = badge.map_or_else(|| label_text(label), |(_, branch)| branch.to_string());
+    let galley = crate::graph_view::truncated(
+        painter,
+        text,
+        FontId::proportional(12.0),
+        Color32::PLACEHOLDER,
+        text_room.max(0.0),
+    );
+    let width = galley.size().x + LABEL_PAD + pill_w + badge_w;
+    Laid {
+        label,
+        galley,
+        badge: badge.map(|(texture, _)| texture),
+        pill_w,
+        width,
+    }
+}
+
+fn draw(
+    painter: &egui::Painter,
+    laid: Laid<'_>,
+    right: f32,
+    mid: f32,
+    lane: Color32,
+    index: usize,
+    placed: &mut Vec<Placed>,
+) {
+    let rect = Rect::from_min_size(
+        pos2(right - laid.width, mid - LABEL_H / 2.0),
+        vec2(laid.width, LABEL_H),
+    );
+    let (fill, stroke, ink) = label_style(laid.label, lane);
+    painter.rect(
+        rect,
+        CornerRadius::same(5),
+        fill,
+        stroke,
+        egui::StrokeKind::Inside,
+    );
+    let mut text_left = rect.left() + 8.0;
+    if let Some(texture) = laid.badge {
+        let spot = Rect::from_center_size(
+            pos2(rect.left() + 7.0 + BADGE_SIZE / 2.0, mid),
+            vec2(BADGE_SIZE, BADGE_SIZE),
+        );
+        let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+        painter.image(texture, spot, uv, Color32::WHITE);
+        text_left += BADGE_SIZE + BADGE_GAP;
+    }
+    painter.galley(
+        pos2(text_left, mid - laid.galley.size().y / 2.0),
+        laid.galley,
+        ink,
+    );
+    placed.push(Placed {
+        rect,
+        slot: Slot::Label(index),
+    });
+    if let Some(pull) = &laid.label.pull {
+        let pill = Rect::from_min_size(
+            pos2(
+                rect.right() - laid.pill_w + PILL_GAP - 4.0,
+                mid - crate::pulls_ui::PILL_H / 2.0,
+            ),
+            vec2(laid.pill_w - PILL_GAP, crate::pulls_ui::PILL_H),
+        );
+        crate::pulls_ui::paint_pill(painter, pill, pull, false);
+        placed.push(Placed {
+            rect: pill,
+            slot: Slot::Pull(index),
+        });
+    }
+}
+
 pub fn paint(
     painter: &egui::Painter,
     right_edge: f32,
@@ -172,34 +270,17 @@ pub fn paint(
     let mut right = right_edge;
     let mut placed = Vec::new();
     for (i, label) in labels.iter().enumerate() {
-        let pill_w = label.pull.as_ref().map_or(0.0, |pull| {
-            crate::pulls_ui::pill_width(painter, pull) + PILL_GAP
-        });
         let more_chip = if i + 1 < labels.len() {
             MORE_CHIP_W
         } else {
             0.0
         };
-        let badge = remote_badge(label, badges);
-        let badge_w = if badge.is_some() {
-            BADGE_SIZE + BADGE_GAP
-        } else {
-            0.0
-        };
-        let text_room =
-            (right - left_edge - LABEL_PAD - pill_w - badge_w - more_chip).min(LABEL_MAX_TEXT_W);
+        let limit = right - left_edge - more_chip;
+        let laid = lay(painter, label, badges, limit);
+        let text_room = (limit - (laid.width - laid.galley.size().x)).min(LABEL_MAX_TEXT_W);
         let remaining = labels.len() - i;
         let fits = text_room >= LABEL_MIN_TEXT_W && (i == 0 || right - left_edge > MORE_CHIP_W);
-        let text = badge.map_or_else(|| label_text(label), |(_, branch)| branch.to_string());
-        let galley = crate::graph_view::truncated(
-            painter,
-            text,
-            font.clone(),
-            Color32::PLACEHOLDER,
-            text_room.max(0.0),
-        );
-        let w = galley.size().x + LABEL_PAD + pill_w + badge_w;
-        if !fits || right - w < left_edge {
+        if !fits || right - laid.width < left_edge {
             let g = painter.layout_no_wrap(format!("+{remaining}"), font, theme::text_muted());
             let rect = Rect::from_min_size(
                 pos2(right - g.size().x - 12.0, mid - LABEL_H / 2.0),
@@ -217,47 +298,39 @@ pub fn paint(
             });
             break;
         }
-        let rect = Rect::from_min_size(pos2(right - w, mid - LABEL_H / 2.0), vec2(w, LABEL_H));
-        let (fill, stroke, ink) = label_style(label, lane);
-        painter.rect(
-            rect,
-            CornerRadius::same(5),
-            fill,
-            stroke,
-            egui::StrokeKind::Inside,
-        );
-        if let Some((texture, _)) = badge {
-            let spot = Rect::from_center_size(
-                pos2(rect.left() + 7.0 + BADGE_SIZE / 2.0, mid),
-                vec2(BADGE_SIZE, BADGE_SIZE),
-            );
-            let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-            painter.image(texture, spot, uv, Color32::WHITE);
-        }
-        painter.galley(
-            pos2(rect.left() + 8.0 + badge_w, mid - galley.size().y / 2.0),
-            galley,
-            ink,
-        );
-        placed.push(Placed {
-            rect,
-            slot: Slot::Label(i),
-        });
-        if let Some(pull) = &label.pull {
-            let pill = Rect::from_min_size(
-                pos2(
-                    rect.right() - pill_w + PILL_GAP - 4.0,
-                    mid - crate::pulls_ui::PILL_H / 2.0,
-                ),
-                vec2(pill_w - PILL_GAP, crate::pulls_ui::PILL_H),
-            );
-            crate::pulls_ui::paint_pill(painter, pill, pull, false);
-            placed.push(Placed {
-                rect: pill,
-                slot: Slot::Pull(i),
-            });
-        }
-        right -= w + 4.0;
+        let width = laid.width;
+        draw(painter, laid, right, mid, lane, i, &mut placed);
+        right -= width + 4.0;
+    }
+    placed
+}
+
+const STACK_GAP: f32 = 3.0;
+
+pub fn stack_step() -> f32 {
+    LABEL_H + STACK_GAP
+}
+
+pub fn paint_stack(
+    painter: &egui::Painter,
+    right_edge: f32,
+    left_edge: f32,
+    mid: f32,
+    labels: &[&RefLabel],
+    badges: &RemoteBadges,
+    lane: Color32,
+) -> Vec<Placed> {
+    let mut placed = Vec::new();
+    for (i, label) in labels.iter().enumerate() {
+        let row_mid = mid + i as f32 * stack_step();
+        let laid = lay(painter, label, badges, right_edge - left_edge);
+        let backing = Rect::from_min_size(
+            pos2(right_edge - laid.width, row_mid - LABEL_H / 2.0),
+            vec2(laid.width, LABEL_H),
+        )
+        .expand(1.5);
+        painter.rect_filled(backing, CornerRadius::same(6), theme::bg());
+        draw(painter, laid, right_edge, row_mid, lane, i, &mut placed);
     }
     placed
 }
