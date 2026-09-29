@@ -246,6 +246,7 @@ folder if it is a repo.
 | Cmd-click a commit | Compare it with the selected commit; Esc stops comparing |
 | Drag a graph label onto a commit | Merge, rebase or reset |
 | Cmd-click / Shift-click a changed file | Pick several to stage, stash or discard |
+| Cmd-click / Shift-click a file in a commit | Show several files' diffs stacked |
 | P / R / E / S / F / D | In interactive rebase: pick, reword, edit, squash, fixup or drop the hovered commit |
 
 ## Where Kelp keeps things
@@ -292,7 +293,7 @@ Developer switches (environment variables):
 | `KELP_HIDE_REFS=a,b`, `KELP_COLUMNS=author,date,hash` | Hide branches or show columns for this run |
 | `KELP_OPEN_DIFF=1` / `split` | Open the first changed file of the selected commit |
 | `KELP_OPEN_WORKTREES=1`, `KELP_OPEN_DIALOG=worktree` (or `reset-hard`, `push-to`, `force-push`, `tag`, `add-remote`, `rename-remote-branch`, `clone`; `KELP_CLONE_URL=<url>` prefills it), `KELP_OPEN_WELCOME=1` (the new tab page; `KELP_RECENTS=<path>,<path>` fakes its list), `KELP_ZOOM=1.25`, `KELP_COLLAPSE=sidebar,details`, `KELP_OPEN_SETTINGS=1` (`help` scrolls to the Help links), `KELP_WHATS_NEW=<version>` (What's new since that version; empty shows the latest), `KELP_OPEN_PALETTE=<query>`, `KELP_OPEN_SHORTCUTS=1`, `KELP_OPEN_MESSAGE=1` (full commit message), `KELP_PICK=<file>,<file>` (picks unstaged files; add `KELP_OPEN_STASH=1` for the stash prompt), `KELP_SEARCH=text`, `KELP_OPEN_MENU=branch` (or `commit`, `tab`, `sort`), `KELP_SIDEBAR_FILTER=text`, `KELP_OPEN_CONFLICT=<file>` (add `#ours,theirs,both` to pre-pick, `:result` for the result), `KELP_OPEN_REFS=<commit>` (the `+N` ref list), `KELP_OPEN_DROP=<ref>@<commit>` (the drop menu), `KELP_RENAME=<branch>` (inline rename), `KELP_SHOW_STASH=stash@{0}` (a stash's changes), `KELP_OPEN_REFLOG=1` (or a branch name), `KELP_FILE_HISTORY=<path>`, `KELP_BLAME=<path>`, `KELP_OPEN_PULLS=1` (the pull requests page), `KELP_OPEN_CONSOLE=1` (the git console; `bg` also shows background checks) | Open a screen on start |
-| `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
+| `KELP_SELECT_COMMIT=<rev>`, `KELP_SELECT_WIP=1`, `KELP_OPEN_DIFF=path:<file>` / `paths:<a>,<b>` / `preview:<file>` / `unstaged:<file>` | Select a commit or file on start |
 | `KELP_FOCUS=sidebar` (or `graph`, `details`) | Put keyboard focus in an area, with the focus ring showing |
 | `KELP_COMPARE=<a>..<b>` (`<b>` can be `worktree`), `KELP_FILTER=author:<name>,path:<prefix>,period:day\|week\|month,mine` | Start comparing or filtering |
 | `KELP_FAKE_UPDATE=<version>` | Pretend a newer release exists |

@@ -35,6 +35,7 @@ const THREAD_INDENT: f32 = NUM_W * 2.0 + GUTTER_W + 10.0;
 const THREAD_W: f32 = 640.0;
 const RESOLVED_H: f32 = 34.0;
 const COMPOSER_H: f32 = 132.0;
+const STACKED_PANE_H: f32 = 480.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffSource {
@@ -77,6 +78,13 @@ enum Item {
     OutsideHeader,
 }
 
+struct Rows {
+    items: Vec<Item>,
+    heights: Vec<f32>,
+    offsets: Vec<f32>,
+    total: f32,
+}
+
 pub struct DiffView {
     pub source: DiffSource,
     pub diff: FileDiff,
@@ -95,6 +103,7 @@ pub struct DiffView {
     header_squeeze: u8,
     lfs_hint: bool,
     embedded: bool,
+    stacked: bool,
     ask: Option<Dialog>,
     preview: Option<Preview>,
     file_change_starts: Vec<u32>,
@@ -215,6 +224,7 @@ impl DiffView {
             pending: None,
             header_squeeze: 0,
             embedded: false,
+            stacked: false,
             lfs_hint,
             ask: None,
             preview,
@@ -261,6 +271,7 @@ impl DiffView {
         self.header_squeeze = kept.header_squeeze;
         self.lfs_hint = kept.lfs_hint;
         self.embedded = kept.embedded;
+        self.stacked = kept.stacked;
         self.scroll_y = kept.scroll_y;
         self.blame = kept.blame;
         if self.is_working()
@@ -299,6 +310,9 @@ impl DiffView {
     }
 
     fn jump_targets_exist(&self) -> bool {
+        if self.stacked {
+            return false;
+        }
         match self.mode {
             Mode::Diff => !self.hunks.is_empty(),
             Mode::File => !self.file_change_starts.is_empty(),
@@ -417,10 +431,32 @@ impl DiffView {
         author: &str,
         avatars: &mut AvatarStore,
     ) -> Event {
+        self.stacked = false;
+        self.show(ui, review, author, avatars)
+    }
+
+    pub fn stacked_ui(
+        &mut self,
+        ui: &mut Ui,
+        review: &mut Review,
+        author: &str,
+        avatars: &mut AvatarStore,
+    ) -> Event {
+        self.stacked = true;
+        self.show(ui, review, author, avatars)
+    }
+
+    fn show(
+        &mut self,
+        ui: &mut Ui,
+        review: &mut Review,
+        author: &str,
+        avatars: &mut AvatarStore,
+    ) -> Event {
         if let Some(text) = &self.diff.new_text {
             crate::fonts::ensure_fallback(ui.ctx(), text);
         }
-        if !ui.ctx().egui_wants_keyboard_input() {
+        if !self.stacked && !ui.ctx().egui_wants_keyboard_input() {
             if ui.input_mut(|i| i.consume_key(Modifiers::ALT, Key::ArrowUp)) {
                 self.jump = Some(Jump::Previous);
             }
@@ -433,7 +469,13 @@ impl DiffView {
         if self.mode == Mode::Preview
             && let Some(preview) = &mut self.preview
         {
-            preview.ui(ui);
+            if self.stacked {
+                ui.allocate_ui(vec2(ui.available_width(), STACKED_PANE_H), |ui| {
+                    preview.ui(ui)
+                });
+            } else {
+                preview.ui(ui);
+            }
             return event;
         }
         if self.mode == Mode::Blame
@@ -443,7 +485,19 @@ impl DiffView {
             let blame = self
                 .blame
                 .get_or_insert_with(|| BlameView::new(ui.ctx(), dir.clone(), *rev, &path));
-            if let blame_view::Event::Reveal(id) = blame.ui(ui, avatars) {
+            let stacked = self.stacked;
+            let mut reveal = None;
+            let mut show_blame = |ui: &mut Ui| {
+                if let blame_view::Event::Reveal(id) = blame.ui(ui, avatars) {
+                    reveal = Some(id);
+                }
+            };
+            if stacked {
+                ui.allocate_ui(vec2(ui.available_width(), STACKED_PANE_H), show_blame);
+            } else {
+                show_blame(ui);
+            }
+            if let Some(id) = reveal {
                 event = Event::Reveal(id);
             }
             return event;
@@ -456,7 +510,12 @@ impl DiffView {
                 notice(ui, "No changes in this file.")
             }
             Body::Text(_) => {
-                if self.body(ui, review, author) {
+                let changed = if self.stacked {
+                    self.flowing_body(ui, review, author)
+                } else {
+                    self.body(ui, review, author)
+                };
+                if changed {
                     event = Event::Changed;
                 }
                 if let Some(op) = self.pending.take() {
@@ -829,6 +888,51 @@ impl DiffView {
     }
 
     fn body(&mut self, ui: &mut Ui, review: &mut Review, author: &str) -> bool {
+        let rows = self.rows(ui, review);
+        let mut scroll = egui::ScrollArea::both().auto_shrink(false);
+        if let Some(jump) = self.jump.take()
+            && let Some(target) = self.jump_target(&rows.items, &rows.offsets, jump)
+        {
+            scroll = scroll.vertical_scroll_offset(target);
+        }
+        let mut changed = false;
+        scroll.show_viewport(ui, |ui, viewport| {
+            self.scroll_y = viewport.min.y;
+            let width = ui.available_width().max(self.min_width());
+            let (full, _) = ui.allocate_exact_size(vec2(width, rows.total), Sense::hover());
+            changed = self.draw_rows(ui, &rows, full.min, width, viewport, review, author);
+        });
+        changed
+    }
+
+    fn flowing_body(&mut self, ui: &mut Ui, review: &mut Review, author: &str) -> bool {
+        self.jump = None;
+        let rows = self.rows(ui, review);
+        let mut changed = false;
+        egui::ScrollArea::horizontal()
+            .auto_shrink([false, true])
+            .show_viewport(ui, |ui, viewport| {
+                let width = ui.available_width().max(self.min_width());
+                let (full, _) = ui.allocate_exact_size(vec2(width, rows.total), Sense::hover());
+                let clip = ui.clip_rect();
+                let visible = Rect::from_min_max(
+                    pos2(viewport.min.x, clip.top() - full.top()),
+                    pos2(viewport.max.x, clip.bottom() - full.top()),
+                );
+                changed = self.draw_rows(ui, &rows, full.min, width, visible, review, author);
+            });
+        changed
+    }
+
+    fn min_width(&self) -> f32 {
+        if self.layout == Layout::Split && self.mode == Mode::Diff {
+            900.0
+        } else {
+            1100.0
+        }
+    }
+
+    fn rows(&self, ui: &Ui, review: &Review) -> Rows {
         let items = self.items(review);
         let heights: Vec<f32> = items.iter().map(|i| self.height(ui, i, review)).collect();
         let mut offsets = Vec::with_capacity(items.len() + 1);
@@ -837,141 +941,145 @@ impl DiffView {
             offsets.push(y);
             y += h;
         }
-        let total = y;
+        Rows {
+            items,
+            heights,
+            offsets,
+            total: y,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_rows(
+        &mut self,
+        ui: &mut Ui,
+        rows: &Rows,
+        origin: egui::Pos2,
+        width: f32,
+        viewport: Rect,
+        review: &mut Review,
+        author: &str,
+    ) -> bool {
+        let Rows {
+            items,
+            heights,
+            offsets,
+            ..
+        } = rows;
         let mut changed = false;
         let font = FontId::monospace(12.5);
-        let mut scroll = egui::ScrollArea::both().auto_shrink(false);
-        if let Some(jump) = self.jump.take()
-            && let Some(target) = self.jump_target(&items, &offsets, jump)
-        {
-            scroll = scroll.vertical_scroll_offset(target);
-        }
-        scroll.show_viewport(ui, |ui, viewport| {
-            self.scroll_y = viewport.min.y;
-            let width = ui.available_width().max(
-                if self.layout == Layout::Split && self.mode == Mode::Diff {
-                    900.0
-                } else {
-                    1100.0
-                },
-            );
-            let (full, _) = ui.allocate_exact_size(vec2(width, total), Sense::hover());
-            let origin = full.min;
-            let first = offsets.partition_point(|o| *o + LINE_H * 4.0 < viewport.min.y);
-            for (k, item) in items.iter().enumerate().skip(first) {
-                let top = offsets[k];
-                if top > viewport.max.y {
-                    break;
-                }
-                let rect = Rect::from_min_size(origin + vec2(0.0, top), vec2(width, heights[k]));
-                match *item {
-                    Item::Hunk(h) => {
-                        ui.painter().rect_filled(rect, 0.0, theme::hunk_bg());
-                        ui.painter().text(
-                            pos2(rect.left() + 16.0, rect.center().y),
-                            Align2::LEFT_CENTER,
-                            &self.hunks[h],
-                            font.clone(),
-                            theme::hunk_text(),
+        let first = offsets.partition_point(|o| *o + LINE_H * 4.0 < viewport.min.y);
+        for (k, item) in items.iter().enumerate().skip(first) {
+            let top = offsets[k];
+            if top > viewport.max.y {
+                break;
+            }
+            let rect = Rect::from_min_size(origin + vec2(0.0, top), vec2(width, heights[k]));
+            match *item {
+                Item::Hunk(h) => {
+                    ui.painter().rect_filled(rect, 0.0, theme::hunk_bg());
+                    ui.painter().text(
+                        pos2(rect.left() + 16.0, rect.center().y),
+                        Align2::LEFT_CENTER,
+                        &self.hunks[h],
+                        font.clone(),
+                        theme::hunk_text(),
+                    );
+                    if let Some(label) = self.hunk_action() {
+                        let visible_right = rect.left() + viewport.max.x - viewport.min.x;
+                        let button_rect = Rect::from_min_size(
+                            pos2(visible_right.min(rect.right()) - 130.0, rect.top() + 3.0),
+                            vec2(118.0, rect.height() - 6.0),
                         );
-                        if let Some(label) = self.hunk_action() {
-                            let visible_right = rect.left() + viewport.max.x - viewport.min.x;
-                            let button_rect = Rect::from_min_size(
-                                pos2(visible_right.min(rect.right()) - 130.0, rect.top() + 3.0),
-                                vec2(118.0, rect.height() - 6.0),
+                        let button = egui::Button::new(RichText::new(label).size(12.0))
+                            .corner_radius(5)
+                            .fill(theme::tone(Color32::from_rgb(0x24, 0x2c, 0x3a)));
+                        if ui.put(button_rect, button).clicked()
+                            && let Some(patch) = diff::hunk_patch(&self.diff, h)
+                        {
+                            let reverse = self.source == DiffSource::Staged;
+                            self.pending = Some(Op::ApplyToIndex { patch, reverse });
+                        }
+                        if self.can_discard() {
+                            let discard_rect = Rect::from_min_size(
+                                button_rect.min - vec2(DISCARD_W + 8.0, 0.0),
+                                vec2(DISCARD_W, button_rect.height()),
                             );
-                            let button = egui::Button::new(RichText::new(label).size(12.0))
-                                .corner_radius(5)
-                                .fill(theme::tone(Color32::from_rgb(0x24, 0x2c, 0x3a)));
-                            if ui.put(button_rect, button).clicked()
-                                && let Some(patch) = diff::hunk_patch(&self.diff, h)
-                            {
-                                let reverse = self.source == DiffSource::Staged;
-                                self.pending = Some(Op::ApplyToIndex { patch, reverse });
-                            }
-                            if self.can_discard() {
-                                let discard_rect = Rect::from_min_size(
-                                    button_rect.min - vec2(DISCARD_W + 8.0, 0.0),
-                                    vec2(DISCARD_W, button_rect.height()),
-                                );
-                                let discard = egui::Button::new(
-                                    RichText::new("Discard").size(12.0).color(theme::deleted()),
-                                )
-                                .corner_radius(5)
-                                .fill(theme::with_alpha(theme::deleted(), 0x1c));
-                                let response = ui.put(discard_rect, discard).on_hover_text(
-                                    "Undo this hunk in the file. Shift-click skips the question.",
-                                );
-                                if response.clicked() {
-                                    let shift = ui.input(|i| i.modifiers.shift);
-                                    self.discard_hunk(h, shift);
-                                }
+                            let discard = egui::Button::new(
+                                RichText::new("Discard").size(12.0).color(theme::deleted()),
+                            )
+                            .corner_radius(5)
+                            .fill(theme::with_alpha(theme::deleted(), 0x1c));
+                            let response = ui.put(discard_rect, discard).on_hover_text(
+                                "Undo this hunk in the file. Shift-click skips the question.",
+                            );
+                            if response.clicked() {
+                                let shift = ui.input(|i| i.modifiers.shift);
+                                self.discard_hunk(h, shift);
                             }
                         }
                     }
-                    Item::OutsideHeader => {
-                        ui.painter().rect_filled(
-                            rect,
-                            0.0,
-                            theme::tone(Color32::from_rgb(0x1f, 0x23, 0x2b)),
-                        );
-                        ui.painter().text(
-                            pos2(rect.left() + 16.0, rect.center().y),
-                            Align2::LEFT_CENTER,
-                            "Comments on lines not shown here",
-                            FontId::proportional(12.0),
-                            theme::text_muted(),
-                        );
+                }
+                Item::OutsideHeader => {
+                    ui.painter().rect_filled(
+                        rect,
+                        0.0,
+                        theme::tone(Color32::from_rgb(0x1f, 0x23, 0x2b)),
+                    );
+                    ui.painter().text(
+                        pos2(rect.left() + 16.0, rect.center().y),
+                        Align2::LEFT_CENTER,
+                        "Comments on lines not shown here",
+                        FontId::proportional(12.0),
+                        theme::text_muted(),
+                    );
+                }
+                Item::Line(i) => self.unified_line(ui, rect, i, &font),
+                Item::Split(l, r) => {
+                    let half = rect.width() / 2.0;
+                    let left = Rect::from_min_size(rect.min, vec2(half, rect.height()));
+                    let right =
+                        Rect::from_min_size(rect.min + vec2(half, 0.0), vec2(half, rect.height()));
+                    self.split_side(ui, left, l, Side::Old, &font);
+                    self.split_side(ui, right, r, Side::New, &font);
+                    ui.painter().vline(
+                        right.left(),
+                        rect.y_range(),
+                        Stroke::new(1.0, theme::border()),
+                    );
+                }
+                Item::FileLine(i) => {
+                    let text = self.new_lines[i].clone();
+                    let number = i as u32 + 1;
+                    self.code_row(
+                        ui,
+                        rect,
+                        Row {
+                            numbers: Numbers::One(Some(number)),
+                            mark: "",
+                            text: &text,
+                            emphasis: &[],
+                            bg: Color32::TRANSPARENT,
+                            mark_color: theme::text_faint(),
+                            text_color: theme::text_body(),
+                            side: Side::New,
+                            selectable: None,
+                        },
+                        &font,
+                    );
+                }
+                Item::Thread(id) => {
+                    if self.thread(ui, rect, id, review, author) {
+                        changed = true;
                     }
-                    Item::Line(i) => self.unified_line(ui, rect, i, &font),
-                    Item::Split(l, r) => {
-                        let half = rect.width() / 2.0;
-                        let left = Rect::from_min_size(rect.min, vec2(half, rect.height()));
-                        let right = Rect::from_min_size(
-                            rect.min + vec2(half, 0.0),
-                            vec2(half, rect.height()),
-                        );
-                        self.split_side(ui, left, l, Side::Old, &font);
-                        self.split_side(ui, right, r, Side::New, &font);
-                        ui.painter().vline(
-                            right.left(),
-                            rect.y_range(),
-                            Stroke::new(1.0, theme::border()),
-                        );
-                    }
-                    Item::FileLine(i) => {
-                        let text = self.new_lines[i].clone();
-                        let number = i as u32 + 1;
-                        self.code_row(
-                            ui,
-                            rect,
-                            Row {
-                                numbers: Numbers::One(Some(number)),
-                                mark: "",
-                                text: &text,
-                                emphasis: &[],
-                                bg: Color32::TRANSPARENT,
-                                mark_color: theme::text_faint(),
-                                text_color: theme::text_body(),
-                                side: Side::New,
-                                selectable: None,
-                            },
-                            &font,
-                        );
-                    }
-                    Item::Thread(id) => {
-                        if self.thread(ui, rect, id, review, author) {
-                            changed = true;
-                        }
-                    }
-                    Item::Composer => {
-                        if self.composer_ui(ui, rect, review, author) {
-                            changed = true;
-                        }
+                }
+                Item::Composer => {
+                    if self.composer_ui(ui, rect, review, author) {
+                        changed = true;
                     }
                 }
             }
-        });
+        }
         changed
     }
 

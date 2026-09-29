@@ -356,6 +356,7 @@ pub static KEYS: &[KeyRow] = &[
     key("Cmd-click a commit", "Compare it with the selected commit; Esc stops comparing", Group::Actions),
     key("Drag a graph label onto a commit", "Merge, rebase or reset", Group::Actions),
     key("Cmd-click / Shift-click a changed file", "Pick several to stage, stash or discard", Group::Actions),
+    key("Cmd-click / Shift-click a file in a commit", "Show several files' diffs stacked", Group::Actions),
     key("P / R / E / S / F / D", "In interactive rebase: pick, reword, edit, squash, fixup or drop the hovered commit", Group::Actions),
 ];
 
