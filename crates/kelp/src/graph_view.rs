@@ -77,7 +77,8 @@ pub struct GraphInput<'a> {
 #[derive(Clone, Copy)]
 struct RowStyle {
     selected: bool,
-    dashed_top: bool,
+    own_wip_above: bool,
+    other_wip_above: bool,
     faded: bool,
     descriptions: bool,
     labels_stacked: bool,
@@ -389,7 +390,8 @@ impl GraphView {
                         let avatar = avatars.texture(&summaries[&row].email, history.id(row));
                         let style = RowStyle {
                             selected: is_selected,
-                            dashed_top: map.has_wip_above(row),
+                            own_wip_above: map.has_own_wip_above(row),
+                            other_wip_above: map.has_other_wip_above(row),
                             faded: is_faded(lit, row),
                             descriptions,
                             labels_stacked: expanded == Some(row),
@@ -960,7 +962,8 @@ fn paint_row(
     } = paint;
     let RowStyle {
         selected,
-        dashed_top,
+        own_wip_above,
+        other_wip_above,
         faded,
         descriptions,
         labels_stacked,
@@ -1004,8 +1007,20 @@ fn paint_row(
 
     let edges = layout.edges(row);
     let has_top = edges.iter().any(|e| e.kind == EdgeKind::Top);
-    if dashed_top && !has_top {
+    if own_wip_above && !has_top {
         dashed(&graph, pos2(node.x, geo.top), node, color);
+    }
+    if other_wip_above {
+        let x = geo.lane_x(side_lane(history, row));
+        let corner = pos2(x - ARC_R, geo.top);
+        let mut points = quarter_arc(corner, pos2(x, geo.top), pos2(x - ARC_R, geo.mid()));
+        points.push(pos2(node.x + AVATAR_R + 1.0, geo.mid()));
+        graph.extend(Shape::dashed_line(
+            &points,
+            Stroke::new(LINE_W, theme::text_faint()),
+            4.0,
+            3.0,
+        ));
     }
     for edge in &edges {
         if edge.kind == EdgeKind::Pass && !geo.lane_visible(edge.lane) {
@@ -1158,8 +1173,10 @@ fn paint_wip_row(
     };
     let node_x = if pinned {
         geo.wip_x()
-    } else {
+    } else if label.current {
         geo.lane_x(head_lane)
+    } else {
+        geo.lane_x(side_lane(history, head_row))
     };
     let node = pos2(node_x, geo.mid());
     let graph = geo.graph_clip(painter);
@@ -1247,6 +1264,19 @@ fn paint_wip_row(
         label.counts,
         12.5,
     );
+}
+
+fn side_lane(history: &History, head_row: usize) -> u16 {
+    let layout = &history.layout;
+    let busy: Vec<u16> = layout
+        .edges(head_row)
+        .into_iter()
+        .filter(|e| matches!(e.kind, EdgeKind::Pass | EdgeKind::Top | EdgeKind::JoinIn))
+        .map(|e| e.lane)
+        .collect();
+    (layout.node_lane(head_row) + 1..)
+        .find(|lane| !busy.contains(lane))
+        .unwrap_or(layout.node_lane(head_row) + 1)
 }
 
 fn paint_wip_link(

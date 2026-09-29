@@ -34,6 +34,7 @@ pub struct RowMap {
     wips: Vec<(usize, WipKind)>,
     heads: Vec<usize>,
     pinned_head: Option<usize>,
+    adjacent_head: Option<usize>,
     commits: usize,
 }
 
@@ -60,13 +61,15 @@ impl RowMap {
         wips.sort_by_key(|&(at, kind)| (at, kind != WipKind::Current));
         let heads = wips
             .iter()
-            .filter(|(_, kind)| pinned_head.is_none() || *kind != WipKind::Current)
+            .filter(|(_, kind)| *kind != WipKind::Current)
             .map(|&(at, _)| at)
             .collect();
+        let adjacent_head = current.filter(in_history).filter(|_| pinned_head.is_none());
         Self {
             wips,
             heads,
             pinned_head,
+            adjacent_head,
             commits,
         }
     }
@@ -127,7 +130,11 @@ impl RowMap {
         }
     }
 
-    pub fn has_wip_above(&self, commit: usize) -> bool {
+    pub fn has_own_wip_above(&self, commit: usize) -> bool {
+        self.adjacent_head == Some(commit)
+    }
+
+    pub fn has_other_wip_above(&self, commit: usize) -> bool {
         self.heads.contains(&commit)
     }
 
@@ -192,8 +199,8 @@ mod tests {
             assert_eq!(map.display(map.resolve(d)), d, "display {d}");
         }
         assert_eq!(map.display_of(Selection::Wip), map.display(Row::CurrentWip));
-        assert!(map.has_wip_above(3));
-        assert!(!map.has_wip_above(1));
+        assert!(map.has_other_wip_above(3));
+        assert!(!map.has_other_wip_above(1));
     }
 
     #[test]
@@ -214,9 +221,10 @@ mod tests {
         let links: Vec<WipLink> = (0..map.total()).map(|d| map.wip_link(d)).collect();
         use WipLink::*;
         assert_eq!(links, [None, Pass, Pass, Pass, Join, None]);
-        assert!(!map.has_wip_above(0));
-        assert!(map.has_wip_above(1));
-        assert!(!map.has_wip_above(2));
+        assert!(!map.has_other_wip_above(0));
+        assert!(map.has_other_wip_above(1));
+        assert!(!map.has_other_wip_above(2));
+        assert!(!map.has_own_wip_above(2));
     }
 
     #[test]
@@ -224,7 +232,8 @@ mod tests {
         let map = RowMap::new(3, Some(0), &[]);
         assert_eq!(all(&map)[0], Row::CurrentWip);
         assert_eq!(map.pinned_head(), None);
-        assert!(map.has_wip_above(0));
+        assert!(map.has_own_wip_above(0));
+        assert!(!map.has_other_wip_above(0));
         assert_eq!(map.wip_link(1), WipLink::None);
     }
 
