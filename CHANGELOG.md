@@ -2,6 +2,12 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.3 - 2026-09-29
+
+- Switching branches with local changes no longer fails: Kelp stashes them, switches and puts them back. If they clash with the new branch, a copy stays in a stash named after the switch.
+- Your uncommitted changes always sit at the top of the graph, with a dashed line down to the commit you have checked out.
+- Remote branches on GitHub show the owner's avatar instead of "origin/".
+
 ## v0.8.2 - 2026-09-29
 
 - Arrow keys work in every list: the files of a commit, Changes, stashes, the reflog, file history, the git console, pull requests, worktrees, comparisons and the recent repositories on a new tab. Home and End jump to the first and last row, and where a list opens a diff, the diff follows.
