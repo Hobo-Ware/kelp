@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.7 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.8 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,12 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-29
+
+- **v0.8.8: update checker.** Latest version from the
+  `github.com/<repo>/releases/latest` redirect instead of the rate-limited
+  API; hourly checks, quiet 15 min retry on background failures, and an
+  on-disk bundle version check (on every check and on focus) that goes
+  straight to Restart. 433 tests pass.
 
 - **v0.8.7: branch switching fixes.** `checkout_remote` only reuses the
   same-name local branch (a branch created from origin/main tracks it and

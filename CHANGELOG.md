@@ -2,6 +2,10 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.8 - 2026-09-29
+
+- The update check works on its own again: it no longer runs into GitHub's hourly limit, retries quietly when it can't reach GitHub, and notices an update installed outside Kelp, so the restart prompt shows up without opening Settings.
+
 ## v0.8.7 - 2026-09-29
 
 - Double-clicking a remote branch like origin/main checks out your local main, not some other branch that happens to track origin/main.
