@@ -27,6 +27,18 @@ A running log of what got done, newest first. The plan lives in
   remote picker (shown when the repo has a remote). It is one `Op::CreateTag { push_to }`
   job running `git tag` then `git push <remote> refs/tags/<name>` (two jobs would race);
   a pushed tag is not undoable. The `tag` dev dialog prechecks it.
+- **Multi-file picks in a commit's file list.** Cmd-click toggles and
+  Shift-click ranges; two or more picks show their diffs stacked under one
+  vertical scroll (`multi_diff_view.rs`, `repo_view/file_picks.rs`), each
+  file keeping its own sideways scroll. Only the rows in view are drawn.
+  Picks survive a background reload of the same commit. Dev switch
+  `KELP_OPEN_DIFF=paths:a,b`. Measured in a release build on trakt-web
+  (56 files, 24k added lines): picking loads every file on the UI thread,
+  41 ms once (about 0.7 ms per file, 88 files about 65 ms); a stacked
+  frame is 1.6 to 2 ms, of which laying out all rows is 0.4 ms. Fine at
+  this size; a thousand-file pick would hitch for about 0.7 s, and loading
+  files as they scroll into view is the fix if that ever matters. The
+  graph scroll bench is untouched by this change. 458 tests pass.
 
 - **v0.8.13: worktrees page matches the sidebar.** Agent marks in the
   name column (fixed slot, truncated names), rows ordered by

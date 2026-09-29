@@ -7,7 +7,7 @@ use kelp_core::commit::{self, ChangeKind, FileChange};
 use kelp_core::review::Review;
 
 use crate::commands::Command;
-use crate::repo_view::{Center, FileListMode, Repo, Selection};
+use crate::repo_view::{Center, FileListMode, PickHow, Repo, Selection};
 use crate::{menus, theme};
 
 const FILE_ROW_H: f32 = 28.0;
@@ -49,20 +49,23 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                 };
                 file_controls(ui, repo, &changes);
                 ui.spacing_mut().item_spacing.y = 0.0;
-                let active = open_diff_path(repo);
+                let multi = matches!(repo.center, Center::Multi(_));
+                let open = open_diff_path(repo);
+                let cursor = repo.picks.cursor(multi).or_else(|| open.clone());
+                let active = repo.picks.shown(multi, open);
                 match repo.file_list_mode {
                     FileListMode::Path => {
-                        path_list(ui, &changes, active.as_deref(), &repo.review, &mut picks)
+                        path_list(ui, &changes, &active, &repo.review, &mut picks)
                     }
                     FileListMode::Tree => {
-                        tree_list(ui, &changes, active.as_deref(), &repo.review, &mut picks)
+                        tree_list(ui, &changes, &active, &repo.review, &mut picks)
                     }
                 }
                 if repo.show_all_files {
-                    all_files(ui, repo, &changes, active.as_deref(), &mut picks);
+                    all_files(ui, repo, &changes, &active, &mut picks);
                 }
-                let diff_open = matches!(repo.center, Center::Diff(_));
-                picks.follow_keys(ui, active.as_deref().filter(|_| diff_open));
+                let diff_open = matches!(repo.center, Center::Diff(_) | Center::Multi(_));
+                picks.follow_keys(ui, cursor.as_deref().filter(|_| diff_open));
             });
     });
     if !repo.review.threads.is_empty() {
@@ -72,8 +75,8 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
         repo.reveal(Selection::Commit(row));
     }
     repo.execute(ui.ctx(), picks.commands);
-    if let Some(path) = picks.open {
-        repo.open_diff(&path);
+    if let Some((path, how)) = picks.open {
+        repo.pick_file(&path, how);
     }
 }
 
@@ -328,6 +331,7 @@ fn open_diff_path(repo: &Repo) -> Option<String> {
         Center::Conflict(view) => Some(view.path.clone()),
         Center::FileHistory(view) => Some(view.path.clone()),
         Center::Graph
+        | Center::Multi(_)
         | Center::Worktrees
         | Center::Rebase(_)
         | Center::Stash(_)
@@ -340,7 +344,7 @@ fn open_diff_path(repo: &Repo) -> Option<String> {
 fn path_list(
     ui: &mut Ui,
     changes: &[FileChange],
-    active: Option<&str>,
+    active: &[String],
     review: &Review,
     picks: &mut Picks,
 ) {
@@ -350,7 +354,7 @@ fn path_list(
             path: &change.path,
             label: None,
             depth: 0,
-            active: active == Some(change.path.as_str()),
+            active: active.contains(&change.path),
             comments: review.count_for(&change.path),
         };
         picks.take(row.show(ui), &change.path);
@@ -359,7 +363,7 @@ fn path_list(
 
 #[derive(Default)]
 struct Picks {
-    open: Option<String>,
+    open: Option<(String, PickHow)>,
     commands: Vec<Command>,
     rows: Vec<(egui::Id, egui::Rect)>,
     paths: Vec<String>,
@@ -368,7 +372,16 @@ struct Picks {
 impl Picks {
     fn take(&mut self, row: egui::Response, path: &str) {
         if row.clicked() {
-            self.open = Some(path.to_string());
+            let how = row.ctx.input(|i| {
+                if i.modifiers.shift {
+                    PickHow::Range
+                } else if i.modifiers.command {
+                    PickHow::Toggle
+                } else {
+                    PickHow::Only
+                }
+            });
+            self.open = Some((path.to_string(), how));
         }
         self.rows.push((row.id, row.rect));
         self.paths.push(path.to_string());
@@ -379,7 +392,7 @@ impl Picks {
         let active = active.and_then(|a| self.paths.iter().position(|p| p == a));
         let owns_keys = active.is_some() && crate::list_keys::nothing_focused(ui.ctx());
         if let Some(index) = crate::list_keys::step(ui, &self.rows, active, owns_keys) {
-            self.open = Some(self.paths[index].clone());
+            self.open = Some((self.paths[index].clone(), PickHow::Only));
         }
     }
 }
@@ -390,13 +403,7 @@ struct Folder<'a> {
     files: Vec<&'a FileChange>,
 }
 
-fn tree_list(
-    ui: &mut Ui,
-    changes: &[FileChange],
-    active: Option<&str>,
-    review: &Review,
-    picks: &mut Picks,
-) {
+fn build_tree(changes: &[FileChange]) -> Folder<'_> {
     let mut root = Folder::default();
     for change in changes {
         let mut folder = &mut root;
@@ -407,6 +414,34 @@ fn tree_list(
         }
         folder.files.push(change);
     }
+    root
+}
+
+pub fn display_order(changes: &[FileChange], mode: FileListMode) -> Vec<String> {
+    fn walk(folder: &Folder<'_>, out: &mut Vec<String>) {
+        for child in folder.folders.values() {
+            walk(child, out);
+        }
+        out.extend(folder.files.iter().map(|c| c.path.clone()));
+    }
+    match mode {
+        FileListMode::Path => changes.iter().map(|c| c.path.clone()).collect(),
+        FileListMode::Tree => {
+            let mut out = Vec::new();
+            walk(&build_tree(changes), &mut out);
+            out
+        }
+    }
+}
+
+fn tree_list(
+    ui: &mut Ui,
+    changes: &[FileChange],
+    active: &[String],
+    review: &Review,
+    picks: &mut Picks,
+) {
+    let root = build_tree(changes);
     show_folder(ui, &root, "", 0, active, review, picks);
 }
 
@@ -415,7 +450,7 @@ fn show_folder(
     folder: &Folder<'_>,
     prefix: &str,
     depth: usize,
-    active: Option<&str>,
+    active: &[String],
     review: &Review,
     picks: &mut Picks,
 ) {
@@ -453,7 +488,7 @@ fn show_folder(
             path: &change.path,
             label: Some(name),
             depth,
-            active: active == Some(change.path.as_str()),
+            active: active.contains(&change.path),
             comments: review.count_for(&change.path),
         };
         picks.take(row.show(ui), &change.path);
@@ -464,7 +499,7 @@ fn all_files(
     ui: &mut Ui,
     repo: &mut Repo,
     changes: &[FileChange],
-    active: Option<&str>,
+    active: &[String],
     picks: &mut Picks,
 ) {
     let Some(Selection::Commit(row)) = repo.selected else {
@@ -493,7 +528,7 @@ fn browse(
     dir: &str,
     depth: usize,
     changes: &[FileChange],
-    active: Option<&str>,
+    active: &[String],
     picks: &mut Picks,
 ) {
     let entries = match repo.tree_cache.get(dir) {
@@ -525,7 +560,7 @@ fn browse(
                 path: &entry.path,
                 label: Some(&entry.name),
                 depth,
-                active: active == Some(entry.path.as_str()),
+                active: active.contains(&entry.path),
                 comments: repo.review.count_for(&entry.path),
             };
             picks.take(row.show(ui), &entry.path);
