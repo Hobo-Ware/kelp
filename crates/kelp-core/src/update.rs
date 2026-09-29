@@ -41,28 +41,46 @@ pub fn latest_release() -> anyhow::Result<Release> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(10)))
         .user_agent("kelp-git-client")
+        .max_redirects(0)
+        .http_status_as_error(false)
         .build()
         .into();
-    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let body = agent
-        .get(&url)
-        .header("Accept", "application/vnd.github+json")
-        .call()?
-        .into_body()
-        .read_to_vec()?;
-    let json: serde_json::Value = serde_json::from_slice(&body)?;
-    let tag = json
-        .get("tag_name")
-        .and_then(|t| t.as_str())
-        .context("release has no tag")?;
-    let page = json
-        .get("html_url")
-        .and_then(|u| u.as_str())
-        .unwrap_or_default();
+    let url = format!("https://github.com/{REPO}/releases/latest");
+    let response = agent.get(&url).call()?;
+    let location = response
+        .headers()
+        .get("location")
+        .and_then(|l| l.to_str().ok())
+        .with_context(|| {
+            format!(
+                "GitHub answered {} without a release link",
+                response.status()
+            )
+        })?;
+    let version = version_from_release_url(location).context("the latest release has no tag")?;
     Ok(Release {
-        version: tag.trim_start_matches('v').to_string(),
-        url: page.to_string(),
+        version,
+        url: location.to_string(),
     })
+}
+
+pub fn version_from_release_url(url: &str) -> Option<String> {
+    let tag = url.rsplit_once("/releases/tag/")?.1;
+    let tag = tag.split(['?', '#']).next()?;
+    parse_version(tag)
+        .is_some()
+        .then(|| tag.trim_start_matches('v').to_string())
+}
+
+pub fn installed_version() -> Option<String> {
+    let plist = std::fs::read_to_string(app_bundle()?.join("Contents/Info.plist")).ok()?;
+    plist_version(&plist)
+}
+
+pub fn plist_version(plist: &str) -> Option<String> {
+    let after = plist.split_once("<key>CFBundleShortVersionString</key>")?.1;
+    let value = after.split_once("<string>")?.1.split_once("</string>")?.0;
+    Some(value.trim().to_string())
 }
 
 fn brew() -> Option<PathBuf> {
@@ -115,6 +133,27 @@ pub fn app_bundle() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_release_redirect_names_the_version() {
+        assert_eq!(
+            version_from_release_url("https://github.com/Hobo-Ware/kelp/releases/tag/v0.8.4")
+                .as_deref(),
+            Some("0.8.4")
+        );
+        assert_eq!(
+            version_from_release_url("https://github.com/Hobo-Ware/kelp/releases"),
+            None
+        );
+        assert_eq!(version_from_release_url("https://github.com/login"), None);
+    }
+
+    #[test]
+    fn the_bundle_plist_names_the_installed_version() {
+        let plist = "<dict>\n  <key>CFBundleName</key>\n  <string>Kelp</string>\n  <key>CFBundleShortVersionString</key>\n  <string>0.8.6</string>\n</dict>";
+        assert_eq!(plist_version(plist).as_deref(), Some("0.8.6"));
+        assert_eq!(plist_version("<dict></dict>"), None);
+    }
 
     #[test]
     fn versions_compare_numerically() {
