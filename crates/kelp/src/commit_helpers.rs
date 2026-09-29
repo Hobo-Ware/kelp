@@ -175,8 +175,7 @@ fn chip(ui: &mut Ui, name: &str, email: &str) -> bool {
             ui.spacing_mut().item_spacing.x = 2.0;
             ui.label(RichText::new(name).size(12.0).color(theme::text()))
                 .on_hover_text(email);
-            removed = ui
-                .add(egui::Button::new("×").frame(false))
+            removed = crate::widgets::text_button(ui, "×")
                 .on_hover_text(format!("Remove {name}"))
                 .clicked();
         });

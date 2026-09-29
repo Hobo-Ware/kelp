@@ -289,6 +289,7 @@ Developer switches (environment variables):
 | `KELP_FAKE_PULLS=<file>` | Load pull requests from a `gh pr list --json` file instead of GitHub |
 | `KELP_FAKE_CHECKS=<file>` | CI dots from a JSON map of commit prefix to `{state, failing, pending}` instead of GitHub |
 | `KELP_HOVER_ROW=<row>` | Draw the graph as if that commit row were hovered |
+| `KELP_POINTER=<x>,<y>` | Keep the mouse pointer at that spot, in points, to capture hover states |
 | `KELP_OPEN_REBASE=<rev>` (or `<rev>:<letters>`, e.g. `HEAD~4:prsd`) | Open interactive rebase from a commit, optionally with actions preset |
 | `KELP_EDIT_MESSAGE=<rev>` | Open the message editor for a commit |
 

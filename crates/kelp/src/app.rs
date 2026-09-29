@@ -636,13 +636,10 @@ impl KelpApp {
                         new_tab = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let settings = egui::Button::new(
-                            RichText::new("Settings")
-                                .size(12.0)
-                                .color(theme::text_muted()),
-                        )
-                        .frame(false);
-                        let response = ui.add(settings);
+                        let settings = RichText::new("Settings")
+                            .size(12.0)
+                            .color(theme::text_muted());
+                        let response = crate::widgets::text_button(ui, settings);
                         if self.updater.has_news() {
                             let dot =
                                 egui::pos2(response.rect.right() - 2.0, response.rect.top() + 6.0);
@@ -900,12 +897,24 @@ fn new_tab_button(ui: &mut egui::Ui) -> egui::Response {
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+fn dev_pointer() -> Option<egui::Pos2> {
+    let spot = std::env::var("KELP_POINTER").ok()?;
+    let (x, y) = spot.split_once(',')?;
+    Some(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
+
 impl eframe::App for KelpApp {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         let geometry = window::current(&self.ctx);
         if !settings::is_dev_run() && geometry.is_some() && geometry != self.settings.window {
             self.settings.window = geometry;
             self.settings.save();
+        }
+    }
+
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if let Some(at) = dev_pointer() {
+            raw_input.events.push(egui::Event::PointerMoved(at));
         }
     }
 
