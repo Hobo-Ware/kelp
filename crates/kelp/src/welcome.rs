@@ -31,6 +31,8 @@ pub struct Welcome {
     filter: String,
     info: HashMap<PathBuf, Info>,
     focus_filter: bool,
+    selected: Option<PathBuf>,
+    reveal_selected: bool,
 }
 
 impl Welcome {
@@ -38,6 +40,28 @@ impl Welcome {
         self.filter.clear();
         self.info.clear();
         self.focus_filter = true;
+        self.selected = None;
+    }
+
+    fn keys(&mut self, ctx: &egui::Context, recents: &[Recent]) -> Option<Action> {
+        let in_filter = crate::list_keys::is_typing(ctx);
+        if !in_filter && !crate::list_keys::nothing_focused(ctx) {
+            return None;
+        }
+        let shown: Vec<&Recent> = filtered(recents, &self.filter).collect();
+        let at = self
+            .selected
+            .as_ref()
+            .and_then(|p| shown.iter().position(|r| &r.path == p));
+        let step = crate::list_keys::arrow_step(ctx, !in_filter);
+        if let Some(next) = step.and_then(|s| crate::list_keys::target(s, at, shown.len())) {
+            self.selected = Some(shown[next].path.clone());
+            self.reveal_selected = true;
+            return None;
+        }
+        let open = !in_filter && crate::list_keys::pressed(ctx, egui::Key::Enter);
+        at.filter(|_| open)
+            .map(|at| Action::Open(shown[at].path.clone()))
     }
 
     fn info(&mut self, path: &Path) -> &Info {
@@ -75,7 +99,8 @@ impl Welcome {
                 ui.painter()
                     .galley(title_pos, title.clone(), theme::text_strong());
                 let buttons_top = title_pos.y + title.size().y + 20.0;
-                let mut action = self.buttons(ui, column, buttons_top);
+                let mut action = self.keys(ui.ctx(), recents);
+                action = action.or(self.buttons(ui, column, buttons_top));
                 let filter_top = buttons_top + BUTTON_H + 26.0;
                 let list_top = filter_top + 44.0;
                 if !recents.is_empty() {
@@ -140,9 +165,14 @@ impl Welcome {
             edit.request_focus();
         }
         let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        enter
-            .then(|| filtered(recents, &self.filter).next())
-            .flatten()
+        if !enter {
+            return None;
+        }
+        let shown: Vec<&Recent> = filtered(recents, &self.filter).collect();
+        shown
+            .iter()
+            .find(|r| self.selected.as_ref() == Some(&r.path))
+            .or(shown.first())
             .map(|r| Action::Open(r.path.clone()))
     }
 
@@ -181,15 +211,20 @@ impl Welcome {
                     let (rect, response) =
                         ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
                     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+                    let selected = self.selected.as_ref() == Some(&recent.path);
+                    if selected && std::mem::take(&mut self.reveal_selected) {
+                        ui.scroll_to_rect(rect, None);
+                    }
                     paint_row(
                         ui,
                         rect,
                         recent,
                         branch.as_deref(),
                         exists,
-                        response.hovered(),
+                        response.hovered() || selected,
                         now,
                     );
+                    crate::widgets::focus_ring(ui, &response, 8.0);
                     if response.clicked() {
                         action = Some(Action::Open(recent.path.clone()));
                     }
@@ -293,6 +328,74 @@ fn paint_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn press(
+        ctx: &egui::Context,
+        welcome: &mut Welcome,
+        recents: &[Recent],
+        key: Option<egui::Key>,
+    ) -> Option<Action> {
+        let events = key
+            .map(|key| {
+                [true, false]
+                    .map(|pressed| egui::Event::Key {
+                        key,
+                        physical_key: None,
+                        pressed,
+                        repeat: false,
+                        modifiers: egui::Modifiers::NONE,
+                    })
+                    .to_vec()
+            })
+            .unwrap_or_default();
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 900.0))),
+            events,
+            ..Default::default()
+        };
+        let mut action = None;
+        let _ = ctx.run_ui(input, |ui| action = welcome.ui(ui, recents, false));
+        action
+    }
+
+    fn opened(action: Option<Action>) -> Option<PathBuf> {
+        match action {
+            Some(Action::Open(path)) => Some(path),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn arrows_pick_a_recent_repository_and_enter_opens_it() {
+        let recents: Vec<Recent> = ["/r/one", "/r/two", "/r/three"]
+            .iter()
+            .map(|p| Recent {
+                path: PathBuf::from(p),
+                opened: 0,
+            })
+            .collect();
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut welcome = Welcome::default();
+        welcome.reopen();
+        press(&ctx, &mut welcome, &recents, None);
+        press(&ctx, &mut welcome, &recents, None);
+        assert!(
+            crate::list_keys::is_typing(&ctx),
+            "the filter has focus on open"
+        );
+
+        press(&ctx, &mut welcome, &recents, Some(egui::Key::ArrowDown));
+        press(&ctx, &mut welcome, &recents, Some(egui::Key::ArrowDown));
+        assert_eq!(welcome.selected, Some(PathBuf::from("/r/two")));
+        let from_filter = press(&ctx, &mut welcome, &recents, Some(egui::Key::Enter));
+        assert_eq!(opened(from_filter), Some(PathBuf::from("/r/two")));
+
+        press(&ctx, &mut welcome, &recents, Some(egui::Key::End));
+        assert_eq!(welcome.selected, Some(PathBuf::from("/r/three")));
+        let from_list = press(&ctx, &mut welcome, &recents, Some(egui::Key::Enter));
+        assert_eq!(opened(from_list), Some(PathBuf::from("/r/three")));
+    }
 
     #[test]
     fn filter_matches_any_part_of_the_path_ignoring_case() {
