@@ -12,7 +12,9 @@ use crate::{graph_view, menus, theme};
 
 const ROW_H: f32 = 52.0;
 const BRANCH_ROW_H: f32 = 44.0;
-const WORKTREE_COLS: [f32; 5] = [0.17, 0.2, 0.27, 0.11, 0.25];
+const NAME_SLOT: f32 = 28.0;
+const CURRENT_BADGE_W: f32 = 62.0;
+const WORKTREE_COLS: [f32; 5] = [0.26, 0.17, 0.21, 0.11, 0.25];
 const BRANCH_COLS: [f32; 5] = [0.26, 0.13, 0.33, 0.15, 0.13];
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -88,12 +90,28 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                             }
                         },
                     );
+                    let paths: Vec<_> = repo
+                        .workspace
+                        .worktrees
+                        .iter()
+                        .map(|w| w.tree.path.clone())
+                        .collect();
+                    crate::agent_watch::set_wanted(paths.len() > 1);
+                    let agents = crate::agent_watch::in_worktrees(&paths);
+                    let mut sorted: Vec<_> = repo.workspace.worktrees.iter().collect();
+                    sorted.sort_by_key(|wt| {
+                        crate::sidebar::worktree_rank(
+                            wt.current,
+                            agents.get(&wt.tree.path).map_or(0, Vec::len),
+                            wt.changes,
+                        )
+                    });
                     table(
                         ui,
                         &["NAME", "BRANCH", "FOLDER", "STATUS", ""],
                         &WORKTREE_COLS,
                         |ui| {
-                            for wt in &repo.workspace.worktrees {
+                            for wt in sorted {
                                 let current = std::fs::canonicalize(&wt.tree.path).ok()
                                     == std::fs::canonicalize(&repo.dir).ok();
                                 let (rect, response) = ui.allocate_exact_size(
@@ -126,17 +144,54 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                     Stroke::new(1.0, theme::card()),
                                 );
                                 let y = rect.center().y;
-                                let name = painter.text(
-                                    pos2(cols[0].left(), y),
-                                    Align2::LEFT_CENTER,
+                                let here = agents.get(&wt.tree.path).map_or(&[][..], Vec::as_slice);
+                                if let Some(first) = here.first() {
+                                    let icon = egui::Rect::from_center_size(
+                                        pos2(cols[0].left() + 7.0, y),
+                                        vec2(14.0, 14.0),
+                                    );
+                                    crate::agent_watch::paint_badge(
+                                        &painter,
+                                        ui.ctx(),
+                                        icon,
+                                        *first,
+                                    );
+                                    if here.len() > 1 {
+                                        painter.text(
+                                            pos2(cols[0].left() + 18.0, y),
+                                            Align2::LEFT_CENTER,
+                                            here.len().to_string(),
+                                            FontId::proportional(11.0),
+                                            theme::text_faint(),
+                                        );
+                                    }
+                                    let hover = egui::Rect::from_min_max(
+                                        pos2(cols[0].left() - 2.0, y - 9.0),
+                                        pos2(cols[0].left() + NAME_SLOT - 4.0, y + 9.0),
+                                    );
+                                    ui.interact(hover, response.id.with("agents"), Sense::hover())
+                                        .on_hover_text(crate::agent_watch::summary(here));
+                                }
+                                let name_room = cols[0].width()
+                                    - NAME_SLOT
+                                    - if current { CURRENT_BADGE_W } else { 0.0 };
+                                let name = graph_view::truncated(
+                                    &painter,
                                     wt.tree.name(),
                                     FontId::proportional(13.5),
+                                    theme::text_strong(),
+                                    name_room.max(40.0),
+                                );
+                                let name_right = cols[0].left() + NAME_SLOT + name.size().x;
+                                painter.galley(
+                                    pos2(cols[0].left() + NAME_SLOT, y - name.size().y / 2.0),
+                                    name,
                                     theme::text_strong(),
                                 );
                                 if current {
                                     badge(
                                         &painter,
-                                        pos2(name.right() + 8.0, y),
+                                        pos2(name_right + 8.0, y),
                                         "current",
                                         theme::lanes()[0],
                                     );
