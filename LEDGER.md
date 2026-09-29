@@ -5,13 +5,24 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.10 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.11 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
   site like stdusk (SEO, OG images, upkeep instructions); Homebrew
   publishing like stdusk with auto-install on release and an in-app
   update check.
+
+## 2026-09-30
+
+- **v0.8.11: agents in worktrees, click-to-reveal, hover fixes.**
+  `kelp_core::agents` finds agent sessions (`ps`, then `lsof` cwd for
+  new pids, cached) and assigns each to the deepest worktree; a scanner
+  thread (`agent_watch`) runs every 10 s only while focused with two or
+  more worktrees and repaints only on change (idle CPU 0.0% on
+  trakt-workers). Brand marks are the Simple Icons SVGs stdusk uses.
+  Hover path follows the commit's own lane at forks and WIP rows share
+  the on/off-path strokes. 453 tests pass.
 
 ## 2026-09-29
 

@@ -2,6 +2,12 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.11 - 2026-09-30
+
+- Worktrees with an AI agent running in them (Claude, Codex, Gemini, Copilot, Aider or Cursor) show that tool's mark in the sidebar, with a count for several sessions, so the idle ones are easy to spot. Removing a worktree warns when an agent is running in it.
+- Clicking a worktree in the sidebar scrolls the graph to it.
+- Hovering a commit highlights its own line up to the branch tip, instead of jumping onto a side branch at a fork, and the rows for other worktrees' uncommitted changes now follow the highlight instead of leaving a gap.
+
 ## v0.8.10 - 2026-09-29
 
 - Removing a worktree that has changes asks whether to delete them, instead of failing.
