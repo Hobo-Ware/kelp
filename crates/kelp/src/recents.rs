@@ -8,7 +8,6 @@ pub const MAX_RECENTS: usize = 20;
 pub struct Recent {
     pub path: PathBuf,
     pub opened: i64,
-    /// HEAD when last opened, to find the repository again after a rename.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tip: Option<String>,
 }
@@ -72,21 +71,16 @@ pub fn tip_of<'a>(list: &'a [Recent], path: &Path) -> Option<&'a str> {
         .and_then(|r| r.tip.as_deref())
 }
 
-/// Guesses where a missing repository went: a parent that is now the repository, a sibling
-/// holding `tip`, or (without a tip) the only sibling repository not already known.
 pub fn find_moved(missing: &Path, tip: Option<&str>, known: &[PathBuf]) -> Option<PathBuf> {
     if missing.exists() {
         return None;
     }
-    let parent_repo = missing
-        .ancestors()
-        .skip(1)
-        .take_while(|p| p.parent().is_some())
-        .find(|p| p.join(".git").exists());
-    if let Some(found) = parent_repo {
-        return Some(found.to_path_buf());
+    let parent = missing.parent()?;
+    let holds_tip = |repo: &Path| tip.is_none_or(|tip| has_commit(repo, tip));
+    if parent.parent().is_some() && parent.join(".git").exists() && holds_tip(parent) {
+        return Some(parent.to_path_buf());
     }
-    let mut siblings: Vec<PathBuf> = std::fs::read_dir(missing.parent()?)
+    let mut siblings: Vec<PathBuf> = std::fs::read_dir(parent)
         .ok()?
         .filter_map(Result::ok)
         .map(|e| e.path())
@@ -103,9 +97,12 @@ pub fn find_moved(missing: &Path, tip: Option<&str>, known: &[PathBuf]) -> Optio
     }
 }
 
+fn is_hex_sha(sha: &str) -> bool {
+    !sha.is_empty() && sha.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 fn has_commit(repo: &Path, sha: &str) -> bool {
-    // The sha comes from settings.json; keep anything but hex out of the git command line.
-    if sha.is_empty() || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if !is_hex_sha(sha) {
         return false;
     }
     std::process::Command::new("git")
@@ -263,6 +260,21 @@ mod tests {
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         assert_eq!(find_moved(&dir.join("kelp"), None, &[]), Some(dir.clone()));
         assert_eq!(find_moved(&dir, None, &[]), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_enclosing_repository_further_up_is_not_a_guess() {
+        let dir = scratch("enclosing");
+        let tip = commit_in(&dir.join("renamed"));
+        commit_in(&dir);
+        let deep = dir.join("renamed").join("gone").join("repo");
+        assert_eq!(find_moved(&deep, None, &[]), None);
+        let beside = dir.join("old-name");
+        assert_eq!(
+            find_moved(&beside, Some(&tip), &[]),
+            Some(dir.join("renamed"))
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
