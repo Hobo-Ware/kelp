@@ -2,6 +2,10 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.4 - 2026-09-29
+
+- Text buttons like Stash, Stage all and Unstage all light up when you hover them, so it's clear they can be clicked.
+
 ## v0.8.3 - 2026-09-29
 
 - Switching branches with local changes no longer fails: Kelp stashes them, switches and puts them back. If they clash with the new branch, a copy stays in a stash named after the switch.
