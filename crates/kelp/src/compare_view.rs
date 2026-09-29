@@ -175,6 +175,7 @@ impl CompareView {
             .auto_shrink(false)
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
+                let mut rows = Vec::with_capacity(files.len());
                 for change in files {
                     let row = FileRow {
                         kind: Some(change.kind),
@@ -191,9 +192,15 @@ impl CompareView {
                         }
                         _ => row,
                     };
+                    rows.push((row.id, row.rect));
                     if row.clicked() {
                         event = Event::Open(change.clone());
                     }
+                }
+                let open = active.and_then(|a| files.iter().position(|c| c.path == a));
+                let owns_keys = open.is_some() && crate::list_keys::nothing_focused(ui.ctx());
+                if let Some(at) = crate::list_keys::step(ui, &rows, open, owns_keys) {
+                    event = Event::Open(files[at].clone());
                 }
             });
         event
@@ -258,4 +265,76 @@ fn list(ctx: &egui::Context, dir: PathBuf, base: ObjectId, target: Side) -> File
         ctx.request_repaint();
     });
     Files::Loading(rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use eframe::egui::{self, Key, Modifiers, Pos2, RawInput, Rect, vec2};
+    use kelp_core::commit::ChangeKind;
+    use kelp_core::compare::{RangeChange, Side};
+
+    use super::{CompareView, Event, Files};
+
+    fn view(paths: &[&str]) -> CompareView {
+        let files = paths
+            .iter()
+            .map(|p| RangeChange {
+                path: p.to_string(),
+                old_path: None,
+                kind: ChangeKind::Modified,
+            })
+            .collect();
+        CompareView {
+            base: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            target: Side::WorkTree,
+            base_title: String::new(),
+            target_title: String::new(),
+            files: Files::Ready(files),
+        }
+    }
+
+    fn frame(ctx: &egui::Context, view: &mut CompareView, active: &str, key: Option<Key>) -> Event {
+        let events = key
+            .map(|key| {
+                [true, false]
+                    .map(|pressed| egui::Event::Key {
+                        key,
+                        physical_key: None,
+                        pressed,
+                        repeat: false,
+                        modifiers: Modifiers::NONE,
+                    })
+                    .to_vec()
+            })
+            .unwrap_or_default();
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 700.0))),
+            events,
+            ..Default::default()
+        };
+        let mut event = Event::None;
+        let _ = ctx.run_ui(input, |ui| event = view.ui(ui, Some(active)));
+        event
+    }
+
+    fn opened(event: Event) -> Option<String> {
+        match event {
+            Event::Open(change) => Some(change.path),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn arrows_open_the_next_and_previous_changed_file() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut view = view(&["a.rs", "b.rs", "c.rs"]);
+        frame(&ctx, &mut view, "a.rs", None);
+        let down = frame(&ctx, &mut view, "a.rs", Some(Key::ArrowDown));
+        assert_eq!(opened(down).as_deref(), Some("b.rs"));
+        let end = frame(&ctx, &mut view, "b.rs", Some(Key::End));
+        assert_eq!(opened(end).as_deref(), Some("c.rs"));
+        let up = frame(&ctx, &mut view, "c.rs", Some(Key::ArrowUp));
+        assert_eq!(opened(up).as_deref(), Some("b.rs"));
+    }
 }
