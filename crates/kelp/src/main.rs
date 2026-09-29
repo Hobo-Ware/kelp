@@ -1,4 +1,5 @@
 mod actions;
+mod agent_watch;
 mod app;
 mod avatars;
 mod blame_view;

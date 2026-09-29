@@ -481,6 +481,14 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                 })
                 .collect();
             let mut manage = false;
+            let all_paths: Vec<_> = view
+                .workspace
+                .worktrees
+                .iter()
+                .map(|w| w.tree.path.clone())
+                .collect();
+            crate::agent_watch::set_wanted(all_paths.len() > 1);
+            let agents = crate::agent_watch::in_worktrees(&all_paths);
             if query.is_empty() || !worktrees.is_empty() {
                 section(
                     ui,
@@ -492,7 +500,8 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                     },
                     |ui| {
                         for wt in &worktrees {
-                            worktree_row(ui, view, wt, &query, rows.commands);
+                            let here = agents.get(&wt.tree.path).map_or(&[][..], Vec::as_slice);
+                            worktree_row(ui, view, wt, here, &query, rows.commands);
                         }
                     },
                 );
@@ -1176,6 +1185,7 @@ fn worktree_row(
     ui: &mut Ui,
     repo: &Repo,
     wt: &crate::repo_view::WorktreeRow,
+    agents: &[kelp_core::agents::Agent],
     query: &str,
     commands: &mut Vec<Command>,
 ) {
@@ -1201,6 +1211,7 @@ fn worktree_row(
         highlight: &highlight,
         subtitle: Some(&sub),
         strong: current,
+        agents,
         ..Row::new(dot)
     }
     .show(ui);
@@ -1305,6 +1316,7 @@ struct Row<'a> {
     dim: bool,
     indent: f32,
     pinned: bool,
+    agents: &'a [kelp_core::agents::Agent],
     pull: Option<(&'a Pull, &'a mut bool)>,
 }
 
@@ -1321,6 +1333,7 @@ impl<'a> Row<'a> {
             dim: false,
             indent: 0.0,
             pinned: false,
+            agents: &[],
             pull: None,
         }
     }
@@ -1354,10 +1367,22 @@ impl<'a> Row<'a> {
             .tag
             .map(|t| painter.layout_no_wrap(t.to_string(), FontId::proportional(11.0), self.dot));
         let pin_w = if self.pinned { 18.0 } else { 0.0 };
+        let badge_count = (self.agents.len() > 1).then(|| {
+            painter.layout_no_wrap(
+                self.agents.len().to_string(),
+                FontId::proportional(11.0),
+                theme::text_faint(),
+            )
+        });
+        let badge_w = match (self.agents.first(), &badge_count) {
+            (None, _) => 0.0,
+            (Some(_), count) => 20.0 + count.as_ref().map_or(0.0, |g| g.size().x + 2.0),
+        };
         let pill_w = self.pull.as_ref().map_or(0.0, |(pull, _)| {
             crate::pulls_ui::pill_width(&painter, pull) + 6.0
         });
-        let reserved = tag_galley.as_ref().map_or(12.0, |g| g.size().x + 20.0) + pin_w + pill_w;
+        let reserved =
+            tag_galley.as_ref().map_or(12.0, |g| g.size().x + 20.0) + pin_w + pill_w + badge_w;
         let max_width = (rect.right() - left - 24.0 - reserved).max(0.0);
         let mut job = highlighted(self.name, self.highlight, font, color);
         job.wrap = egui::text::TextWrapping::truncate_at_width(max_width);
@@ -1410,6 +1435,23 @@ impl<'a> Row<'a> {
                 egui::Rect::from_center_size(egui::pos2(right - 7.0, name_y), vec2(12.0, 12.0));
             crate::icons::paint(&painter, pin, Icon::Pin, theme::text_faint());
         }
+        if let Some(first) = self.agents.first() {
+            let mut left_edge = right - badge_w;
+            let icon =
+                egui::Rect::from_center_size(egui::pos2(left_edge + 8.0, name_y), vec2(14.0, 14.0));
+            crate::agent_watch::paint_badge(&painter, ui.ctx(), icon, *first);
+            left_edge += 18.0;
+            if let Some(count) = badge_count {
+                let y = name_y - count.size().y / 2.0;
+                painter.galley(egui::pos2(left_edge, y), count, theme::text_faint());
+            }
+            let hover = egui::Rect::from_min_max(
+                egui::pos2(right - badge_w, name_y - 9.0),
+                egui::pos2(right, name_y + 9.0),
+            );
+            ui.interact(hover, response.id.with("agents"), Sense::hover())
+                .on_hover_text(crate::agent_watch::summary(self.agents));
+        }
         crate::widgets::focus_ring(ui, &response, 0.0);
         crate::focus_areas::offer(
             ui.ctx(),
@@ -1418,6 +1460,10 @@ impl<'a> Row<'a> {
             self.selected,
         );
         let mut spoken = self.name.to_string();
+        if !self.agents.is_empty() {
+            spoken.push_str(", ");
+            spoken.push_str(&crate::agent_watch::summary(self.agents));
+        }
         for extra in [self.subtitle, self.tag].into_iter().flatten() {
             spoken.push_str(", ");
             spoken.push_str(extra);

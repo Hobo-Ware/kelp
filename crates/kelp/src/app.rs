@@ -132,7 +132,10 @@ impl KelpApp {
             settings,
             window: window::Tracker::default(),
             started: Instant::now(),
-            updater: crate::updater::Updater::new(ctx.clone()),
+            updater: crate::updater::Updater::new({
+                crate::agent_watch::init(&ctx);
+                ctx.clone()
+            }),
             palette,
             shortcuts_open: std::env::var_os("KELP_OPEN_SHORTCUTS").is_some(),
             whats_new,
@@ -988,6 +991,7 @@ impl eframe::App for KelpApp {
         let ctx = ui.ctx().clone();
         self.follow_appearance(&ctx);
         crate::widgets::track_input_mode(&ctx);
+        crate::agent_watch::set_focused(ctx.input(|i| i.focused));
         if !self.titlebar_unified {
             crate::macos::unify_titlebar(frame);
             self.titlebar_unified = true;

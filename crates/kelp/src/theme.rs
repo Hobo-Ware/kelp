@@ -308,6 +308,18 @@ pub fn overlay(alpha: u8) -> Color32 {
     with_alpha(p().overlay, alpha)
 }
 
+pub fn agent_brand(agent: kelp_core::agents::Agent) -> Color32 {
+    use kelp_core::agents::Agent;
+    match agent {
+        Agent::Claude => rgb(0xD9, 0x77, 0x57),
+        Agent::Codex => rgb(0x10, 0xA3, 0x7F),
+        Agent::Gemini => rgb(0x4C, 0x8D, 0xF6),
+        Agent::Copilot => rgb(0x8A, 0x8A, 0x8A),
+        Agent::Aider => rgb(0xC2, 0x6B, 0xD1),
+        Agent::Cursor => rgb(0xE6, 0xB4, 0x50),
+    }
+}
+
 pub fn tone(dark: Color32) -> Color32 {
     if is_dark() { dark } else { flip(dark) }
 }
