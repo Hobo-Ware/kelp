@@ -196,6 +196,22 @@ pub fn checkout_remote(
     }
 }
 
+fn has_local_changes(dir: &Path) -> anyhow::Result<bool> {
+    let status = git_cli::run(dir, &["status", "--porcelain", "-z"])?;
+    Ok(!status.is_empty())
+}
+
+fn stash_tip(dir: &Path) -> Option<String> {
+    git_cli::run(dir, &["rev-parse", "-q", "--verify", "refs/stash"])
+        .ok()
+        .map(|out| out.trim().to_string())
+}
+
+fn restore_stash(dir: &Path) -> anyhow::Result<String> {
+    git_cli::run(dir, &["stash", "pop", "--index"])
+        .or_else(|_| git_cli::run(dir, &["stash", "pop"]))
+}
+
 impl Op {
     pub fn args(&self) -> Vec<String> {
         let v = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
@@ -491,7 +507,50 @@ impl Op {
     }
 
     pub fn run(&self, dir: &Path) -> anyhow::Result<String> {
-        crate::console::as_action(|| self.run_steps(dir))
+        crate::console::as_action(|| {
+            if self.switches_branches() && has_local_changes(dir)? {
+                self.run_autostashed(dir)
+            } else {
+                self.run_steps(dir)
+            }
+        })
+    }
+
+    fn switches_branches(&self) -> bool {
+        matches!(
+            self,
+            Op::Switch(_)
+                | Op::SwitchTrack(_)
+                | Op::SwitchFastForward { .. }
+                | Op::SwitchDetached(_)
+                | Op::CheckoutPull { .. }
+        )
+    }
+
+    fn run_autostashed(&self, dir: &Path) -> anyhow::Result<String> {
+        let message = format!("Kelp autostash before {}", self.label().to_lowercase());
+        let before = stash_tip(dir);
+        git_cli::run(
+            dir,
+            &["stash", "push", "--include-untracked", "-m", &message],
+        )?;
+        if stash_tip(dir) == before {
+            return self.run_steps(dir);
+        }
+        let out = match self.run_steps(dir) {
+            Ok(out) => out,
+            Err(e) => {
+                let _ = restore_stash(dir);
+                return Err(e);
+            }
+        };
+        restore_stash(dir).map_err(|e| {
+            anyhow::anyhow!(
+                "Switched, but your changes conflict with this branch. Resolve the \
+                 conflicts in Changes; a copy is kept in the stash \"{message}\".\n\n{e}"
+            )
+        })?;
+        Ok(out)
     }
 
     fn run_steps(&self, dir: &Path) -> anyhow::Result<String> {
@@ -759,6 +818,89 @@ mod tests {
         let head = git_cli::run(&down, &["symbolic-ref", "--short", "HEAD"]).unwrap();
         assert_eq!(head.trim(), "main");
         let _ = std::fs::remove_dir_all(up.parent().unwrap());
+    }
+
+    fn on_two_branches(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "T"],
+        ] {
+            git_cli::run(&dir, args).unwrap();
+        }
+        std::fs::write(dir.join("page.txt"), "one\ntwo\nthree\n").unwrap();
+        git_cli::run(&dir, &["add", "."]).unwrap();
+        git_cli::run(&dir, &["commit", "-q", "-m", "base"]).unwrap();
+        git_cli::run(&dir, &["switch", "-q", "-c", "other"]).unwrap();
+        std::fs::write(dir.join("page.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+        git_cli::run(&dir, &["commit", "-q", "-am", "four"]).unwrap();
+        git_cli::run(&dir, &["switch", "-q", "main"]).unwrap();
+        dir
+    }
+
+    fn stash_count(dir: &Path) -> usize {
+        git_cli::run(dir, &["stash", "list"])
+            .unwrap()
+            .lines()
+            .count()
+    }
+
+    #[test]
+    fn switching_with_blocking_changes_stashes_and_brings_them_back() {
+        let dir = on_two_branches("kelp-autostash");
+        std::fs::write(dir.join("page.txt"), "ONE\ntwo\nthree\n").unwrap();
+        std::fs::write(dir.join("new.txt"), "untracked\n").unwrap();
+        std::fs::write(dir.join("staged.txt"), "staged\n").unwrap();
+        git_cli::run(&dir, &["add", "staged.txt"]).unwrap();
+
+        Op::Switch("other".into()).run(&dir).unwrap();
+
+        let head = git_cli::run(&dir, &["symbolic-ref", "--short", "HEAD"]).unwrap();
+        assert_eq!(head.trim(), "other");
+        let page = std::fs::read_to_string(dir.join("page.txt")).unwrap();
+        assert_eq!(page, "ONE\ntwo\nthree\nfour\n");
+        assert!(dir.join("new.txt").exists());
+        let staged = git_cli::run(&dir, &["diff", "--cached", "--name-only"]).unwrap();
+        assert_eq!(staged.trim(), "staged.txt");
+        assert_eq!(stash_count(&dir), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn conflicting_changes_stay_in_a_named_stash() {
+        let dir = on_two_branches("kelp-autostash-conflict");
+        std::fs::write(dir.join("page.txt"), "one\ntwo\nthree\nFOUR\n").unwrap();
+
+        let error = Op::Switch("other".into())
+            .run(&dir)
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            error.contains("Kelp autostash before checking out other"),
+            "{error}"
+        );
+        let head = git_cli::run(&dir, &["symbolic-ref", "--short", "HEAD"]).unwrap();
+        assert_eq!(head.trim(), "other");
+        assert_eq!(stash_count(&dir), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_clean_switch_leaves_older_stashes_alone() {
+        let dir = on_two_branches("kelp-autostash-clean");
+        std::fs::write(dir.join("page.txt"), "mine\n").unwrap();
+        git_cli::run(&dir, &["stash", "push", "-q", "-m", "older"]).unwrap();
+
+        Op::Switch("other".into()).run(&dir).unwrap();
+
+        assert_eq!(stash_count(&dir), 1);
+        let page = std::fs::read_to_string(dir.join("page.txt")).unwrap();
+        assert_eq!(page, "one\ntwo\nthree\nfour\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
