@@ -502,12 +502,13 @@ impl KelpApp {
     }
 
     fn tab_strip(&mut self, ui: &mut egui::Ui) {
-        let mut close = None;
-        let mut tab_action = None;
+        let mut outcome = TabOutcome::default();
         let mut new_tab = false;
-        let mut leave_home = false;
         let native = 1.0 / ui.ctx().zoom_factor();
         let tab_h = tab_height(ui.ctx());
+        let seen = egui::Id::new("tabs-seen");
+        let follow = ui.data(|d| d.get_temp(seen)) != Some((self.active, self.home));
+        ui.data_mut(|d| d.insert_temp(seen, (self.active, self.home)));
         egui::Panel::top("tabs")
             .exact_size(TAB_STRIP_H * native)
             .frame(
@@ -528,113 +529,6 @@ impl KelpApp {
                     }
                     kelp_mark(ui);
                     ui.add_space(12.0);
-                    let mut centers = Vec::with_capacity(self.tabs.len());
-                    let mut dragged = None;
-                    let has_others = self.tabs.len() > 1;
-                    for (i, tab) in self.tabs.iter().enumerate() {
-                        let active = i == self.active && !self.home;
-                        let title = tab.title();
-                        let galley = ui.painter().layout_no_wrap(
-                            title.clone(),
-                            FontId::proportional(13.0),
-                            theme::text(),
-                        );
-                        let w = galley.size().x + 50.0;
-                        let (rect, _) = ui.allocate_exact_size(vec2(w, tab_h), Sense::hover());
-                        let response = ui.interact(
-                            rect,
-                            egui::Id::new(("tab", &tab.path)),
-                            Sense::click_and_drag(),
-                        );
-                        centers.push(rect.center().x);
-                        if response.drag_started() {
-                            self.active = i;
-                            leave_home = true;
-                        }
-                        if response.dragged()
-                            && let Some(pointer) = response.interact_pointer_pos()
-                        {
-                            dragged = Some((i, pointer.x));
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-                        }
-                        let painter = ui.painter_at(rect);
-                        if active {
-                            painter.rect_filled(rect, 6.0, theme::panel());
-                        } else if response.hovered() {
-                            painter.rect_filled(rect, 6.0, theme::overlay(0x08));
-                        }
-                        let color = if active {
-                            theme::text_strong()
-                        } else {
-                            theme::text_muted()
-                        };
-                        painter.galley(
-                            egui::pos2(rect.left() + 14.0, rect.center().y - galley.size().y / 2.0),
-                            galley,
-                            color,
-                        );
-                        let x_rect = egui::Rect::from_center_size(
-                            egui::pos2(rect.right() - 16.0, rect.center().y),
-                            vec2(18.0, 18.0),
-                        );
-                        let x_response = ui.interact(
-                            x_rect,
-                            egui::Id::new(("close-tab", &tab.path)),
-                            Sense::click(),
-                        );
-                        if x_response.hovered() {
-                            painter.rect_filled(x_rect, 4.0, theme::overlay(0x14));
-                        }
-                        paint_cross(&painter, x_rect.center(), 3.5, theme::text_faint());
-                        crate::widgets::focus_ring(ui, &response, 6.0);
-                        crate::widgets::describe_selected(
-                            &response,
-                            format!("tab {title}"),
-                            active,
-                        );
-                        crate::widgets::describe(
-                            &x_response,
-                            egui::WidgetType::Button,
-                            format!("Close {title}"),
-                        );
-                        if x_response.clicked() || response.middle_clicked() {
-                            close = Some(i);
-                        } else if response.clicked() {
-                            self.active = i;
-                            leave_home = true;
-                        }
-                        let forced_menu = active
-                            && self.screenshot.is_some()
-                            && std::env::var("KELP_OPEN_MENU").as_deref() == Ok("tab");
-                        let mut show_menu = |ui: &mut egui::Ui| {
-                            if let Some(action) = menus::tab(ui, &title, has_others) {
-                                tab_action = Some((i, action));
-                            }
-                        };
-                        if forced_menu {
-                            egui::Popup::from_response(&response)
-                                .open(true)
-                                .show(&mut show_menu);
-                        } else {
-                            crate::menus::context_menu(&response, &mut show_menu);
-                        }
-                        response.on_hover_text(tab.path.display().to_string());
-                    }
-                    if let Some((from, x)) = dragged {
-                        let to = drop_index(&centers, from, x);
-                        if to != from {
-                            let tab = self.tabs.remove(from);
-                            self.tabs.insert(to, tab);
-                            self.active = moved_index(self.active, from, to);
-                        }
-                    }
-                    if self.home && !self.tabs.is_empty() && home_tab(ui) {
-                        leave_home = true;
-                    }
-                    ui.add_space(4.0);
-                    if new_tab_button(ui).on_hover_text("New tab (⌘T)").clicked() {
-                        new_tab = true;
-                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let settings = RichText::new("Settings")
                             .size(12.0)
@@ -650,20 +544,145 @@ impl KelpApp {
                         }
                         ui.add_space(8.0);
                         self.updater.pill(ui);
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            let plus_w = tab_h + 8.0;
+                            let scroll_w = (ui.available_width() - plus_w).max(0.0);
+                            egui::ScrollArea::horizontal()
+                                .max_width(scroll_w)
+                                .auto_shrink([true, false])
+                                .scroll_bar_visibility(
+                                    egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+                                )
+                                .show(ui, |ui| {
+                                    ui.horizontal_centered(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 2.0;
+                                        self.tab_row(ui, tab_h, follow, &mut outcome);
+                                    });
+                                });
+                            ui.add_space(4.0);
+                            if new_tab_button(ui).on_hover_text("New tab (⌘T)").clicked() {
+                                new_tab = true;
+                            }
+                        });
                     });
                 });
             });
-        if let Some(i) = close {
+        if let Some(i) = outcome.close {
             self.close_tab(i);
         }
-        if let Some((i, action)) = tab_action {
+        if let Some((i, action)) = outcome.action {
             self.run_tab_action(i, action);
         }
-        if leave_home {
+        if outcome.leave_home {
             self.home = false;
         }
         if new_tab {
             self.show_home();
+        }
+    }
+
+    fn tab_row(&mut self, ui: &mut egui::Ui, tab_h: f32, follow: bool, out: &mut TabOutcome) {
+        let mut centers = Vec::with_capacity(self.tabs.len());
+        let mut dragged = None;
+        let has_others = self.tabs.len() > 1;
+        for (i, tab) in self.tabs.iter().enumerate() {
+            let active = i == self.active && !self.home;
+            let title = tab.title();
+            let galley = ui.painter().layout_no_wrap(
+                title.clone(),
+                FontId::proportional(13.0),
+                theme::text(),
+            );
+            let w = galley.size().x + 50.0;
+            let (rect, _) = ui.allocate_exact_size(vec2(w, tab_h), Sense::hover());
+            if active && follow {
+                ui.scroll_to_rect(rect, None);
+            }
+            let response = ui.interact(
+                rect,
+                egui::Id::new(("tab", &tab.path)),
+                Sense::click_and_drag(),
+            );
+            centers.push(rect.center().x);
+            if response.drag_started() {
+                self.active = i;
+                out.leave_home = true;
+            }
+            if response.dragged()
+                && let Some(pointer) = response.interact_pointer_pos()
+            {
+                dragged = Some((i, pointer.x));
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            }
+            let painter = ui.painter_at(rect);
+            if active {
+                painter.rect_filled(rect, 6.0, theme::panel());
+            } else if response.hovered() {
+                painter.rect_filled(rect, 6.0, theme::overlay(0x08));
+            }
+            let color = if active {
+                theme::text_strong()
+            } else {
+                theme::text_muted()
+            };
+            painter.galley(
+                egui::pos2(rect.left() + 14.0, rect.center().y - galley.size().y / 2.0),
+                galley,
+                color,
+            );
+            let x_rect = egui::Rect::from_center_size(
+                egui::pos2(rect.right() - 16.0, rect.center().y),
+                vec2(18.0, 18.0),
+            );
+            let x_response = ui.interact(
+                x_rect,
+                egui::Id::new(("close-tab", &tab.path)),
+                Sense::click(),
+            );
+            if x_response.hovered() {
+                painter.rect_filled(x_rect, 4.0, theme::overlay(0x14));
+            }
+            paint_cross(&painter, x_rect.center(), 3.5, theme::text_faint());
+            crate::widgets::focus_ring(ui, &response, 6.0);
+            crate::widgets::describe_selected(&response, format!("tab {title}"), active);
+            crate::widgets::describe(
+                &x_response,
+                egui::WidgetType::Button,
+                format!("Close {title}"),
+            );
+            if x_response.clicked() || response.middle_clicked() {
+                out.close = Some(i);
+            } else if response.clicked() {
+                self.active = i;
+                out.leave_home = true;
+            }
+            let forced_menu = active
+                && self.screenshot.is_some()
+                && std::env::var("KELP_OPEN_MENU").as_deref() == Ok("tab");
+            let mut show_menu = |ui: &mut egui::Ui| {
+                if let Some(action) = menus::tab(ui, &title, has_others) {
+                    out.action = Some((i, action));
+                }
+            };
+            if forced_menu {
+                egui::Popup::from_response(&response)
+                    .open(true)
+                    .show(&mut show_menu);
+            } else {
+                crate::menus::context_menu(&response, &mut show_menu);
+            }
+            response.on_hover_text(tab.path.display().to_string());
+        }
+        if let Some((from, x)) = dragged {
+            let to = drop_index(&centers, from, x);
+            if to != from {
+                let tab = self.tabs.remove(from);
+                self.tabs.insert(to, tab);
+                self.active = moved_index(self.active, from, to);
+            }
+        }
+        if self.home && !self.tabs.is_empty() && home_tab(ui, follow) {
+            out.leave_home = true;
         }
     }
 
@@ -676,6 +695,13 @@ impl KelpApp {
             self.open_tab(&ctx, folder);
         }
     }
+}
+
+#[derive(Default)]
+struct TabOutcome {
+    close: Option<usize>,
+    action: Option<(usize, TabAction)>,
+    leave_home: bool,
 }
 
 fn palette_from_env(settings: &Settings) -> Palette {
@@ -841,7 +867,7 @@ fn paint_cross(painter: &egui::Painter, center: egui::Pos2, d: f32, color: Color
     painter.line_segment([center + vec2(-d, d), center + vec2(d, -d)], stroke);
 }
 
-fn home_tab(ui: &mut egui::Ui) -> bool {
+fn home_tab(ui: &mut egui::Ui, follow: bool) -> bool {
     let galley = ui.painter().layout_no_wrap(
         "New tab".into(),
         FontId::proportional(13.0),
@@ -851,6 +877,9 @@ fn home_tab(ui: &mut egui::Ui) -> bool {
         vec2(galley.size().x + 50.0, tab_height(ui.ctx())),
         Sense::hover(),
     );
+    if follow {
+        ui.scroll_to_rect(rect, None);
+    }
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 6.0, theme::panel());
     painter.galley(
