@@ -254,7 +254,7 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
             }
             pull_line(ui, repo, details.id);
             ui.separator();
-            stats(ui, &details.changes);
+            crate::change_counts::show(ui, crate::change_counts::Counts::of(&details.changes));
         });
     reveal
 }
@@ -335,29 +335,6 @@ fn open_diff_path(repo: &Repo) -> Option<String> {
         | Center::Console(_)
         | Center::Pulls(_) => None,
     }
-}
-
-fn stats(ui: &mut Ui, changes: &[FileChange]) {
-    let count = |k: ChangeKind| changes.iter().filter(|c| c.kind == k).count();
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 14.0;
-        let modified = count(ChangeKind::Modified) + count(ChangeKind::Renamed);
-        ui.label(
-            RichText::new(format!("{modified} modified"))
-                .size(12.0)
-                .color(theme::modified()),
-        );
-        ui.label(
-            RichText::new(format!("{} added", count(ChangeKind::Added)))
-                .size(12.0)
-                .color(theme::added()),
-        );
-        ui.label(
-            RichText::new(format!("{} deleted", count(ChangeKind::Deleted)))
-                .size(12.0)
-                .color(theme::deleted()),
-        );
-    });
 }
 
 fn path_list(

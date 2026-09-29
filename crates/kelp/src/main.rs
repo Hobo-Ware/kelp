@@ -2,6 +2,7 @@ mod actions;
 mod app;
 mod avatars;
 mod blame_view;
+mod change_counts;
 mod checks_ui;
 mod cli;
 mod clone;

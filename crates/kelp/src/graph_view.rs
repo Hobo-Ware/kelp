@@ -8,13 +8,14 @@ use eframe::egui::{
     vec2,
 };
 use kelp_core::avatar;
-use kelp_core::commit::{self, ChangeKind, FileChange, Summary};
+use kelp_core::commit::{self, FileChange, Summary};
 use kelp_core::graph::{Edge, EdgeKind};
 use kelp_core::history::History;
 use kelp_core::refs::RefLabel;
 use kelp_core::workspace::Worktree;
 
 use crate::avatars::AvatarStore;
+use crate::change_counts::{self, Counts};
 use crate::columns::GraphColumns;
 use crate::commands::Command;
 use crate::graph_hover::{HoverPath, VisiblePath};
@@ -38,6 +39,7 @@ const MARK_INSET: f32 = 12.0;
 const HOVER_LINE_W: f32 = 3.5;
 const OFF_PATH_OPACITY: f32 = 0.45;
 const OPEN_BUTTON_W: f32 = 56.0;
+const COUNTS_GAP: f32 = 12.0;
 
 pub struct GraphView {
     summaries: HashMap<usize, Summary>,
@@ -328,7 +330,7 @@ impl GraphView {
                     (Row::CurrentWip, Some(wip)) => {
                         let label = WipLabel {
                             owner: "this worktree".into(),
-                            counts: counts_label(wip.changes),
+                            counts: Counts::of(wip.changes),
                             current: true,
                             pinned: map.pinned_head().is_some(),
                         };
@@ -354,7 +356,7 @@ impl GraphView {
                         let other = &other_wips[i];
                         let label = WipLabel {
                             owner: other.tree.name(),
-                            counts: format!("{} changed", other.changes),
+                            counts: Counts::changed(other.changes),
                             current: false,
                             pinned: false,
                         };
@@ -1075,26 +1077,9 @@ fn check_color(state: kelp_core::checks::State) -> Color32 {
 
 struct WipLabel {
     owner: String,
-    counts: String,
+    counts: Counts,
     current: bool,
     pinned: bool,
-}
-
-fn counts_label(changes: &[FileChange]) -> String {
-    let count = |k: ChangeKind| changes.iter().filter(|c| c.kind == k).count();
-    [
-        (
-            count(ChangeKind::Modified) + count(ChangeKind::Renamed),
-            "modified",
-        ),
-        (count(ChangeKind::Added), "added"),
-        (count(ChangeKind::Deleted), "deleted"),
-    ]
-    .into_iter()
-    .filter(|(n, _)| *n > 0)
-    .map(|(n, label)| format!("{n} {label}"))
-    .collect::<Vec<_>>()
-    .join(" · ")
 }
 
 fn paint_wip_row(
@@ -1184,23 +1169,27 @@ fn paint_wip_row(
         0.0,
         TextFormat::simple(FontId::proportional(13.0), owner_color),
     );
-    job.append(
-        &label.counts,
-        10.0,
-        TextFormat::simple(FontId::proportional(13.0), theme::text_faint()),
-    );
     let reserved = if label.current {
         14.0
     } else {
         OPEN_BUTTON_W + 28.0
     };
-    job.wrap =
-        TextWrapping::truncate_at_width((geo.right - reserved - geo.msg_left() - 15.0).max(0.0));
+    let counts_w = change_counts::width(painter, label.counts, 12.5);
+    let text_room = geo.right - reserved - geo.msg_left() - 15.0 - counts_w - COUNTS_GAP;
+    job.wrap = TextWrapping::truncate_at_width(text_room.max(0.0));
     let galley = painter.layout_job(job);
+    let text_right = geo.msg_left() + 15.0 + galley.size().x;
     painter.galley(
         pos2(geo.msg_left() + 15.0, geo.mid() - galley.size().y / 2.0),
         galley,
         theme::text(),
+    );
+    change_counts::paint(
+        painter,
+        text_right + COUNTS_GAP,
+        geo.mid(),
+        label.counts,
+        12.5,
     );
 }
 
