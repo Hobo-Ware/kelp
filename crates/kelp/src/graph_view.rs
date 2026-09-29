@@ -1770,6 +1770,110 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    fn double_click_label(h: &mut Harness, name: &str) -> Option<Action> {
+        let index = h
+            .history
+            .refs
+            .at_row(0)
+            .position(|l| l.name == name)
+            .expect("label on the top row");
+        let id = egui::Id::new(("ref-label", 0usize, index));
+        let at = h.ctx.read_response(id).expect("label drawn").rect.center();
+        h.frame(vec![Event::PointerMoved(at)]);
+        h.frame(vec![]);
+        let at = h
+            .ctx
+            .read_response(id)
+            .expect("label still drawn")
+            .rect
+            .center();
+        let press = |pressed| Event::PointerButton {
+            pos: at,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        h.action = None;
+        let mut picked = None;
+        for events in [
+            vec![press(true)],
+            vec![press(false)],
+            vec![press(true)],
+            vec![press(false)],
+        ] {
+            h.frame(events);
+            if let Some(Action::Command(command)) = h.action.take() {
+                picked = Some(Action::Command(command));
+            }
+        }
+        picked
+    }
+
+    #[test]
+    fn double_clicking_a_stacked_label_checks_out_that_label() {
+        let (mut h, dir) = Harness::new("stack-double-click");
+        let ok = Command::new("git")
+            .current_dir(&dir)
+            .args(["branch", "feat/zzz"])
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        let (repo, history) = History::open(&dir).unwrap();
+        h.repo = repo;
+        h.history = history;
+        h.frame(vec![]);
+        h.frame(vec![]);
+        let action = double_click_label(&mut h, "feat/zzz");
+        assert!(
+            matches!(
+                &action,
+                Some(Action::Command(crate::commands::Command::Run(kelp_core::ops::Op::Switch(b)))) if b == "feat/zzz"
+            ),
+            "{:?}",
+            action.map(|a| match a {
+                Action::Command(crate::commands::Command::Run(op)) => format!("{op:?}"),
+                _ => "other".into(),
+            })
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn switch_target(action: Option<Action>) -> Option<String> {
+        match action {
+            Some(Action::Command(crate::commands::Command::Run(kelp_core::ops::Op::Switch(b)))) => {
+                Some(b)
+            }
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_second_label_on_a_shared_commit_checks_out_itself() {
+        let (mut h, dir) = Harness::new("stack-shared");
+        for args in [
+            &["branch", "feat/zzz"][..],
+            &["switch", "-q", "-c", "side", "HEAD~1"],
+        ] {
+            assert!(
+                Command::new("git")
+                    .current_dir(&dir)
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        let (repo, history) = History::open(&dir).unwrap();
+        h.repo = repo;
+        h.history = history;
+        h.frame(vec![]);
+        h.frame(vec![]);
+        let picked = switch_target(double_click_label(&mut h, "main"));
+        assert_eq!(picked.as_deref(), Some("main"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn the_funnel_in_the_header_asks_for_the_filter_bar() {
         let (mut h, dir) = Harness::new("funnel");

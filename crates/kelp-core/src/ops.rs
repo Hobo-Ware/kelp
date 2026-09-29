@@ -173,21 +173,13 @@ impl ResetMode {
     }
 }
 
-pub fn checkout_remote(
-    remote_branch: &str,
-    locals: &[String],
-    upstreams: &[(String, String)],
-) -> Op {
-    let tracking = upstreams
-        .iter()
-        .find(|(_, upstream)| upstream == remote_branch)
-        .map(|(local, _)| local.clone());
+pub fn checkout_remote(remote_branch: &str, locals: &[String]) -> Op {
     let same_name = remote_branch
         .split_once('/')
         .map(|(_, name)| name)
         .filter(|name| locals.iter().any(|l| l == name))
         .map(str::to_string);
-    match tracking.or(same_name) {
+    match same_name {
         Some(branch) => Op::SwitchFastForward {
             branch,
             upstream: remote_branch.to_string(),
@@ -721,25 +713,17 @@ mod tests {
     }
 
     #[test]
-    fn checking_out_a_remote_branch_reuses_the_local_one() {
-        let locals = vec!["main".to_string(), "work".to_string()];
-        let upstreams = vec![("work".to_string(), "origin/feat/work".to_string())];
+    fn checking_out_a_remote_branch_reuses_the_local_one_with_its_name() {
+        let locals = vec!["main".to_string(), "feat/app-callback".to_string()];
         assert_eq!(
-            checkout_remote("origin/main", &locals, &upstreams),
+            checkout_remote("origin/main", &locals),
             Op::SwitchFastForward {
                 branch: "main".into(),
                 upstream: "origin/main".into()
             }
         );
         assert_eq!(
-            checkout_remote("origin/feat/work", &locals, &upstreams),
-            Op::SwitchFastForward {
-                branch: "work".into(),
-                upstream: "origin/feat/work".into()
-            }
-        );
-        assert_eq!(
-            checkout_remote("origin/feat/new", &locals, &upstreams),
+            checkout_remote("origin/feat/new", &locals),
             Op::SwitchTrack("origin/feat/new".into())
         );
         assert_eq!(
