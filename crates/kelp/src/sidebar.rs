@@ -1207,7 +1207,7 @@ fn worktree_row(
     if (response.double_clicked() || crate::widgets::enter_pressed(&response)) && !current {
         commands.push(Command::OpenRepo(wt.tree.path.clone()));
     } else if response.clicked() {
-        commands.push(Command::ShowWorktrees);
+        commands.push(Command::RevealWorktree(wt.tree.path.clone()));
     }
     crate::menus::context_menu(&response, |ui| menus::worktree(ui, &wt.tree, commands));
 }

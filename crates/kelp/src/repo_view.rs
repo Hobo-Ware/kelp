@@ -716,6 +716,20 @@ impl Repo {
         }
     }
 
+    fn reveal_worktree(&mut self, path: &Path) {
+        let row = self
+            .workspace
+            .worktrees
+            .iter()
+            .find(|w| w.tree.path == path)
+            .and_then(|w| gix::ObjectId::from_hex(w.tree.head.as_bytes()).ok())
+            .and_then(|id| self.history.row(&id));
+        match row {
+            Some(row) => self.reveal(Selection::Commit(row)),
+            None => self.center = Center::Worktrees,
+        }
+    }
+
     fn switch_or_open_worktree(&mut self, op: Op) -> bool {
         let branch = match &op {
             Op::Switch(branch) | Op::SwitchFastForward { branch, .. } => Some(branch.as_str()),
@@ -836,6 +850,7 @@ impl Repo {
                 }
                 Command::Reveal(selection) => self.reveal(selection),
                 Command::ShowWorktrees => self.center = Center::Worktrees,
+                Command::RevealWorktree(path) => self.reveal_worktree(&path),
                 Command::ToggleRef(full) => {
                     self.view.toggle(&full);
                     self.apply_view();
@@ -2596,6 +2611,84 @@ mod tests {
         assert_eq!(opened, [other.canonicalize().unwrap()]);
         let head = run(&dir, &["symbolic-ref", "--short", "HEAD"]).unwrap();
         assert_eq!(head.trim(), "main");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn two_worktrees(name: &str) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        let root = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (dir, other) = (root.join("main"), root.join("other"));
+        std::fs::create_dir_all(&dir).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "T"],
+            &["commit", "-q", "--allow-empty", "-m", "one"],
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "feat/side",
+                other.to_str().unwrap(),
+            ],
+        ] {
+            run(&dir, args).unwrap();
+        }
+        run(
+            &other,
+            &["commit", "-q", "--allow-empty", "-m", "side work"],
+        )
+        .unwrap();
+        run(&dir, &["commit", "-q", "--allow-empty", "-m", "two"]).unwrap();
+        (root, dir, other)
+    }
+
+    fn open_repo(dir: &std::path::Path, ctx: &egui::Context) -> Repo {
+        let (git, history) = kelp_core::history::History::open(dir).unwrap();
+        let mut repo = Repo::new(ctx, git, history, Duration::ZERO);
+        let started = Instant::now();
+        while repo.workspace.worktrees.len() < 2 && started.elapsed() < Duration::from_secs(5) {
+            repo.poll(ctx, None);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(repo.workspace.worktrees.len(), 2);
+        repo
+    }
+
+    #[test]
+    fn clicking_a_worktree_scrolls_the_graph_to_its_commit() {
+        let (root, dir, other) = two_worktrees("kelp-reveal-worktree");
+        let ctx = egui::Context::default();
+        let mut repo = open_repo(&dir, &ctx);
+        repo.center = super::Center::Worktrees;
+        let tip = run(&other, &["rev-parse", "HEAD"]).unwrap();
+        let id = gix::ObjectId::from_hex(tip.trim().as_bytes()).unwrap();
+        let row = repo
+            .history
+            .row(&id)
+            .expect("the side commit is in the graph");
+
+        repo.execute(
+            &ctx,
+            vec![Command::RevealWorktree(other.canonicalize().unwrap())],
+        );
+
+        assert_eq!(repo.selected, Some(super::Selection::Commit(row)));
+        assert_eq!(repo.graph.scroll_to, Some(super::Selection::Commit(row)));
+        assert!(matches!(repo.center, super::Center::Graph));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_worktree_missing_from_the_graph_falls_back_to_the_worktrees_page() {
+        let (root, dir, _other) = two_worktrees("kelp-reveal-missing");
+        let ctx = egui::Context::default();
+        let mut repo = open_repo(&dir, &ctx);
+
+        repo.execute(&ctx, vec![Command::RevealWorktree(root.join("nowhere"))]);
+
+        assert!(matches!(repo.center, super::Center::Worktrees));
         let _ = std::fs::remove_dir_all(&root);
     }
 }
