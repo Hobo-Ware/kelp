@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.12 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.13 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,10 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-30
+
+- **v0.8.13: worktrees page matches the sidebar.** Agent marks in the
+  name column (fixed slot, truncated names), rows ordered by
+  `worktree_rank`. 456 tests pass.
 
 - **v0.8.12: worktrees in the same tab.** `Command::OpenWorktree` fills
   `Repo::switch_to`; the app swaps the active tab (`plan_switch`: focus
