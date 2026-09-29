@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.9 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.10 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,11 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-29
+
+- **v0.8.10: help, don't block.** `dialogs::recovery` maps a failed op to
+  a follow-up confirm (worktree with changes, unmerged branch, rejected
+  push); merge, rebase, interactive rebase and pull use `--autostash`.
+  440 tests pass.
 
 - **Moved or renamed repositories can be re-located** (PR #3 by
   tysonkerridge). A tab whose folder is gone says so and offers "Use
