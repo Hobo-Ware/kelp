@@ -1,7 +1,7 @@
 use std::sync::mpsc::{self, Receiver};
 
 use eframe::egui::{
-    self, Align2, CornerRadius, FontId, Rect, RichText, Sense, Stroke, Ui, pos2, vec2,
+    self, Align2, CornerRadius, FontId, Key, Rect, RichText, Sense, Stroke, Ui, pos2, vec2,
 };
 use kelp_core::avatar::GitHubRepo;
 use kelp_core::ops::Op;
@@ -26,6 +26,8 @@ pub struct PullsView {
     tab: ListTab,
     filter: String,
     loaded: Loaded,
+    selected: Option<u64>,
+    scroll: (f32, f32),
 }
 
 pub enum Event {
@@ -43,6 +45,8 @@ impl PullsView {
             tab: ListTab::Open,
             filter: String::new(),
             loaded,
+            selected: None,
+            scroll: (0.0, 0.0),
         }
     }
 
@@ -60,6 +64,7 @@ impl PullsView {
             };
         }
         let mut event = Event::None;
+        let mut filter_focused = false;
         egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(24, 18))
             .show(ui, |ui| {
@@ -97,11 +102,13 @@ impl PullsView {
                         self.loaded = load(ui.ctx(), &self.github, self.tab);
                     }
                     ui.add_space(8.0);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.filter)
-                            .hint_text("Filter by title, number, author or branch")
-                            .desired_width(320.0),
-                    );
+                    filter_focused = ui
+                        .add(
+                            egui::TextEdit::singleline(&mut self.filter)
+                                .hint_text("Filter by title, number, author or branch")
+                                .desired_width(320.0),
+                        )
+                        .has_focus();
                 });
                 ui.add_space(12.0);
                 let list = match &self.loaded {
@@ -115,18 +122,51 @@ impl PullsView {
                     return notice(ui, "No pull requests here.");
                 }
                 let now = now();
-                egui::ScrollArea::vertical().auto_shrink(false).show_rows(
-                    ui,
-                    ROW_H,
-                    shown.len(),
-                    |ui, rows| {
-                        for i in rows {
-                            if let Some(e) = row(ui, shown[i], &self.github, local, remote, now) {
-                                event = e;
-                            }
+                let at = self
+                    .selected
+                    .and_then(|n| shown.iter().position(|p| p.pull.number == n));
+                let ctx = ui.ctx().clone();
+                let owns_keys = filter_focused || crate::list_keys::nothing_focused(&ctx);
+                let mut scroll_to = None;
+                if owns_keys {
+                    let step = crate::list_keys::arrow_step(&ctx, !filter_focused);
+                    if let Some(next) =
+                        step.and_then(|s| crate::list_keys::target(s, at, shown.len()))
+                    {
+                        self.selected = Some(shown[next].pull.number);
+                        scroll_to = Some(next);
+                    } else if !filter_focused
+                        && let Some(at) = at
+                        && crate::list_keys::pressed(&ctx, Key::Enter)
+                    {
+                        event = Event::Command(Command::OpenUrl(shown[at].pull.url.clone()));
+                    }
+                }
+                let mut area = egui::ScrollArea::vertical().auto_shrink(false);
+                if let Some(index) = scroll_to {
+                    let (offset, height) = self.scroll;
+                    let (top, bottom) = (index as f32 * ROW_H, (index + 1) as f32 * ROW_H);
+                    if top < offset {
+                        area = area.vertical_scroll_offset(top);
+                    } else if bottom > offset + height {
+                        area = area.vertical_scroll_offset(bottom - height);
+                    }
+                }
+                let selected = self.selected;
+                let output = area.show_rows(ui, ROW_H, shown.len(), |ui, rows| {
+                    for i in rows {
+                        let is_selected = selected == Some(shown[i].pull.number);
+                        let (picked, clicked) =
+                            row(ui, shown[i], &self.github, local, remote, now, is_selected);
+                        if clicked {
+                            self.selected = Some(shown[i].pull.number);
                         }
-                    },
-                );
+                        if let Some(e) = picked {
+                            event = e;
+                        }
+                    }
+                });
+                self.scroll = (output.state.offset.y, output.inner_rect.height());
             });
         event
     }
@@ -191,13 +231,16 @@ fn row(
     local: &[String],
     remote: &[String],
     now: i64,
-) -> Option<Event> {
+    selected: bool,
+) -> (Option<Event>, bool) {
     let pull = &item.pull;
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
     let painter = ui.painter_at(rect);
     let hovered = response.hovered();
-    if hovered {
+    if selected {
+        painter.rect_filled(rect, CornerRadius::same(8), theme::sidebar_selected());
+    } else if hovered {
         painter.rect_filled(rect, CornerRadius::same(8), theme::control());
     }
     crate::graph_view::draw_avatar(
@@ -323,7 +366,7 @@ fn row(
             ui.close();
         }
     });
-    picked
+    (picked, response.clicked())
 }
 
 fn notice(ui: &mut Ui, text: &str) {
@@ -406,7 +449,7 @@ mod tests {
             let mut rect = Rect::NOTHING;
             let _ = ctx.run_ui(input, |ui| {
                 let top = ui.cursor().min;
-                got = row(ui, &item, &github, &[], &[], 0);
+                got = row(ui, &item, &github, &[], &[], 0, false).0;
                 rect = Rect::from_min_size(top, vec2(ui.min_rect().width(), ROW_H));
             });
             (got, rect)
@@ -428,6 +471,66 @@ mod tests {
             Some(Event::Command(Command::Run(Op::CheckoutPull { number: 42, ref branch, .. })))
                 if branch == "feat/y"
         ));
+    }
+
+    #[test]
+    fn arrows_select_pull_requests_and_enter_opens_one() {
+        use eframe::egui::{Event as Input, Pos2, RawInput};
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let github = GitHubRepo {
+            owner: "hobo-ware".into(),
+            name: "kelp".into(),
+        };
+        let items = (1..=3)
+            .map(|n| {
+                let mut p = pull(&format!("feat/{n}"), "hobo-ware");
+                p.number = n;
+                p.url = format!("https://github.com/hobo-ware/kelp/pull/{n}");
+                PullSummary {
+                    pull: p,
+                    author: "maya".into(),
+                    updated: None,
+                }
+            })
+            .collect();
+        let mut view = PullsView {
+            github,
+            tab: ListTab::Open,
+            filter: String::new(),
+            loaded: Loaded::Ready(items),
+            selected: None,
+            scroll: (0.0, 0.0),
+        };
+        let press = |view: &mut PullsView, key: egui::Key| {
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 600.0))),
+                events: [true, false]
+                    .map(|pressed| Input::Key {
+                        key,
+                        physical_key: None,
+                        pressed,
+                        repeat: false,
+                        modifiers: Default::default(),
+                    })
+                    .to_vec(),
+                ..Default::default()
+            };
+            let mut event = Event::None;
+            let _ = ctx.run_ui(input, |ui| event = view.ui(ui, &[], &[]));
+            event
+        };
+        press(&mut view, egui::Key::ArrowDown);
+        press(&mut view, egui::Key::ArrowDown);
+        let opened = press(&mut view, egui::Key::Enter);
+        assert!(matches!(
+            opened,
+            Event::Command(Command::OpenUrl(ref url)) if url.ends_with("/pull/2")
+        ));
+        press(&mut view, egui::Key::End);
+        assert_eq!(view.selected, Some(3));
+        press(&mut view, egui::Key::Home);
+        assert_eq!(view.selected, Some(1));
     }
 
     #[test]

@@ -31,17 +31,19 @@ pub fn nothing_focused(ctx: &egui::Context) -> bool {
     ctx.memory(|m| m.focused()).is_none()
 }
 
-fn read(ctx: &egui::Context) -> Option<Step> {
+pub fn arrow_step(ctx: &egui::Context, home_and_end: bool) -> Option<Step> {
+    let keys = [
+        (Key::ArrowDown, Step::Next),
+        (Key::ArrowUp, Step::Prev),
+        (Key::Home, Step::First),
+        (Key::End, Step::Last),
+    ];
+    let count = if home_and_end { 4 } else { 2 };
     ctx.input_mut(|i| {
-        [
-            (Key::ArrowDown, Step::Next),
-            (Key::ArrowUp, Step::Prev),
-            (Key::Home, Step::First),
-            (Key::End, Step::Last),
-        ]
-        .into_iter()
-        .find(|(key, _)| i.consume_key(Modifiers::NONE, *key))
-        .map(|(_, step)| step)
+        keys.into_iter()
+            .take(count)
+            .find(|(key, _)| i.consume_key(Modifiers::NONE, *key))
+            .map(|(_, step)| step)
     })
 }
 
@@ -81,7 +83,7 @@ pub fn step_index(
     if focused_at.is_none() && (!owns_keys || is_typing(ctx)) {
         return None;
     }
-    target(read(ctx)?, focused_at.or(active), len)
+    target(arrow_step(ctx, true)?, focused_at.or(active), len)
 }
 
 /// Moves through `rows` with Up, Down, Home and End. A focused row keeps
