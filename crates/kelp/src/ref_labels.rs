@@ -143,12 +143,29 @@ const LABEL_PAD: f32 = 16.0;
 const LABEL_MIN_TEXT_W: f32 = 40.0;
 const MORE_CHIP_W: f32 = 30.0;
 
+pub type RemoteBadges = std::collections::HashMap<String, egui::TextureId>;
+
+const BADGE_SIZE: f32 = 14.0;
+const BADGE_GAP: f32 = 5.0;
+
+fn remote_badge<'a>(
+    label: &'a RefLabel,
+    badges: &RemoteBadges,
+) -> Option<(egui::TextureId, &'a str)> {
+    if label.kind != RefKind::Remote {
+        return None;
+    }
+    let (remote, branch) = label.name.split_once('/')?;
+    Some((*badges.get(remote)?, branch))
+}
+
 pub fn paint(
     painter: &egui::Painter,
     right_edge: f32,
     left_edge: f32,
     mid: f32,
     labels: &[&RefLabel],
+    badges: &RemoteBadges,
     lane: Color32,
 ) -> Vec<Placed> {
     let font = FontId::proportional(12.0);
@@ -163,17 +180,25 @@ pub fn paint(
         } else {
             0.0
         };
-        let text_room = (right - left_edge - LABEL_PAD - pill_w - more_chip).min(LABEL_MAX_TEXT_W);
+        let badge = remote_badge(label, badges);
+        let badge_w = if badge.is_some() {
+            BADGE_SIZE + BADGE_GAP
+        } else {
+            0.0
+        };
+        let text_room =
+            (right - left_edge - LABEL_PAD - pill_w - badge_w - more_chip).min(LABEL_MAX_TEXT_W);
         let remaining = labels.len() - i;
         let fits = text_room >= LABEL_MIN_TEXT_W && (i == 0 || right - left_edge > MORE_CHIP_W);
+        let text = badge.map_or_else(|| label_text(label), |(_, branch)| branch.to_string());
         let galley = crate::graph_view::truncated(
             painter,
-            label_text(label),
+            text,
             font.clone(),
             Color32::PLACEHOLDER,
             text_room.max(0.0),
         );
-        let w = galley.size().x + LABEL_PAD + pill_w;
+        let w = galley.size().x + LABEL_PAD + pill_w + badge_w;
         if !fits || right - w < left_edge {
             let g = painter.layout_no_wrap(format!("+{remaining}"), font, theme::text_muted());
             let rect = Rect::from_min_size(
@@ -201,8 +226,16 @@ pub fn paint(
             stroke,
             egui::StrokeKind::Inside,
         );
+        if let Some((texture, _)) = badge {
+            let spot = Rect::from_center_size(
+                pos2(rect.left() + 7.0 + BADGE_SIZE / 2.0, mid),
+                vec2(BADGE_SIZE, BADGE_SIZE),
+            );
+            let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+            painter.image(texture, spot, uv, Color32::WHITE);
+        }
         painter.galley(
-            pos2(rect.left() + 8.0, mid - galley.size().y / 2.0),
+            pos2(rect.left() + 8.0 + badge_w, mid - galley.size().y / 2.0),
             galley,
             ink,
         );
@@ -288,6 +321,11 @@ pub fn interact(
                         Sense::click_and_drag(),
                     )
                     .on_hover_cursor(CursorIcon::PointingHand);
+                let response = if label.kind == RefKind::Remote {
+                    response.on_hover_text(&label.name)
+                } else {
+                    response
+                };
                 if response.double_clicked() {
                     if let Some(op) = checkout_op(label) {
                         events.push(LabelEvent::Command(Command::Run(op)));
@@ -479,6 +517,18 @@ mod tests {
             label,
             is_head,
         }
+    }
+
+    #[test]
+    fn remote_labels_swap_the_remote_name_for_its_owner_badge() {
+        let texture = egui::TextureId::Managed(7);
+        let badges = RemoteBadges::from([("origin".to_string(), texture)]);
+        let remote = label("origin/feat/a", RefKind::Remote, false);
+        assert_eq!(remote_badge(&remote, &badges), Some((texture, "feat/a")));
+        let other = label("fork/feat/a", RefKind::Remote, false);
+        assert_eq!(remote_badge(&other, &badges), None);
+        let local = label("origin/feat/a", RefKind::Local, false);
+        assert_eq!(remote_badge(&local, &badges), None);
     }
 
     #[test]

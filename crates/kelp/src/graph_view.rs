@@ -52,6 +52,7 @@ pub struct GraphView {
     pub filter_clicked: bool,
     pub visible_commits: Vec<usize>,
     pub focus_id: Option<egui::Id>,
+    remote_owners: Option<Vec<(String, String)>>,
 }
 
 pub struct GraphInput<'a> {
@@ -117,11 +118,13 @@ impl GraphView {
             filter_clicked: false,
             visible_commits: Vec::new(),
             focus_id: None,
+            remote_owners: None,
         }
     }
 
     pub fn clear_cache(&mut self) {
         self.summaries.clear();
+        self.remote_owners = None;
     }
 
     pub fn ui(
@@ -148,6 +151,12 @@ impl GraphView {
         } = input;
         let content_w = history.layout.lane_count() as f32 * LANE_W + GRAPH_PAD * 2.0;
         let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
+        let badges: ref_labels::RemoteBadges = self
+            .remote_owners
+            .get_or_insert_with(|| github_owners(repo))
+            .iter()
+            .filter_map(|(remote, owner)| Some((remote.clone(), avatars.owner_texture(owner)?)))
+            .collect();
         let max_w = (ui.available_width() * 0.6).max(MIN_GRAPH_W);
         let graph_w = self.graph_w.unwrap_or(auto_w).clamp(MIN_GRAPH_W, max_w);
         self.lane_offset = self.lane_offset.clamp(0.0, (content_w - graph_w).max(0.0));
@@ -368,6 +377,7 @@ impl GraphView {
                                 on_path: on_path(row),
                                 checks: checks.get(&history.id(row)),
                                 lit,
+                                badges: &badges,
                             },
                             now,
                         );
@@ -828,6 +838,23 @@ struct RowPaint<'a> {
     on_path: OnPath,
     checks: Option<&'a kelp_core::checks::Status>,
     lit: Option<&'a [bool]>,
+    badges: &'a ref_labels::RemoteBadges,
+}
+
+fn github_owners(repo: &gix::Repository) -> Vec<(String, String)> {
+    repo.remote_names()
+        .iter()
+        .filter_map(|name| {
+            let name = name.to_string();
+            let remote = repo.find_remote(name.as_str()).ok()?;
+            let url = remote
+                .url(gix::remote::Direction::Fetch)?
+                .to_bstring()
+                .to_string();
+            let github = kelp_core::avatar::GitHubRepo::from_remote_url(&url)?;
+            Some((name, github.owner))
+        })
+        .collect()
 }
 
 const FADED_OPACITY: f32 = 0.35;
@@ -861,6 +888,7 @@ fn paint_row(
         on_path,
         checks,
         lit,
+        badges,
     } = paint;
     let RowStyle {
         selected,
@@ -956,7 +984,7 @@ fn paint_row(
     let mut placed = Vec::new();
     if node.x >= geo.graph_left() {
         let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
-        placed = paint_labels(&soft, geo, &labels, node, color);
+        placed = paint_labels(&soft, geo, &labels, badges, node, color);
     }
     if faded {
         graph.circle_filled(node, AVATAR_R + 1.0, theme::bg());
@@ -1342,6 +1370,7 @@ fn paint_labels(
     painter: &egui::Painter,
     geo: &RowGeo,
     labels: &[&RefLabel],
+    badges: &ref_labels::RemoteBadges,
     node: Pos2,
     lane: Color32,
 ) -> Vec<ref_labels::Placed> {
@@ -1351,6 +1380,7 @@ fn paint_labels(
         geo.left + 8.0,
         geo.mid(),
         labels,
+        badges,
         lane,
     );
     if !labels.is_empty() {
