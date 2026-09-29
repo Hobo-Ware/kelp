@@ -197,7 +197,7 @@ pub fn checkout_remote(
 }
 
 fn has_local_changes(dir: &Path) -> anyhow::Result<bool> {
-    let status = git_cli::run(dir, &["status", "--porcelain", "-z"])?;
+    let status = git_cli::run(dir, &["--no-optional-locks", "status", "--porcelain", "-z"])?;
     Ok(!status.is_empty())
 }
 
