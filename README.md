@@ -41,7 +41,8 @@ folder if it is a repo.
 
 - **Graph:** lanes with rounded corners, rows tinted in the branch
   color, avatars (GitHub, then Gravatar, then generated initials),
-  branch and tag labels. Drag the graph column edge to resize; scroll
+  branch and tag labels (remote branches on GitHub show the owner's
+  avatar instead of `origin/`). Drag the graph column edge to resize; scroll
   sideways for wide histories. Hover a commit to light up its path to
   the branch tip and see its full message, author, date and hash.
   Uncommitted changes show up for every worktree, each above its own

@@ -15,24 +15,29 @@ enum Slot {
     Missing,
 }
 
+enum Request {
+    Author { email: String, commit: String },
+    Owner(String),
+}
+
 #[derive(Default)]
 struct Queue {
-    items: Mutex<VecDeque<(String, String)>>,
+    items: Mutex<VecDeque<(String, Request)>>,
     ready: Condvar,
 }
 
 impl Queue {
-    fn push_newest(&self, item: (String, String)) -> Option<String> {
+    fn push_newest(&self, item: (String, Request)) -> Option<String> {
         let mut items = self.items.lock().ok()?;
         items.push_front(item);
         let dropped = (items.len() > MAX_PENDING)
             .then(|| items.pop_back())
             .flatten();
         self.ready.notify_one();
-        dropped.map(|(email, _)| email)
+        dropped.map(|(key, _)| key)
     }
 
-    fn pop_newest(&self) -> Option<(String, String)> {
+    fn pop_newest(&self) -> Option<(String, Request)> {
         let mut items = self.items.lock().ok()?;
         loop {
             if let Some(item) = items.pop_front() {
@@ -74,9 +79,12 @@ impl AvatarStore {
                 let result_tx: Sender<(String, Option<Image>)> = result_tx.clone();
                 let ctx = worker_ctx.clone();
                 std::thread::spawn(move || {
-                    while let Some((email, commit)) = queue.pop_newest() {
-                        let image = resolver.resolve(&email, &commit);
-                        if result_tx.send((email, image)).is_err() {
+                    while let Some((key, request)) = queue.pop_newest() {
+                        let image = match request {
+                            Request::Author { email, commit } => resolver.resolve(&email, &commit),
+                            Request::Owner(owner) => resolver.resolve_owner(&owner),
+                        };
+                        if result_tx.send((key, image)).is_err() {
                             break;
                         }
                         ctx.request_repaint();
@@ -97,14 +105,30 @@ impl AvatarStore {
         if email.is_empty() || !self.enabled {
             return None;
         }
-        let key = email.trim().to_lowercase();
+        let email = email.trim().to_lowercase();
+        let request = Request::Author {
+            email: email.clone(),
+            commit: commit.to_string(),
+        };
+        self.lookup(email, request)
+    }
+
+    pub fn owner_texture(&mut self, owner: &str) -> Option<TextureId> {
+        if owner.is_empty() || !self.enabled {
+            return None;
+        }
+        let owner = owner.to_lowercase();
+        self.lookup(format!("owner:{owner}"), Request::Owner(owner))
+    }
+
+    fn lookup(&mut self, key: String, request: Request) -> Option<TextureId> {
         match self.slots.get(&key) {
             Some(Slot::Ready(texture)) => Some(texture.id()),
             Some(_) => None,
             None => {
                 let queue = self.queue.as_ref()?;
                 self.slots.insert(key.clone(), Slot::Pending);
-                if let Some(dropped) = queue.push_newest((key, commit.to_string())) {
+                if let Some(dropped) = queue.push_newest((key, request)) {
                     self.slots.remove(&dropped);
                 }
                 None

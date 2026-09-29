@@ -47,9 +47,13 @@ pub fn github_noreply_url(email: &str) -> Option<String> {
         Some((id, _)) if !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()) => Some(format!(
             "https://avatars.githubusercontent.com/u/{id}?s={SIZE}&v=4"
         )),
-        _ if !user.is_empty() => Some(format!("https://github.com/{user}.png?size={SIZE}")),
+        _ if !user.is_empty() => Some(github_owner_url(user)),
         _ => None,
     }
+}
+
+pub fn github_owner_url(owner: &str) -> String {
+    format!("https://github.com/{owner}.png?size={SIZE}")
 }
 
 pub fn gravatar_url(email: &str) -> String {
@@ -116,7 +120,21 @@ impl Resolver {
     }
 
     pub fn resolve(&self, email: &str, commit: &str) -> Option<Image> {
-        let key = sha256_hex(&normalize(email));
+        self.cached(&normalize(email), || self.download(email, commit))
+    }
+
+    pub fn resolve_owner(&self, owner: &str) -> Option<Image> {
+        self.cached(&format!("github-owner:{}", normalize(owner)), || match self
+            .get(&github_owner_url(owner))
+        {
+            Ok(Some(bytes)) => Lookup::Found(bytes),
+            Ok(None) => Lookup::NotFound,
+            Err(()) => Lookup::Failed,
+        })
+    }
+
+    fn cached(&self, name: &str, download: impl FnOnce() -> Lookup) -> Option<Image> {
+        let key = sha256_hex(name);
         let hit = self.cache_dir.join(format!("{key}.img"));
         let miss = self.cache_dir.join(format!("{key}.none"));
         if fresh(&hit, HIT_TTL)
@@ -127,7 +145,7 @@ impl Resolver {
         if fresh(&miss, MISS_TTL) {
             return None;
         }
-        let bytes = match self.download(email, commit) {
+        let bytes = match download() {
             Lookup::Found(bytes) => bytes,
             Lookup::NotFound => {
                 let _ = std::fs::create_dir_all(&self.cache_dir);
