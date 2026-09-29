@@ -2,6 +2,10 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.13 - 2026-09-30
+
+- The Worktrees page shows the same agent marks and sorts worktrees the same way as the sidebar: yours first, then the ones with an agent running, then the ones with changes, and idle ones last. Long worktree names no longer run into the branch column.
+
 ## v0.8.12 - 2026-09-30
 
 - Opening a worktree switches the current tab to it instead of adding a tab, since it is the same repository. If another tab already shows it, that tab comes forward. The right-click menu still has Open in new tab.
