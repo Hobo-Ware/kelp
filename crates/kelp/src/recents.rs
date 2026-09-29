@@ -8,6 +8,9 @@ pub const MAX_RECENTS: usize = 20;
 pub struct Recent {
     pub path: PathBuf,
     pub opened: i64,
+    /// HEAD when last opened, to find the repository again after a rename.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tip: Option<String>,
 }
 
 pub fn remember(list: &mut Vec<Recent>, path: &Path, now: i64) {
@@ -18,6 +21,7 @@ pub fn remember(list: &mut Vec<Recent>, path: &Path, now: i64) {
         Recent {
             path: key,
             opened: now,
+            tip: None,
         },
     );
     list.truncate(MAX_RECENTS);
@@ -26,6 +30,94 @@ pub fn remember(list: &mut Vec<Recent>, path: &Path, now: i64) {
 pub fn forget(list: &mut Vec<Recent>, path: &Path) {
     let key = canonical(path);
     list.retain(|r| canonical(&r.path) != key);
+}
+
+pub fn relocated(path: &Path, old: &Path, new: &Path) -> Option<PathBuf> {
+    let rest = path.strip_prefix(old).ok()?;
+    Some(if rest.as_os_str().is_empty() {
+        new.to_path_buf()
+    } else {
+        new.join(rest)
+    })
+}
+
+pub fn relocate(list: &mut Vec<Recent>, old: &Path, new: &Path) -> usize {
+    let mut moved = 0;
+    for recent in list.iter_mut() {
+        if let Some(path) = relocated(&recent.path, old, new) {
+            recent.path = path;
+            moved += 1;
+        }
+    }
+    let mut seen = Vec::new();
+    list.retain(|r| {
+        let key = canonical(&r.path);
+        let fresh = !seen.contains(&key);
+        seen.push(key);
+        fresh
+    });
+    moved
+}
+
+pub fn set_tip(list: &mut [Recent], path: &Path, tip: String) {
+    let key = canonical(path);
+    if let Some(recent) = list.iter_mut().find(|r| canonical(&r.path) == key) {
+        recent.tip = Some(tip);
+    }
+}
+
+pub fn tip_of<'a>(list: &'a [Recent], path: &Path) -> Option<&'a str> {
+    list.iter()
+        .find(|r| r.path == path)
+        .and_then(|r| r.tip.as_deref())
+}
+
+/// Guesses where a missing repository went: a parent that is now the repository, a sibling
+/// holding `tip`, or (without a tip) the only sibling repository not already known.
+pub fn find_moved(missing: &Path, tip: Option<&str>, known: &[PathBuf]) -> Option<PathBuf> {
+    if missing.exists() {
+        return None;
+    }
+    let parent_repo = missing
+        .ancestors()
+        .skip(1)
+        .take_while(|p| p.parent().is_some())
+        .find(|p| p.join(".git").exists());
+    if let Some(found) = parent_repo {
+        return Some(found.to_path_buf());
+    }
+    let mut siblings: Vec<PathBuf> = std::fs::read_dir(missing.parent()?)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.join(".git").exists())
+        .collect();
+    siblings.sort();
+    match tip {
+        Some(tip) => siblings.into_iter().find(|p| has_commit(p, tip)),
+        None => {
+            let known: Vec<PathBuf> = known.iter().map(|p| canonical(p)).collect();
+            siblings.retain(|p| !known.contains(&canonical(p)));
+            (siblings.len() == 1).then(|| siblings.remove(0))
+        }
+    }
+}
+
+fn has_commit(repo: &Path, sha: &str) -> bool {
+    // The sha comes from settings.json; keep anything but hex out of the git command line.
+    if sha.is_empty() || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return false;
+    }
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["cat-file", "-e"])
+        .arg(format!("{sha}^{{commit}}"))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 pub fn from_env() -> Option<Vec<Recent>> {
@@ -38,6 +130,7 @@ pub fn from_env() -> Option<Vec<Recent>> {
             .enumerate()
             .map(|(i, p)| Recent {
                 path: PathBuf::from(p.trim()),
+                tip: None,
                 opened: now - (i as i64 + 1) * 5400,
             })
             .collect(),
@@ -99,6 +192,98 @@ mod tests {
 
     fn paths(list: &[Recent]) -> Vec<&str> {
         list.iter().map(|r| r.path.to_str().unwrap()).collect()
+    }
+
+    #[test]
+    fn relocating_rewrites_paths_inside_the_old_folder() {
+        let (old, new) = (Path::new("/w/kelp/kelp"), Path::new("/w/kelp"));
+        assert_eq!(
+            relocated(Path::new("/w/kelp/kelp/sub"), old, new).unwrap(),
+            Path::new("/w/kelp/sub")
+        );
+        assert_eq!(relocated(old, old, new).unwrap(), new);
+        assert!(relocated(Path::new("/w/kelp/kelp2"), old, new).is_none());
+        let mut list = vec![
+            Recent {
+                path: "/nope/kelp/kelp".into(),
+                opened: 2,
+                tip: None,
+            },
+            Recent {
+                path: "/nope/kelp".into(),
+                opened: 1,
+                tip: None,
+            },
+        ];
+        let (old, new) = (Path::new("/nope/kelp/kelp"), Path::new("/nope/kelp"));
+        assert_eq!(relocate(&mut list, old, new), 1);
+        assert_eq!(paths(&list), ["/nope/kelp"]);
+    }
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kelp-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn commit_in(dir: &Path) -> String {
+        std::fs::create_dir_all(dir).unwrap();
+        git(dir, &["init", "-q"]);
+        git(
+            dir,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                dir.to_str().unwrap(),
+            ],
+        );
+        git(dir, &["rev-parse", "HEAD"])
+    }
+
+    #[test]
+    fn finds_the_surviving_parent_repository() {
+        let dir = scratch("parent");
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        assert_eq!(find_moved(&dir.join("kelp"), None, &[]), Some(dir.clone()));
+        assert_eq!(find_moved(&dir, None, &[]), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn finds_a_renamed_folder_by_its_last_commit() {
+        let dir = scratch("renamed");
+        let tip = commit_in(&dir.join("trakt-workers"));
+        let other = commit_in(&dir.join("other"));
+        let old = dir.join("trakt-hyperdrive");
+        let found = find_moved(&old, Some(&tip), &[]);
+        assert_eq!(found, Some(dir.join("trakt-workers")));
+        assert_ne!(tip, other);
+        assert_eq!(find_moved(&old, None, &[]), None);
+        let known = [dir.join("trakt-workers")];
+        assert_eq!(find_moved(&old, Some(&tip), &known), found);
+        assert_eq!(find_moved(&old, Some("--all"), &[]), None);
+        assert_eq!(
+            find_moved(&old, None, &[dir.join("other")]),
+            Some(dir.join("trakt-workers"))
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
