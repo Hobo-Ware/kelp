@@ -11,7 +11,7 @@ use kelp_core::avatar;
 use kelp_core::commit::{self, FileChange, Summary};
 use kelp_core::graph::{Edge, EdgeKind};
 use kelp_core::history::History;
-use kelp_core::refs::RefLabel;
+use kelp_core::refs::{RefKind, RefLabel};
 use kelp_core::workspace::Worktree;
 
 use crate::avatars::AvatarStore;
@@ -302,6 +302,10 @@ impl GraphView {
             let mut open_buttons = Vec::new();
             let mut check_dots: Vec<(Rect, usize)> = Vec::new();
             let mut halos = Vec::new();
+            let tint = WipTint {
+                lit,
+                path: visible_path.as_ref(),
+            };
             for (i, display) in rows.clone().enumerate() {
                 let geo = RowGeo {
                     left: rect.left(),
@@ -358,7 +362,7 @@ impl GraphView {
                             &painter,
                             &geo,
                             history,
-                            lit,
+                            tint,
                             wip.head_row,
                             &label,
                             is_selected,
@@ -380,7 +384,7 @@ impl GraphView {
                             current: false,
                             pinned: false,
                         };
-                        paint_wip_row(&painter, &geo, history, lit, other.head_row, &label, false);
+                        paint_wip_row(&painter, &geo, history, tint, other.head_row, &label, false);
                         let button = open_button_rect(&geo);
                         let hot = response.hover_pos().is_some_and(|p| button.contains(p));
                         paint_open_button(&painter, button, hot);
@@ -450,7 +454,7 @@ impl GraphView {
                     (Row::CurrentWip, None) => {}
                 }
                 if let Some(head) = map.pinned_head() {
-                    paint_wip_link(&painter, &geo, history, head, map.wip_link(display));
+                    paint_wip_link(&painter, &geo, history, tint, head, map.wip_link(display));
                 }
             }
             for (center, lane, graph_x) in halos {
@@ -1007,8 +1011,18 @@ fn paint_row(
 
     let edges = layout.edges(row);
     let has_top = edges.iter().any(|e| e.kind == EdgeKind::Top);
+    let wip_link_dim = if on_path == OnPath::No {
+        OFF_PATH_OPACITY
+    } else {
+        1.0
+    };
     if own_wip_above && !has_top {
-        dashed(&graph, pos2(node.x, geo.top), node, color);
+        dashed(
+            &graph,
+            pos2(node.x, geo.top),
+            node,
+            color.gamma_multiply(wip_link_dim),
+        );
     }
     if other_wip_above {
         let x = geo.lane_x(side_lane(history, row));
@@ -1017,7 +1031,7 @@ fn paint_row(
         points.push(pos2(node.x + AVATAR_R + 1.0, geo.mid()));
         graph.extend(Shape::dashed_line(
             &points,
-            Stroke::new(LINE_W, theme::text_faint()),
+            Stroke::new(LINE_W, theme::text_faint().gamma_multiply(wip_link_dim)),
             4.0,
             3.0,
         ));
@@ -1026,12 +1040,7 @@ fn paint_row(
         if edge.kind == EdgeKind::Pass && !geo.lane_visible(edge.lane) {
             continue;
         }
-        let lane_color = edge_color(lit, edge);
-        let stroke = match path.map(|p| p.carries(row, edge)) {
-            None => Stroke::new(LINE_W, lane_color),
-            Some(true) => Stroke::new(HOVER_LINE_W, lane_color),
-            Some(false) => Stroke::new(LINE_W, lane_color.gamma_multiply(OFF_PATH_OPACITY)),
-        };
+        let stroke = hover_stroke(path, row, edge, edge_color(lit, edge));
         let x = geo.lane_x(edge.lane);
         match edge.kind {
             EdgeKind::Pass => {
@@ -1153,11 +1162,39 @@ struct WipLabel {
     pinned: bool,
 }
 
+#[derive(Clone, Copy)]
+struct WipTint<'a> {
+    lit: Option<&'a [bool]>,
+    path: Option<&'a VisiblePath<'a>>,
+}
+
+impl WipTint<'_> {
+    fn off_path(&self, row: usize) -> bool {
+        self.path.is_some_and(|p| !p.contains(row))
+    }
+
+    fn dim(&self, row: usize) -> f32 {
+        if self.off_path(row) {
+            OFF_PATH_OPACITY
+        } else {
+            1.0
+        }
+    }
+}
+
+fn hover_stroke(path: Option<&VisiblePath<'_>>, row: usize, edge: &Edge, color: Color32) -> Stroke {
+    match path.map(|p| p.carries(row, edge)) {
+        None => Stroke::new(LINE_W, color),
+        Some(true) => Stroke::new(HOVER_LINE_W, color),
+        Some(false) => Stroke::new(LINE_W, color.gamma_multiply(OFF_PATH_OPACITY)),
+    }
+}
+
 fn paint_wip_row(
     painter: &egui::Painter,
     geo: &RowGeo,
     history: &History,
-    lit: Option<&[bool]>,
+    tint: WipTint<'_>,
     head_row: usize,
     label: &WipLabel,
     selected: bool,
@@ -1199,11 +1236,13 @@ fn paint_wip_row(
         let from_above = matches!(edge.kind, EdgeKind::Pass | EdgeKind::Top | EdgeKind::JoinIn);
         if from_above && geo.lane_visible(edge.lane) {
             let x = geo.lane_x(edge.lane);
-            graph.line_segment(
-                [pos2(x, geo.top), pos2(x, geo.bottom())],
-                Stroke::new(LINE_W, edge_color(lit, &edge)),
-            );
+            let stroke = hover_stroke(tint.path, head_row, &edge, edge_color(tint.lit, &edge));
+            graph.line_segment([pos2(x, geo.top), pos2(x, geo.bottom())], stroke);
         }
+    }
+    let mut graph = graph;
+    if tint.off_path(head_row) {
+        graph.multiply_opacity(OFF_PATH_OPACITY + 0.3);
     }
     dashed(&graph, node, pos2(node.x, geo.bottom()), mark_color);
 
@@ -1283,10 +1322,11 @@ fn paint_wip_link(
     painter: &egui::Painter,
     geo: &RowGeo,
     history: &History,
+    tint: WipTint<'_>,
     head: usize,
     link: WipLink,
 ) {
-    let color = theme::lane(history.layout.node_color(head));
+    let color = theme::lane(history.layout.node_color(head)).gamma_multiply(tint.dim(head));
     let graph = geo.graph_clip(painter);
     let x = geo.wip_x();
     match link {
@@ -1349,7 +1389,7 @@ fn trace_hover(history: &History, row: usize) -> HoverPath {
     HoverPath::toward_tip(
         row,
         |r| history.parents(r).first().copied(),
-        |r| history.refs.at_row(r).next().is_some(),
+        |r| history.refs.at_row(r).any(|l| l.kind != RefKind::Tag),
         |r| history.layout.node_lane(r),
     )
 }
