@@ -2,6 +2,11 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.12 - 2026-09-30
+
+- Opening a worktree switches the current tab to it instead of adding a tab, since it is the same repository. If another tab already shows it, that tab comes forward. The right-click menu still has Open in new tab.
+- The sidebar lists worktrees with yours first, then the ones with an AI agent running, then the ones with uncommitted changes, and idle ones last.
+
 ## v0.8.11 - 2026-09-30
 
 - Worktrees with an AI agent running in them (Claude, Codex, Gemini, Copilot, Aider or Cursor) show that tool's mark in the sidebar, with a count for several sessions, so the idle ones are easy to spot. Removing a worktree warns when an agent is running in it.
