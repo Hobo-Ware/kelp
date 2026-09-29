@@ -194,6 +194,8 @@ folder if it is a repo.
 | Shift+F10 | Open the menu of the focused row or commit |
 | Up / Down, J / K | Move through commits |
 | Up / Down, Home / End | Move through the files of a commit or of Changes; the diff follows |
+| Up / Down, Home / End | Move through stashed files, the reflog, file history and the console |
+| Enter | Show a file history commit in the graph, or expand a console entry |
 | S / U | Stage / unstage the open or focused file in Changes |
 | Cmd+F | Search; Enter / Shift+Enter for next / previous |
 | Cmd+Shift+F | Filter commits by author, path or date; Esc closes |

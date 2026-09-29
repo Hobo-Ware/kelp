@@ -61,7 +61,8 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                 if repo.show_all_files {
                     all_files(ui, repo, &changes, active.as_deref(), &mut picks);
                 }
-                picks.follow_keys(ui, active.as_deref());
+                let diff_open = matches!(repo.center, Center::Diff(_));
+                picks.follow_keys(ui, active.as_deref().filter(|_| diff_open));
             });
     });
     if !repo.review.threads.is_empty() {

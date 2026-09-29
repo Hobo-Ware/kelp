@@ -105,9 +105,28 @@ impl FileHistoryView {
                     ROW_H,
                     self.entries.len(),
                     |ui, rows| {
+                        let open = self.open.as_ref().map(|(open, _)| *open);
+                        let keys = crate::list_keys::Rows {
+                            visible: rows.clone(),
+                            len: self.entries.len(),
+                            height: ROW_H,
+                            id: row_id,
+                        };
+                        let owns_keys = crate::list_keys::nothing_focused(ui.ctx());
+                        if let Some(i) = crate::list_keys::step_rows(ui, keys, open, owns_keys) {
+                            picked = Some(i);
+                        }
+                        let reveal = open.filter(|_| {
+                            (owns_keys
+                                || rows.clone().any(|i| ui.memory(|m| m.has_focus(row_id(i)))))
+                                && crate::list_keys::pressed(ui.ctx(), egui::Key::Enter)
+                        });
+                        if let Some(i) = reveal {
+                            event = Event::Reveal(self.entries[i].id);
+                        }
                         for i in rows {
-                            let active = self.open.as_ref().is_some_and(|(open, _)| *open == i);
-                            match entry_row(ui, &self.entries[i], active, avatars, now) {
+                            let active = open == Some(i);
+                            match entry_row(ui, row_id(i), &self.entries[i], active, avatars, now) {
                                 RowClick::Select => picked = Some(i),
                                 RowClick::Reveal => event = Event::Reveal(self.entries[i].id),
                                 RowClick::None => {}
@@ -186,15 +205,20 @@ enum RowClick {
     Reveal,
 }
 
+fn row_id(index: usize) -> egui::Id {
+    egui::Id::new(("file-history-row", index))
+}
+
 fn entry_row(
     ui: &mut Ui,
+    id: egui::Id,
     entry: &Entry,
     active: bool,
     avatars: &mut AvatarStore,
     now: i64,
 ) -> RowClick {
-    let (rect, response) =
-        ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
+    let response = ui.interact(rect, id, Sense::click());
     let painter = ui.painter_at(rect);
     if active {
         painter.rect_filled(rect, 0.0, theme::sidebar_selected());
@@ -257,10 +281,13 @@ fn entry_row(
         meta,
         theme::text_faint(),
     );
+    widgets::focus_ring(ui, &response, 0.0);
+    crate::focus_areas::offer(ui.ctx(), crate::focus_areas::Area::Graph, id, active);
+    widgets::describe_selected(&response, format!("commit {}", entry.title), active);
     let response = response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(format!(
-            "{}\nDouble-click to show it in the graph",
+            "{}\nDouble-click or press Enter to show it in the graph",
             entry.id
         ));
     if response.double_clicked() {
@@ -288,4 +315,83 @@ fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    fn frame(
+        ctx: &egui::Context,
+        view: &mut FileHistoryView,
+        repo: &gix::Repository,
+        dir: &Path,
+        events: Vec<egui::Event>,
+    ) -> Event {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                vec2(1000.0, 700.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut review = Review::default();
+        let mut avatars = AvatarStore::new(ctx.clone(), None);
+        let mut event = Event::None;
+        let _ = ctx.run_ui(input, |ui| {
+            event = view.ui(ui, repo, Some(dir), &mut review, "T", &mut avatars);
+        });
+        event
+    }
+
+    #[test]
+    fn arrows_walk_the_file_history_and_enter_reveals_the_commit() {
+        let dir = std::env::temp_dir().join(format!("kelp-history-keys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |args: &[&str]| kelp_core::git_cli::run(&dir, args).unwrap();
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "test@example.com"]);
+        run(&["config", "user.name", "Test"]);
+        for n in 1..=3 {
+            std::fs::write(dir.join("a.txt"), format!("{n}\n")).unwrap();
+            run(&["add", "."]);
+            run(&["commit", "-q", "-m", &format!("change {n}")]);
+        }
+
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let repo = gix::open(&dir).unwrap();
+        let mut view = FileHistoryView::open(&ctx, dir.clone(), "a.txt");
+        let started = Instant::now();
+        while (view.finished.is_none() || view.open.is_none())
+            && started.elapsed() < Duration::from_secs(5)
+        {
+            frame(&ctx, &mut view, &repo, &dir, vec![]);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(view.entries.len(), 3);
+        let open = |view: &FileHistoryView| view.open.as_ref().map(|(i, _)| *i);
+        let press = |view: &mut FileHistoryView, key| {
+            let event = frame(&ctx, view, &repo, &dir, crate::list_keys::tap(key));
+            frame(&ctx, view, &repo, &dir, vec![]);
+            event
+        };
+        assert_eq!(open(&view), Some(0));
+        press(&mut view, egui::Key::ArrowDown);
+        assert_eq!(open(&view), Some(1));
+        press(&mut view, egui::Key::End);
+        assert_eq!(open(&view), Some(2));
+        press(&mut view, egui::Key::ArrowUp);
+        assert_eq!(open(&view), Some(1));
+        let second = view.entries[1].id;
+        assert!(matches!(
+            press(&mut view, egui::Key::Enter),
+            Event::Reveal(id) if id == second
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

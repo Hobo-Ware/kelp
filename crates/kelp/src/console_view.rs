@@ -21,6 +21,7 @@ pub struct ConsoleView {
     show_background: bool,
     all_repos: bool,
     expanded: HashSet<u64>,
+    cursor: Option<u64>,
     scroll_to: Option<u64>,
     seen: u64,
     entries: Vec<Entry>,
@@ -38,6 +39,7 @@ impl ConsoleView {
             }),
             all_repos: false,
             expanded: focus.into_iter().collect(),
+            cursor: focus,
             scroll_to: focus,
             seen: 0,
             entries: Vec::new(),
@@ -155,38 +157,77 @@ impl ConsoleView {
             .auto_shrink(false)
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
+                let ctx = ui.ctx().clone();
+                let owns_keys = crate::list_keys::nothing_focused(&ctx);
+                let toggle_cursor = owns_keys && crate::list_keys::pressed(&ctx, egui::Key::Enter);
+                let mut hits = Vec::new();
                 for &index in &rows {
                     let entry = &self.entries[index];
+                    if toggle_cursor && self.cursor == Some(entry.id) {
+                        toggle(&mut self.expanded, entry.id);
+                    }
                     let open = self.expanded.contains(&entry.id);
-                    let response = entry_row(ui, entry, open, now);
+                    let at_cursor = self.cursor == Some(entry.id);
+                    let response = entry_row(ui, entry, open, at_cursor, now);
                     if self.scroll_to == Some(entry.id) {
                         response.scroll_to_me(Some(egui::Align::Center));
                         self.scroll_to = None;
                     }
                     if response.clicked() {
-                        if open {
-                            self.expanded.remove(&entry.id);
-                        } else {
-                            self.expanded.insert(entry.id);
-                        }
+                        self.cursor = Some(entry.id);
+                        toggle(&mut self.expanded, entry.id);
                     }
-                    if open {
+                    hits.push((response.id, response.rect));
+                    if self.expanded.contains(&entry.id) {
                         entry_details(ui, entry);
                     }
+                }
+                let at = rows
+                    .iter()
+                    .position(|&index| Some(self.entries[index].id) == self.cursor);
+                if let Some(i) = crate::list_keys::step(ui, &hits, at, owns_keys) {
+                    self.cursor = Some(self.entries[rows[i]].id);
                 }
             });
         event
     }
 }
 
-fn entry_row(ui: &mut Ui, entry: &Entry, open: bool, now: SystemTime) -> egui::Response {
+fn toggle(expanded: &mut HashSet<u64>, id: u64) {
+    if !expanded.remove(&id) {
+        expanded.insert(id);
+    }
+}
+
+fn entry_row(
+    ui: &mut Ui,
+    entry: &Entry,
+    open: bool,
+    at_cursor: bool,
+    now: SystemTime,
+) -> egui::Response {
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     let painter = ui.painter_at(rect);
-    if response.hovered() || open {
+    if at_cursor {
+        painter.rect_filled(rect, 0.0, theme::sidebar_selected());
+    } else if response.hovered() || open {
         painter.rect_filled(rect, 0.0, theme::overlay(0x06));
     }
+    widgets::focus_ring(ui, &response, 0.0);
+    crate::focus_areas::offer(
+        ui.ctx(),
+        crate::focus_areas::Area::Graph,
+        response.id,
+        at_cursor,
+    );
+    let state = if open { "expanded" } else { "collapsed" };
+    widgets::describe(
+        &response,
+        egui::WidgetType::CollapsingHeader,
+        format!("{}, {state}", entry.command_line()),
+    );
     let color = match entry.exit {
         Some(0) => theme::added(),
         None => theme::modified(),
@@ -349,5 +390,60 @@ mod tests {
         assert_eq!(ago(now, now), "just now");
         assert_eq!(ago(now - Duration::from_secs(90), now), "1m ago");
         assert_eq!(ago(now - Duration::from_secs(7200), now), "2h ago");
+    }
+
+    fn frame(ctx: &egui::Context, view: &mut ConsoleView, events: Vec<egui::Event>) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                vec2(1000.0, 800.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| {
+            view.ui(ui);
+        });
+    }
+
+    #[test]
+    fn arrows_move_a_cursor_and_enter_expands_the_entry() {
+        let dir = std::env::temp_dir().join(format!("kelp-console-keys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["status", "--short"],
+            &["log", "--oneline"],
+        ] {
+            let _ = console::as_action(|| kelp_core::git_cli::run(&dir, args));
+        }
+
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut view = ConsoleView::open(&dir, None);
+        let rows: Vec<u64> = view
+            .visible()
+            .into_iter()
+            .map(|i| view.entries[i].id)
+            .collect();
+        assert_eq!(rows.len(), 3);
+        let press = |view: &mut ConsoleView, key| {
+            frame(&ctx, view, crate::list_keys::tap(key));
+            frame(&ctx, view, vec![]);
+        };
+        frame(&ctx, &mut view, vec![]);
+        assert_eq!(view.cursor, None);
+        press(&mut view, egui::Key::ArrowDown);
+        assert_eq!(view.cursor, Some(rows[0]));
+        press(&mut view, egui::Key::ArrowDown);
+        assert_eq!(view.cursor, Some(rows[1]));
+        press(&mut view, egui::Key::Enter);
+        assert!(view.expanded.contains(&rows[1]));
+        press(&mut view, egui::Key::End);
+        assert_eq!(view.cursor, Some(rows[2]));
+        press(&mut view, egui::Key::Enter);
+        assert!(view.expanded.contains(&rows[2]));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
