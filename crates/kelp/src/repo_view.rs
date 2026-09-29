@@ -1885,22 +1885,19 @@ impl Repo {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui
-                                        .add(egui::Button::new("×").frame(false))
+                                    if crate::widgets::text_button(ui, "×")
                                         .on_hover_text("Close (Esc)")
                                         .clicked()
                                     {
                                         close = true;
                                     }
-                                    if ui
-                                        .add(egui::Button::new("↓").frame(false))
+                                    if crate::widgets::text_button(ui, "↓")
                                         .on_hover_text("Next (Enter)")
                                         .clicked()
                                     {
                                         step = Some(true);
                                     }
-                                    if ui
-                                        .add(egui::Button::new("↑").frame(false))
+                                    if crate::widgets::text_button(ui, "↑")
                                         .on_hover_text("Previous (Shift+Enter)")
                                         .clicked()
                                     {

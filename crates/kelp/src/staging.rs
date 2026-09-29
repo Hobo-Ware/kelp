@@ -519,21 +519,18 @@ fn selection_bar(
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 10.0;
-                    let clear = egui::Button::new(
-                        RichText::new("Clear").size(11.5).color(theme::text_muted()),
-                    )
-                    .frame(false);
-                    if ui.add(clear).clicked() {
+                    let clear = RichText::new("Clear").size(11.5).color(theme::text_muted());
+                    if crate::widgets::text_button(ui, clear).clicked() {
                         *picked = Picked::default();
                     }
                     if let Some(dialog) = discard {
                         let label = RichText::new("Discard…").size(11.5).color(theme::deleted());
-                        if ui.add(egui::Button::new(label).frame(false)).clicked() {
+                        if crate::widgets::text_button(ui, label).clicked() {
                             actions.push(Action::Confirm(dialog));
                         }
                     }
                     let stash = RichText::new("Stash…").size(11.5).color(theme::text());
-                    if ui.add(egui::Button::new(stash).frame(false)).clicked() {
+                    if crate::widgets::text_button(ui, stash).clicked() {
                         actions.push(Action::Stash(StashPrompt {
                             paths: chosen.to_vec(),
                             staged_only: false,
@@ -543,7 +540,7 @@ fn selection_bar(
                     let label = RichText::new(format!("{move_label} {}", chosen.len()))
                         .size(11.5)
                         .color(theme::accent());
-                    if ui.add(egui::Button::new(label).frame(false)).clicked() {
+                    if crate::widgets::text_button(ui, label).clicked() {
                         actions.push(Action::Run(move_op));
                     }
                 });
@@ -638,20 +635,14 @@ fn section(
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if let Some((label, op)) = button {
-                        let b = egui::Button::new(
-                            RichText::new(label).size(11.0).color(theme::accent()),
-                        )
-                        .frame(false);
-                        if ui.add(b).clicked() {
+                        let b = RichText::new(label).size(11.0).color(theme::accent());
+                        if crate::widgets::text_button(ui, b).clicked() {
                             actions.push(Action::Run(op));
                         }
                     }
                     if let Some((label, prompt)) = stash {
-                        let b =
-                            egui::Button::new(RichText::new(label).size(11.0).color(theme::text()))
-                                .frame(false);
-                        if ui
-                            .add(b)
+                        let b = RichText::new(label).size(11.0).color(theme::text());
+                        if crate::widgets::text_button(ui, b)
                             .on_hover_text("Stash only the staged changes")
                             .clicked()
                         {

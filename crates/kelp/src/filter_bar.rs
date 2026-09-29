@@ -337,11 +337,7 @@ impl FilterBar {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.set_min_width(field.rect.width());
                     for name in &picks {
-                        if ui
-                            .add(egui::Button::new(name).frame(false))
-                            .on_hover_cursor(egui::CursorIcon::PointingHand)
-                            .clicked()
-                        {
+                        if crate::widgets::text_button(ui, name).clicked() {
                             chosen = Some(name.clone());
                         }
                     }

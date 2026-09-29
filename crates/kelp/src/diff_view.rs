@@ -582,11 +582,9 @@ impl DiffView {
                                         self.discard_selected_lines(shift);
                                     }
                                 }
-                                let clear = egui::Button::new(
-                                    RichText::new("Clear").size(12.0).color(theme::text_muted()),
-                                )
-                                .frame(false);
-                                if ui.add(clear).clicked() {
+                                let clear =
+                                    RichText::new("Clear").size(12.0).color(theme::text_muted());
+                                if crate::widgets::text_button(ui, clear).clicked() {
                                     self.selected_lines.clear();
                                     self.select_anchor = None;
                                 }
@@ -1340,11 +1338,7 @@ impl DiffView {
                     self.expanded.remove(&id);
                     changed = true;
                 }
-                if ui
-                    .add(
-                        egui::Button::new(RichText::new("Delete").color(theme::deleted()))
-                            .frame(false),
-                    )
+                if crate::widgets::text_button(ui, RichText::new("Delete").color(theme::deleted()))
                     .clicked()
                 {
                     review.delete(id);

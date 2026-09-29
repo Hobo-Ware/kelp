@@ -86,6 +86,30 @@ pub fn icon_button(ui: &mut Ui, icon: crate::icons::Icon, hint: &str) -> bool {
     response.clicked()
 }
 
+pub fn text_button(ui: &mut Ui, text: impl Into<egui::WidgetText>) -> egui::Response {
+    let text: egui::WidgetText = text.into();
+    let galley = text.into_galley(
+        ui,
+        Some(egui::TextWrapMode::Extend),
+        f32::INFINITY,
+        egui::TextStyle::Button,
+    );
+    let pad = vec2(6.0, 3.0);
+    let (rect, response) = ui.allocate_exact_size(galley.size() + pad * 2.0, Sense::click());
+    let response = response.on_hover_cursor(CursorIcon::PointingHand);
+    let painter = ui.painter();
+    if response.is_pointer_button_down_on() {
+        painter.rect_filled(rect, CornerRadius::same(4), theme::overlay(0x1c));
+    } else if response.hovered() {
+        painter.rect_filled(rect, CornerRadius::same(4), theme::control_hover());
+    }
+    let label = galley.text().to_string();
+    painter.galley(rect.min + pad, galley, theme::text());
+    focus_ring(ui, &response, 4.0);
+    describe(&response, egui::WidgetType::Button, label);
+    response
+}
+
 pub fn close_button(ui: &mut Ui, hint: &str) -> bool {
     let (rect, response) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::click());
     let response = response
