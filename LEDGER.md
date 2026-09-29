@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.11 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.12 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,12 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-30
+
+- **v0.8.12: worktrees in the same tab.** `Command::OpenWorktree` fills
+  `Repo::switch_to`; the app swaps the active tab (`plan_switch`: focus
+  an existing tab, else replace the active one, else append). Sidebar
+  order via `worktree_rank`: current, agent running, changes, idle.
+  456 tests pass.
 
 - **v0.8.11: agents in worktrees, click-to-reveal, hover fixes.**
   `kelp_core::agents` finds agent sessions (`ps`, then `lsof` cwd for
