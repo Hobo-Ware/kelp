@@ -202,6 +202,9 @@ folder if it is a repo.
 | Cmd+Opt+F | Filter the sidebar; Esc clears |
 | F2 | Rename the selected branch; Enter saves, Esc cancels |
 | Esc | Back to the graph, close search or dialogs |
+| Up / Down, Enter | Pick a pull request, worktree or recent repository; Enter opens it |
+| O / T / B | Use ours, theirs or both for the current conflict |
+| Enter | Confirm a dialog from its text field; destructive ones need their button |
 | Cmd+T | New tab: recent repositories, open, clone or create one |
 | Cmd+O | Open a folder in a new tab |
 | Cmd+W | Close the tab |
@@ -212,7 +215,7 @@ folder if it is a repo.
 | Middle-click a tab | Close it |
 | Drag a tab | Reorder tabs |
 | Drop a folder on the window | Open it (a file opens the repository it is in) |
-| Alt+Up / Alt+Down | Previous / next change in a diff |
+| Alt+Up / Alt+Down | Previous / next change in a diff, or conflict in the conflict view |
 | Cmd+Enter | Save a review comment or reply |
 | Cmd+Shift+Enter | Commit and push, from the commit box |
 | Cmd+R | Refresh the graph, changes and worktrees |
