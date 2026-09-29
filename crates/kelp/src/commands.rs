@@ -14,6 +14,7 @@ pub enum Command {
     Copy(String),
     Reveal(Selection),
     ShowWorktrees,
+    RevealWorktree(PathBuf),
     OpenRepo(PathBuf),
     OpenTerminal(PathBuf),
     OpenInEditor(String),
