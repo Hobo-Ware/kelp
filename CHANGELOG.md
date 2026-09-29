@@ -2,6 +2,15 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.2 - 2026-09-29
+
+- Arrow keys work in every list: the files of a commit, Changes, stashes, the reflog, file history, the git console, pull requests, worktrees, comparisons and the recent repositories on a new tab. Home and End jump to the first and last row, and where a list opens a diff, the diff follows.
+- In Changes, S stages and U unstages the open or focused file.
+- In a conflict, Alt+Up and Alt+Down jump between conflicts, and O, T or B picks ours, theirs or both.
+- Enter no longer confirms dangerous dialogs like deleting a branch or a hard reset; those need a click on their button.
+- Double-clicking a remote branch such as origin/main now checks out your local main and fast-forwards it, instead of failing because main already exists.
+- The bullets in What's new line up with their text.
+
 ## v0.8.1 - 2026-09-29
 
 - With fading outside the selected history turned on, a faded branch now fades as a whole: its lines fade with its commits, and lines no longer show through faded avatars.

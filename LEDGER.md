@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.1 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.2 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,15 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-29
+
+- **v0.8.2: keyboard all around.** Shared `list_keys` helper (Up, Down,
+  Home, End; a focused row keeps the arrows, otherwise the list whose
+  diff is open takes them) used by commit files, Changes (plus S / U),
+  stash, reflog, file history, console, pull requests, worktrees,
+  compare and the welcome list. Conflicts: Alt+Up/Down, O / T / B.
+  Enter only confirms safe dialogs. Remote checkout reuses the local
+  branch and fast-forwards it (`Op::SwitchFastForward`). What's new
+  bullets drawn directly so they line up. 415 tests pass.
 
 - **v0.8.1: faded history fades as a unit.** Edges carry the row they
   come down from and fade with it; faded avatars get an opaque backing
