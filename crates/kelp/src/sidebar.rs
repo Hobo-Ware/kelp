@@ -1188,7 +1188,7 @@ impl RefRows<'_> {
     }
 }
 
-fn worktree_rank(current: bool, agents: usize, changes: Option<usize>) -> u8 {
+pub(crate) fn worktree_rank(current: bool, agents: usize, changes: Option<usize>) -> u8 {
     if current {
         0
     } else if agents > 0 {
