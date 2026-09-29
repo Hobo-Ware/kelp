@@ -401,8 +401,14 @@ fn preview(ui: &mut Ui, op: &Op) {
         });
 }
 
+fn enter_confirms(ctx: &egui::Context, danger: bool) -> bool {
+    let in_text_or_nowhere =
+        crate::list_keys::nothing_focused(ctx) || crate::list_keys::is_typing(ctx);
+    !danger && in_text_or_nowhere && ctx.input(|i| i.key_pressed(Key::Enter))
+}
+
 fn buttons(ui: &mut Ui, confirm_label: &str, enabled: bool, danger: bool) -> Outcome {
-    let enter = ui.input(|i| i.key_pressed(Key::Enter));
+    let enter = enter_confirms(ui.ctx(), danger);
     let mut outcome = Outcome::Keep;
     ui.add_space(4.0);
     ui.horizontal(|ui| {
@@ -721,6 +727,115 @@ fn push_to(ui: &mut Ui, branch: &str, remote: &mut String, remotes: &[String]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn show_with(ctx: &egui::Context, dialog: &mut Dialog, events: Vec<egui::Event>) -> Outcome {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 700.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut outcome = Outcome::Keep;
+        let _ = ctx.run_ui(input, |ui| outcome = show(ui.ctx(), dialog));
+        outcome
+    }
+
+    fn enter() -> Vec<egui::Event> {
+        [true, false]
+            .map(|pressed| egui::Event::Key {
+                key: Key::Enter,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            })
+            .to_vec()
+    }
+
+    fn confirm_dialog(danger: bool) -> Dialog {
+        Dialog::Confirm {
+            title: "Drop stash?".into(),
+            body: String::new(),
+            op: Op::StashDrop("stash@{0}".into()),
+            danger,
+        }
+    }
+
+    #[test]
+    fn enter_confirms_a_safe_dialog_but_not_a_dangerous_one() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut safe = confirm_dialog(false);
+        show_with(&ctx, &mut safe, vec![]);
+        assert!(matches!(
+            show_with(&ctx, &mut safe, enter()),
+            Outcome::Confirm(_)
+        ));
+
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut danger = confirm_dialog(true);
+        show_with(&ctx, &mut danger, vec![]);
+        assert!(matches!(
+            show_with(&ctx, &mut danger, enter()),
+            Outcome::Keep
+        ));
+    }
+
+    #[test]
+    fn enter_types_into_the_name_field_and_confirms_from_there() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut dialog = Dialog::NewBranch {
+            name: String::new(),
+            start: "main".into(),
+            start_label: "main".into(),
+            switch: true,
+        };
+        show_with(&ctx, &mut dialog, vec![]);
+        show_with(&ctx, &mut dialog, vec![egui::Event::Text("feat/x".into())]);
+        let Dialog::NewBranch { name, .. } = &dialog else {
+            unreachable!()
+        };
+        assert_eq!(name, "feat/x", "the name field has focus when it opens");
+        assert!(matches!(
+            show_with(&ctx, &mut dialog, enter()),
+            Outcome::Confirm(_)
+        ));
+    }
+
+    #[test]
+    fn enter_on_a_focused_checkbox_does_not_confirm() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut dialog = Dialog::NewBranch {
+            name: "feat/x".into(),
+            start: "main".into(),
+            start_label: "main".into(),
+            switch: true,
+        };
+        show_with(&ctx, &mut dialog, vec![]);
+        let tab = |pressed| egui::Event::Key {
+            key: Key::Tab,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        show_with(&ctx, &mut dialog, vec![tab(true), tab(false)]);
+        show_with(&ctx, &mut dialog, vec![]);
+        assert!(
+            !crate::list_keys::is_typing(&ctx),
+            "focus left the name field"
+        );
+        assert!(!crate::list_keys::nothing_focused(&ctx));
+        assert!(matches!(
+            show_with(&ctx, &mut dialog, enter()),
+            Outcome::Keep
+        ));
+    }
 
     fn body(dialog: Dialog) -> String {
         match dialog {
