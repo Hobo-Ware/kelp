@@ -45,8 +45,9 @@ folder if it is a repo.
   avatar instead of `origin/`). Drag the graph column edge to resize; scroll
   sideways for wide histories. Hover a commit to light up its path to
   the branch tip and see its full message, author, date and hash.
-  Uncommitted changes show up for every worktree, each above its own
-  HEAD, with an Open button for the other worktrees.
+  Your uncommitted changes sit at the top of the graph, with a dashed
+  line down to the commit you have checked out; other worktrees' changes
+  sit above their own HEAD, with an Open button.
 - **Labels you can use:** click a branch or tag label to select its
   commit, right-click for its menu, double-click to check it out. The
   `+N` chip lists every ref on that commit, each with its own menu.
@@ -61,7 +62,7 @@ folder if it is a repo.
   tree, or every file in the commit.
 - **Diffs:** unified or split, or the full file, with the changed words
   highlighted inside each line. Jump between changes with the arrows or
-  Alt+Up / Alt+Down. Uncommitted changes get their own row above HEAD.
+  Alt+Up / Alt+Down.
 - **File history and blame:** every commit that touched a file, following
   renames, with its diff beside the list; blame shows who last changed each
   line (hover for the commit, click to find it in the graph, right-click to
@@ -77,7 +78,8 @@ folder if it is a repo.
 - **Branches:** check out, create, rename in place (F2, or Rename in any
   branch menu), delete (local and remote), rename on the remote (pushes
   the new name, deletes the old one, moves the upstream), merge, rebase,
-  fetch, pull, push. Every action shows the git command it runs.
+  fetch, pull, push. Switching with local changes stashes them and puts
+  them back on the new branch. Every action shows the git command it runs.
 - **Tags and remotes:** create lightweight or annotated tags from any
   commit, push one or all, delete locally or on the remote. Add, rename,
   repoint, fetch, prune and remove remotes from the Remote section.

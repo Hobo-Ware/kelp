@@ -18,7 +18,7 @@ use crate::avatars::AvatarStore;
 use crate::columns::GraphColumns;
 use crate::commands::Command;
 use crate::graph_hover::{HoverPath, VisiblePath};
-use crate::graph_rows::{Row, RowMap};
+use crate::graph_rows::{Row, RowMap, WipLink};
 use crate::ref_labels::{self, DropPlan, DropTarget, LabelEvent, MenuFor};
 use crate::repo_view::Selection;
 use crate::theme;
@@ -149,7 +149,18 @@ impl GraphView {
             filter_active,
             checks,
         } = input;
-        let content_w = history.layout.lane_count() as f32 * LANE_W + GRAPH_PAD * 2.0;
+        let other_heads: Vec<usize> = other_wips.iter().map(|w| w.head_row).collect();
+        let map = RowMap::new(
+            history.len(),
+            wip.as_ref().map(|w| w.head_row),
+            &other_heads,
+        );
+        let gutter = if map.pinned_head().is_some() {
+            LANE_W
+        } else {
+            0.0
+        };
+        let content_w = history.layout.lane_count() as f32 * LANE_W + gutter + GRAPH_PAD * 2.0;
         let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
         let badges: ref_labels::RemoteBadges = self
             .remote_owners
@@ -172,12 +183,6 @@ impl GraphView {
             self.columns_changed = Some(columns);
         }
 
-        let other_heads: Vec<usize> = other_wips.iter().map(|w| w.head_row).collect();
-        let map = RowMap::new(
-            history.len(),
-            wip.as_ref().map(|w| w.head_row),
-            &other_heads,
-        );
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
@@ -282,6 +287,7 @@ impl GraphView {
                     top: rect.top() + i as f32 * ROW_H,
                     msg_x,
                     lane_offset: *lane_offset,
+                    gutter,
                     columns,
                 };
                 let row_kind = map.resolve(display);
@@ -324,6 +330,7 @@ impl GraphView {
                             owner: "this worktree".into(),
                             counts: counts_label(wip.changes),
                             current: true,
+                            pinned: map.pinned_head().is_some(),
                         };
                         paint_wip_row(
                             &painter,
@@ -349,6 +356,7 @@ impl GraphView {
                             owner: other.tree.name(),
                             counts: format!("{} changed", other.changes),
                             current: false,
+                            pinned: false,
                         };
                         paint_wip_row(&painter, &geo, history, lit, other.head_row, &label, false);
                         let button = open_button_rect(&geo);
@@ -411,6 +419,9 @@ impl GraphView {
                         label_events.extend(events.into_iter().map(|e| (row, e)));
                     }
                     (Row::CurrentWip, None) => {}
+                }
+                if let Some(head) = map.pinned_head() {
+                    paint_wip_link(&painter, &geo, history, head, map.wip_link(display));
                 }
             }
             for (center, lane, graph_x) in halos {
@@ -794,12 +805,16 @@ struct RowGeo {
     top: f32,
     msg_x: f32,
     lane_offset: f32,
+    gutter: f32,
     columns: GraphColumns,
 }
 
 impl RowGeo {
     fn lane_x(&self, lane: u16) -> f32 {
-        self.left + LABELS_W + GRAPH_PAD + lane as f32 * LANE_W - self.lane_offset
+        self.wip_x() + self.gutter + lane as f32 * LANE_W
+    }
+    fn wip_x(&self) -> f32 {
+        self.left + LABELS_W + GRAPH_PAD - self.lane_offset
     }
     fn mid(&self) -> f32 {
         self.top + ROW_H / 2.0
@@ -1062,6 +1077,7 @@ struct WipLabel {
     owner: String,
     counts: String,
     current: bool,
+    pinned: bool,
 }
 
 fn counts_label(changes: &[FileChange]) -> String {
@@ -1090,6 +1106,7 @@ fn paint_wip_row(
     label: &WipLabel,
     selected: bool,
 ) {
+    let pinned = label.pinned;
     let layout = &history.layout;
     let head_lane = layout.node_lane(head_row);
     let head_color = theme::lane(layout.node_color(head_row));
@@ -1098,7 +1115,12 @@ fn paint_wip_row(
     } else {
         theme::text_faint()
     };
-    let node = pos2(geo.lane_x(head_lane), geo.mid());
+    let node_x = if pinned {
+        geo.wip_x()
+    } else {
+        geo.lane_x(head_lane)
+    };
+    let node = pos2(node_x, geo.mid());
     let graph = geo.graph_clip(painter);
 
     let strip = Rect::from_x_y_ranges(
@@ -1115,7 +1137,7 @@ fn paint_wip_row(
         let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
         painter.rect_filled(bg, 0.0, theme::selected_row());
     }
-    for edge in layout.edges(head_row) {
+    for edge in layout.edges(head_row).into_iter().filter(|_| !pinned) {
         let from_above = matches!(edge.kind, EdgeKind::Pass | EdgeKind::Top | EdgeKind::JoinIn);
         if from_above && geo.lane_visible(edge.lane) {
             let x = geo.lane_x(edge.lane);
@@ -1180,6 +1202,33 @@ fn paint_wip_row(
         galley,
         theme::text(),
     );
+}
+
+fn paint_wip_link(
+    painter: &egui::Painter,
+    geo: &RowGeo,
+    history: &History,
+    head: usize,
+    link: WipLink,
+) {
+    let color = theme::lane(history.layout.node_color(head));
+    let graph = geo.graph_clip(painter);
+    let x = geo.wip_x();
+    match link {
+        WipLink::None => {}
+        WipLink::Pass => dashed(&graph, pos2(x, geo.top), pos2(x, geo.bottom()), color),
+        WipLink::Join => {
+            let node_x = geo.lane_x(history.layout.node_lane(head));
+            let corner = pos2(x, geo.mid());
+            dashed(&graph, pos2(x, geo.top), corner, color);
+            dashed(
+                &graph,
+                corner,
+                pos2(node_x - AVATAR_R - 1.0, geo.mid()),
+                color,
+            );
+        }
+    }
 }
 
 fn paint_plus(painter: &egui::Painter, center: Pos2, half: f32, color: Color32) {

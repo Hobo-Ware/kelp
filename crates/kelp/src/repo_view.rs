@@ -1997,19 +1997,16 @@ impl Repo {
             return;
         }
         let has_wip = !self.wip.is_empty();
-        let head = self.head_row().unwrap_or(0);
         let order = |s: Selection| -> usize {
             match s {
-                Selection::Wip => head,
-                Selection::Commit(r) if has_wip && r >= head => r + 1,
-                Selection::Commit(r) => r,
+                Selection::Wip => 0,
+                Selection::Commit(r) => r + has_wip as usize,
             }
         };
         let from_order = |d: usize| -> Selection {
             match d {
-                d if has_wip && d == head => Selection::Wip,
-                d if has_wip && d > head => Selection::Commit(d - 1),
-                d => Selection::Commit(d),
+                0 if has_wip => Selection::Wip,
+                d => Selection::Commit(d - has_wip as usize),
             }
         };
         let total = self.history.len() + has_wip as usize;
