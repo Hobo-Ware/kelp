@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.3 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.4 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,10 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-09-29
+
+- **v0.8.4: text button hover.** One `widgets::text_button` for every
+  frameless text button (hover and pressed backgrounds, pointer cursor,
+  focus ring, AccessKit label). New dev switch `KELP_POINTER=x,y`.
 
 - **v0.8.3: autostash, pinned WIP, owner badges.** Branch-switching ops
   stash local changes (untracked included), switch and pop with
