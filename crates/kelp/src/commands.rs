@@ -16,6 +16,7 @@ pub enum Command {
     ShowWorktrees,
     RevealWorktree(PathBuf),
     OpenRepo(PathBuf),
+    OpenWorktree(PathBuf),
     OpenTerminal(PathBuf),
     OpenInEditor(String),
     RevealFile(String),

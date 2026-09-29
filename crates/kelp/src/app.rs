@@ -503,6 +503,19 @@ impl KelpApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
 
+    fn switch_tab_to(&mut self, ctx: &egui::Context, path: PathBuf) {
+        self.home = false;
+        let same: Vec<bool> = self.tabs.iter().map(|t| t.same_repo(&path)).collect();
+        match plan_switch(&same, self.active) {
+            Switch::Focus(i) => self.active = i,
+            Switch::Replace(i) => self.tabs[i] = Tab::open(ctx, path),
+            Switch::Append => {
+                self.tabs.push(Tab::open(ctx, path));
+                self.active = self.tabs.len() - 1;
+            }
+        }
+    }
+
     fn open_tab(&mut self, ctx: &egui::Context, path: PathBuf) {
         self.home = false;
         if let Some(i) = self.tabs.iter().position(|t| t.same_repo(&path)) {
@@ -820,6 +833,21 @@ fn paint_drop_hint(ctx: &egui::Context) {
     );
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum Switch {
+    Focus(usize),
+    Replace(usize),
+    Append,
+}
+
+fn plan_switch(same_repo: &[bool], active: usize) -> Switch {
+    match same_repo.iter().position(|&same| same) {
+        Some(i) => Switch::Focus(i),
+        None if active < same_repo.len() => Switch::Replace(active),
+        None => Switch::Append,
+    }
+}
+
 fn drop_index(centers: &[f32], from: usize, pointer_x: f32) -> usize {
     centers
         .iter()
@@ -1058,6 +1086,7 @@ impl eframe::App for KelpApp {
         self.tab_strip(ui);
 
         let mut open = Vec::new();
+        let mut switches = Vec::new();
         for (i, tab) in self.tabs.iter_mut().enumerate() {
             if let State::Ready(repo) = &mut tab.state {
                 repo.avatars.enabled = self.settings.avatars_enabled();
@@ -1147,6 +1176,7 @@ impl eframe::App for KelpApp {
             Some((_, State::Ready(repo))) => {
                 repo.ui(ui, &self.settings);
                 open.append(&mut repo.outbox);
+                switches.append(&mut repo.switch_to);
                 if let Some(columns) = repo.columns_changed.take() {
                     self.settings.graph_columns = columns;
                     self.settings_unsaved = true;
@@ -1176,6 +1206,9 @@ impl eframe::App for KelpApp {
         }
         for path in open {
             self.open_tab(&ctx, path);
+        }
+        for path in switches {
+            self.switch_tab_to(&ctx, path);
         }
         self.remember_tabs();
         self.remember_window(&ctx);
@@ -1289,7 +1322,17 @@ impl MascotScreen<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cycled, drop_index, drop_target, moved_index, tab_for_number};
+    use super::{
+        Switch, cycled, drop_index, drop_target, moved_index, plan_switch, tab_for_number,
+    };
+
+    #[test]
+    fn opening_a_worktree_takes_over_the_active_tab_unless_one_already_shows_it() {
+        assert_eq!(plan_switch(&[false, false, false], 1), Switch::Replace(1));
+        assert_eq!(plan_switch(&[false, true, false], 0), Switch::Focus(1));
+        assert_eq!(plan_switch(&[true, false], 0), Switch::Focus(0));
+        assert_eq!(plan_switch(&[], 0), Switch::Append);
+    }
 
     #[test]
     fn dragging_past_a_neighbor_center_swaps() {

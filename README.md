@@ -89,11 +89,14 @@ folder if it is a repo.
   merged branches" and sort by name or last commit from each section's
   `...` menu. Kept per repo in `.git/kelp/sidebar.json`.
 - **Worktrees:** list, create (new or existing branch), move, remove,
-  prune, open in a new tab or a terminal. Clicking one in the sidebar
-  scrolls the graph to it. A worktree with an AI agent running in it
-  (Claude, Codex, Gemini, Copilot, Aider or Cursor) shows that tool's mark
-  and a session count, so the ones with nothing running stand out, and the
-  remove confirm mentions a running agent.
+  prune. Opening one (double-click, Enter or Open) switches the current tab
+  to it, since it is the same repository; the right-click menu can open it
+  in a new tab or a terminal instead. Clicking one in the sidebar scrolls
+  the graph to it. A worktree with an AI agent running in it (Claude, Codex,
+  Gemini, Copilot, Aider or Cursor) shows that tool's mark and a session
+  count, the sidebar lists yours first, then the ones with an agent, then
+  the ones with changes, and idle ones last, and the remove confirm mentions
+  a running agent.
 - **Staging:** unstaged and staged lists, stage or unstage files, single hunks or
   single lines (click line numbers, Shift-click for a range), discard files,
   hunks or lines (Cmd+Z brings them back), commit and amend (hooks run as usual).

@@ -711,7 +711,7 @@ fn new_worktree(ui: &mut Ui, state: &mut NewWorktree) -> Outcome {
     if state.folder != folder_before {
         state.folder_edited = true;
     }
-    ui.checkbox(&mut state.open_after, "Open in a new tab when done");
+    ui.checkbox(&mut state.open_after, "Switch to it when done");
     let op = state.op();
     preview(ui, &op);
     let enabled = !state.folder.trim().is_empty()
@@ -722,7 +722,7 @@ fn new_worktree(ui: &mut Ui, state: &mut NewWorktree) -> Outcome {
     with(buttons(ui, "Create worktree", enabled, false), move || {
         let mut commands = vec![Command::Run(op)];
         if open_after {
-            commands.push(Command::OpenRepo(folder.into()));
+            commands.push(Command::OpenWorktree(folder.into()));
         }
         commands
     })

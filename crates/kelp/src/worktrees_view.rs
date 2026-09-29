@@ -108,7 +108,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                     picked = Some(item.clone());
                                 }
                                 if openable && response.double_clicked() {
-                                    commands.push(Command::OpenRepo(wt.tree.path.clone()));
+                                    commands.push(Command::OpenWorktree(wt.tree.path.clone()));
                                 }
                                 rows.push((response.id, rect));
                                 items.push((
@@ -207,10 +207,10 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                         !current && !wt.tree.prunable,
                                         plain_button("Open"),
                                     )
-                                    .on_hover_text("Open in a new tab")
+                                    .on_hover_text("Open in this tab")
                                     .clicked()
                                 {
-                                    commands.push(Command::OpenRepo(wt.tree.path.clone()));
+                                    commands.push(Command::OpenWorktree(wt.tree.path.clone()));
                                 }
                                 crate::menus::context_menu(&response, |ui| {
                                     menus::worktree(ui, &wt.tree, commands)
@@ -362,7 +362,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                         && crate::list_keys::pressed(&ctx, Key::Enter)
                     {
                         match &items[at].1 {
-                            Enter::Open(path) => commands.push(Command::OpenRepo(path.clone())),
+                            Enter::Open(path) => commands.push(Command::OpenWorktree(path.clone())),
                             Enter::Reveal(row) => {
                                 commands.push(Command::Reveal(Selection::Commit(*row)))
                             }
@@ -560,7 +560,7 @@ mod tests {
         };
         assert_eq!(second, side);
         let opened = press(&ctx, &mut repo, Some(Key::Enter));
-        let opens_side = |c: &Command| matches!(c, Command::OpenRepo(p) if std::fs::canonicalize(p).ok().as_ref() == Some(&side));
+        let opens_side = |c: &Command| matches!(c, Command::OpenWorktree(p) if std::fs::canonicalize(p).ok().as_ref() == Some(&side));
         assert!(opened.iter().any(opens_side));
 
         press(&ctx, &mut repo, Some(Key::ArrowDown));

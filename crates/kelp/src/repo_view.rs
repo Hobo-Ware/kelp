@@ -206,6 +206,7 @@ pub struct Repo {
     pub dialog: Option<Dialog>,
     message_editor: Option<crate::message_editor::MessageEditor>,
     pub outbox: Vec<PathBuf>,
+    pub switch_to: Vec<PathBuf>,
     pub review: Review,
     pub author: String,
     pub file_list_mode: FileListMode,
@@ -214,6 +215,7 @@ pub struct Repo {
     pub search: Search,
     lit_cache: Option<(LitKey, Vec<bool>)>,
     open_after_ops: Vec<PathBuf>,
+    switch_after_ops: Vec<PathBuf>,
     was_focused: Option<bool>,
     pub operation: Option<InProgress>,
     banner: conflict_view::Banner,
@@ -304,7 +306,9 @@ impl Repo {
             dialog: None,
             message_editor: None,
             outbox: Vec::new(),
+            switch_to: Vec::new(),
             open_after_ops: Vec::new(),
+            switch_after_ops: Vec::new(),
             was_focused: None,
             operation: None,
             banner: conflict_view::Banner::new(),
@@ -744,11 +748,11 @@ impl Repo {
         match holder {
             Some(row) => {
                 let note = format!(
-                    "{} is checked out in the worktree {}, so Kelp opened it",
+                    "{} is checked out in the worktree {}, so Kelp switched to it",
                     branch.unwrap_or_default(),
                     row.tree.name()
                 );
-                self.outbox.push(row.tree.path.clone());
+                self.switch_to.push(row.tree.path.clone());
                 self.notify(note, false);
                 false
             }
@@ -888,6 +892,18 @@ impl Repo {
                         self.open_after_ops.push(path);
                     } else {
                         self.outbox.push(path);
+                    }
+                }
+                Command::OpenWorktree(path) => {
+                    let path = if path.is_relative() {
+                        self.dir.join(path)
+                    } else {
+                        path
+                    };
+                    if ran_op {
+                        self.switch_after_ops.push(path);
+                    } else {
+                        self.switch_to.push(path);
                     }
                 }
                 Command::OpenTerminal(path) => {
@@ -1405,9 +1421,11 @@ impl Repo {
                                 self.notify(format!("{label} done"), false);
                             }
                             self.outbox.append(&mut self.open_after_ops);
+                            self.switch_to.append(&mut self.switch_after_ops);
                         }
                         Err(e) => {
                             self.open_after_ops.clear();
+                            self.switch_after_ops.clear();
                             let error = format!("{e:#}");
                             match attempted.and_then(|op| dialogs::recovery(&op, &error)) {
                                 Some(dialog) => self.dialog = Some(dialog),
@@ -2604,11 +2622,12 @@ mod tests {
         repo.execute(&ctx, vec![Command::Run(Op::Switch("feat/held".into()))]);
 
         let opened: Vec<_> = repo
-            .outbox
+            .switch_to
             .iter()
             .map(|p| p.canonicalize().unwrap())
             .collect();
         assert_eq!(opened, [other.canonicalize().unwrap()]);
+        assert!(repo.outbox.is_empty());
         let head = run(&dir, &["symbolic-ref", "--short", "HEAD"]).unwrap();
         assert_eq!(head.trim(), "main");
         let _ = std::fs::remove_dir_all(&root);
@@ -2677,6 +2696,23 @@ mod tests {
         assert_eq!(repo.selected, Some(super::Selection::Commit(row)));
         assert_eq!(repo.graph.scroll_to, Some(super::Selection::Commit(row)));
         assert!(matches!(repo.center, super::Center::Graph));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn opening_a_worktree_asks_to_switch_this_tab_not_to_add_one() {
+        let (root, dir, other) = two_worktrees("kelp-open-worktree");
+        let ctx = egui::Context::default();
+        let mut repo = open_repo(&dir, &ctx);
+
+        repo.execute(&ctx, vec![Command::OpenWorktree(other.clone())]);
+        assert_eq!(repo.switch_to, std::slice::from_ref(&other));
+        assert!(repo.outbox.is_empty());
+
+        repo.switch_to.clear();
+        repo.execute(&ctx, vec![Command::OpenRepo(other.clone())]);
+        assert_eq!(repo.outbox, [other]);
+        assert!(repo.switch_to.is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
 
