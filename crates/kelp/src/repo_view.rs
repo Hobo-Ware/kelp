@@ -716,6 +716,35 @@ impl Repo {
         }
     }
 
+    fn switch_or_open_worktree(&mut self, op: Op) -> bool {
+        let branch = match &op {
+            Op::Switch(branch) | Op::SwitchFastForward { branch, .. } => Some(branch.as_str()),
+            _ => None,
+        };
+        let holder = branch.and_then(|branch| {
+            self.workspace
+                .worktrees
+                .iter()
+                .find(|w| !w.current && w.tree.branch.as_deref() == Some(branch))
+        });
+        match holder {
+            Some(row) => {
+                let note = format!(
+                    "{} is checked out in the worktree {}, so Kelp opened it",
+                    branch.unwrap_or_default(),
+                    row.tree.name()
+                );
+                self.outbox.push(row.tree.path.clone());
+                self.notify(note, false);
+                false
+            }
+            None => {
+                self.run_op(op);
+                true
+            }
+        }
+    }
+
     pub fn notify(&mut self, text: impl Into<String>, error: bool) {
         self.toast = Some(Toast::new(text, error));
     }
@@ -771,14 +800,11 @@ impl Repo {
             match command {
                 Command::Run(Op::SwitchTrack(remote_branch)) => {
                     let menu = self.menu_context();
-                    let op =
-                        ops::checkout_remote(&remote_branch, &menu.local_branches, &menu.upstreams);
-                    self.run_op(op);
-                    ran_op = true;
+                    let op = ops::checkout_remote(&remote_branch, &menu.local_branches);
+                    ran_op |= self.switch_or_open_worktree(op);
                 }
                 Command::Run(op) => {
-                    self.run_op(op);
-                    ran_op = true;
+                    ran_op |= self.switch_or_open_worktree(op);
                 }
                 Command::Push(branch) => match self.push_plan(&branch) {
                     PushPlan::Run(op) => {
@@ -2530,4 +2556,61 @@ fn unix_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use eframe::egui;
+    use kelp_core::git_cli::run;
+    use kelp_core::ops::Op;
+
+    use super::Repo;
+    use crate::commands::Command;
+
+    #[test]
+    fn switching_to_a_branch_held_by_another_worktree_opens_that_worktree() {
+        let root = std::env::temp_dir().join(format!("kelp-held-branch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (dir, other) = (root.join("main"), root.join("other"));
+        std::fs::create_dir_all(&dir).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "T"],
+            &["commit", "-q", "--allow-empty", "-m", "one"],
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "feat/held",
+                other.to_str().unwrap(),
+            ],
+        ] {
+            run(&dir, args).unwrap();
+        }
+        let ctx = egui::Context::default();
+        let (git, history) = kelp_core::history::History::open(&dir).unwrap();
+        let mut repo = Repo::new(&ctx, git, history, Duration::ZERO);
+        let started = Instant::now();
+        while repo.workspace.worktrees.len() < 2 && started.elapsed() < Duration::from_secs(5) {
+            repo.poll(&ctx, None);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(repo.workspace.worktrees.len(), 2);
+
+        repo.execute(&ctx, vec![Command::Run(Op::Switch("feat/held".into()))]);
+
+        let opened: Vec<_> = repo
+            .outbox
+            .iter()
+            .map(|p| p.canonicalize().unwrap())
+            .collect();
+        assert_eq!(opened, [other.canonicalize().unwrap()]);
+        let head = run(&dir, &["symbolic-ref", "--short", "HEAD"]).unwrap();
+        assert_eq!(head.trim(), "main");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
