@@ -65,7 +65,7 @@ pub enum JobOutput {
         label: String,
         quiet: bool,
         commit: bool,
-        force_retry: Option<Op>,
+        attempted: Option<Op>,
         result: anyhow::Result<String>,
         undo: undo::Outcome,
     },
@@ -599,7 +599,7 @@ impl Repo {
             label: job_label.clone(),
             quiet: false,
             commit: false,
-            force_retry: None,
+            attempted: None,
             result: job.run(&dir),
             undo: undo::Outcome::NotUndoable {
                 label: job_label,
@@ -1003,27 +1003,14 @@ impl Repo {
                 | Op::ApplyToIndex { .. }
         );
         let commit = matches!(op, Op::Commit { .. });
-        let force_retry = match &op {
-            Op::Push {
-                branch,
-                remote,
-                set_upstream,
-                force_with_lease: false,
-            } => Some(Op::Push {
-                branch: branch.clone(),
-                remote: remote.clone(),
-                set_upstream: *set_upstream,
-                force_with_lease: true,
-            }),
-            _ => None,
-        };
+        let attempted = Some(op.clone());
         self.jobs.spawn(label, move || {
             let (result, undo) = undo::run_recorded(&op, &dir);
             JobOutput::Op {
                 label: job_label,
                 quiet,
                 commit,
-                force_retry,
+                attempted,
                 result,
                 undo,
             }
@@ -1372,7 +1359,7 @@ impl Repo {
                     label,
                     quiet,
                     commit,
-                    force_retry,
+                    attempted,
                     result,
                     undo,
                 } => {
@@ -1407,11 +1394,9 @@ impl Repo {
                         Err(e) => {
                             self.open_after_ops.clear();
                             let error = format!("{e:#}");
-                            match force_retry {
-                                Some(op) if ops::push_rejected(&error) => {
-                                    self.dialog = Some(force_push_dialog(op))
-                                }
-                                _ => self.notify(error, true),
+                            match attempted.and_then(|op| dialogs::recovery(&op, &error)) {
+                                Some(dialog) => self.dialog = Some(dialog),
+                                None => self.notify(error, true),
                             }
                         }
                     }

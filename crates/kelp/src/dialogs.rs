@@ -210,6 +210,53 @@ pub fn force_push_dialog(op: Op) -> Dialog {
     }
 }
 
+pub fn recovery(op: &Op, error: &str) -> Option<Dialog> {
+    match op {
+        Op::Push {
+            branch,
+            remote,
+            set_upstream,
+            force_with_lease: false,
+        } if kelp_core::ops::push_rejected(error) => Some(force_push_dialog(Op::Push {
+            branch: branch.clone(),
+            remote: remote.clone(),
+            set_upstream: *set_upstream,
+            force_with_lease: true,
+        })),
+        Op::WorktreeRemove { path, force: false }
+            if error.contains("contains modified or untracked files") =>
+        {
+            Some(Dialog::Confirm {
+                title: "Delete the worktree and its changes?".into(),
+                body: format!(
+                    "{path} has uncommitted or untracked files. Removing the worktree \
+                     deletes them for good."
+                ),
+                op: Op::WorktreeRemove {
+                    path: path.clone(),
+                    force: true,
+                },
+                danger: true,
+            })
+        }
+        Op::DeleteBranch { name, force: false } if error.contains("not fully merged") => {
+            Some(Dialog::Confirm {
+                title: "Delete unmerged branch?".into(),
+                body: format!(
+                    "{name} has commits that are not merged into your current branch. \
+                     Deleting it drops them, and Undo (Cmd+Z) brings the branch back."
+                ),
+                op: Op::DeleteBranch {
+                    name: name.clone(),
+                    force: true,
+                },
+                danger: true,
+            })
+        }
+        _ => None,
+    }
+}
+
 pub struct NewWorktree {
     pub create_branch: bool,
     pub branch: String,
@@ -761,6 +808,46 @@ mod tests {
             op: Op::StashDrop("stash@{0}".into()),
             danger,
         }
+    }
+
+    #[test]
+    fn a_blocked_worktree_removal_offers_to_delete_the_changes() {
+        let op = Op::WorktreeRemove {
+            path: "/tmp/wt".into(),
+            force: false,
+        };
+        let error = "git worktree remove /tmp/wt failed: fatal: '/tmp/wt' contains modified or untracked files, use --force to delete it";
+        match recovery(&op, error) {
+            Some(Dialog::Confirm { op, danger, .. }) => {
+                assert!(danger);
+                assert_eq!(
+                    op,
+                    Op::WorktreeRemove {
+                        path: "/tmp/wt".into(),
+                        force: true
+                    }
+                );
+            }
+            _ => panic!("expected a confirm"),
+        }
+    }
+
+    #[test]
+    fn an_unmerged_branch_offers_a_force_delete_and_other_errors_offer_nothing() {
+        let op = Op::DeleteBranch {
+            name: "feat/x".into(),
+            force: false,
+        };
+        let error = "git branch -d feat/x failed: error: the branch 'feat/x' is not fully merged";
+        assert!(matches!(
+            recovery(&op, error),
+            Some(Dialog::Confirm {
+                op: Op::DeleteBranch { force: true, .. },
+                ..
+            })
+        ));
+        assert!(recovery(&op, "fatal: something else").is_none());
+        assert!(recovery(&Op::Fetch, "fatal: not fully merged").is_none());
     }
 
     #[test]
