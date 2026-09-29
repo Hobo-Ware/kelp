@@ -372,6 +372,7 @@ mod tests {
             .map(|p| Recent {
                 path: PathBuf::from(p),
                 opened: 0,
+                tip: None,
             })
             .collect();
         let ctx = egui::Context::default();
@@ -404,6 +405,7 @@ mod tests {
             .map(|p| Recent {
                 path: PathBuf::from(p),
                 opened: 0,
+                tip: None,
             })
             .collect();
         let names = |f: &str| filtered(&recents, f).count();

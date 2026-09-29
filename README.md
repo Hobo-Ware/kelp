@@ -177,6 +177,9 @@ folder if it is a repo.
   filter) with Open folder, Clone (progress, cancel, opens when done) and
   New repository. The sidebar and details panels collapse, and the whole
   app zooms from 80% to 160%; sizes and zoom are remembered.
+- **Moved or renamed folders:** a tab whose folder is gone offers the
+  likely new place (a parent repository, or a sibling folder holding the
+  same last commit) or Locate folder; recents and other tabs follow.
 - **Light and dark:** a soft light theme and the dark one, built from the
   same colors. Settings > Appearance picks System (follows macOS as it
   changes), Light or Dark.
