@@ -125,11 +125,18 @@ impl StashView {
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
+                    let open = self.open.as_ref().map(|(open, _)| *open);
+                    let mut rows = Vec::new();
                     for (i, file) in self.files.iter().enumerate() {
-                        let active = self.open.as_ref().is_some_and(|(open, _)| *open == i);
-                        if file_row(ui, file, active) {
+                        let row = file_row(ui, file, open == Some(i));
+                        if row.clicked() {
                             picked = Some(i);
                         }
+                        rows.push((row.id, row.rect));
+                    }
+                    let owns_keys = crate::list_keys::nothing_focused(ui.ctx());
+                    if let Some(i) = crate::list_keys::step(ui, &rows, open, owns_keys) {
+                        picked = Some(i);
                     }
                     if self.files.is_empty() {
                         ui.label(RichText::new("No file changes").color(theme::text_faint()));
@@ -150,7 +157,7 @@ impl StashView {
     }
 }
 
-fn file_row(ui: &mut Ui, file: &StashFile, active: bool) -> bool {
+fn file_row(ui: &mut Ui, file: &StashFile, active: bool) -> egui::Response {
     let change = &file.change;
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
@@ -199,9 +206,15 @@ fn file_row(ui: &mut Ui, file: &StashFile, active: bool) -> bool {
         name,
         theme::text(),
     );
-    response
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .clicked()
+    widgets::focus_ring(ui, &response, 0.0);
+    crate::focus_areas::offer(
+        ui.ctx(),
+        crate::focus_areas::Area::Graph,
+        response.id,
+        active,
+    );
+    widgets::describe_selected(&response, format!("file {}", change.path), active);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 #[cfg(test)]
@@ -237,6 +250,67 @@ mod tests {
         assert_eq!(*index, 1);
         assert_eq!(diff.diff.added, 1);
         assert_eq!(diff.diff.removed, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn frame(
+        ctx: &egui::Context,
+        view: &mut StashView,
+        repo: &gix::Repository,
+        dir: &Path,
+        events: Vec<egui::Event>,
+    ) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                vec2(1000.0, 700.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut review = Review::default();
+        let mut avatars = AvatarStore::new(ctx.clone(), None);
+        let _ = ctx.run_ui(input, |ui| {
+            view.ui(ui, repo, Some(dir), &mut review, "T", &mut avatars);
+        });
+    }
+
+    #[test]
+    fn arrows_walk_the_stashed_files() {
+        let dir = std::env::temp_dir().join(format!("kelp-stash-keys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| kelp_core::git_cli::run(&dir, args).unwrap();
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "Test"]);
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(dir.join(name), "one\n").unwrap();
+        }
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "first"]);
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(dir.join(name), "two\n").unwrap();
+        }
+        git(&["stash", "push", "-q"]);
+
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let repo = gix::open(&dir).unwrap();
+        let mut view = StashView::open(&repo, Some(&dir), "stash@{0}").unwrap();
+        let open = |view: &StashView| view.open.as_ref().map(|(i, _)| *i);
+        let press = |view: &mut StashView, key| {
+            frame(&ctx, view, &repo, &dir, crate::list_keys::tap(key));
+            frame(&ctx, view, &repo, &dir, vec![]);
+        };
+        frame(&ctx, &mut view, &repo, &dir, vec![]);
+        assert_eq!(open(&view), Some(0));
+        press(&mut view, egui::Key::ArrowDown);
+        assert_eq!(open(&view), Some(1));
+        press(&mut view, egui::Key::End);
+        assert_eq!(open(&view), Some(2));
+        press(&mut view, egui::Key::Home);
+        assert_eq!(open(&view), Some(0));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -237,8 +237,22 @@ impl ReflogView {
             entries.len(),
             |ui, rows| {
                 ui.spacing_mut().item_spacing.y = 0.0;
+                let keys = crate::list_keys::Rows {
+                    visible: rows.clone(),
+                    len: entries.len(),
+                    height: ROW_H,
+                    id: row_id,
+                };
+                let owns_keys = crate::list_keys::nothing_focused(ui.ctx());
+                picked = crate::list_keys::step_rows(ui, keys, self.selected, owns_keys);
                 for row in rows {
-                    if entry_row(ui, &entries[row], self.selected == Some(row), now) {
+                    if entry_row(
+                        ui,
+                        row_id(row),
+                        &entries[row],
+                        self.selected == Some(row),
+                        now,
+                    ) {
                         picked = Some(row);
                     }
                 }
@@ -387,9 +401,13 @@ fn action_color(action: Action) -> Color32 {
     }
 }
 
-fn entry_row(ui: &mut Ui, entry: &Entry, selected: bool, now: i64) -> bool {
-    let (rect, response) =
-        ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
+fn row_id(index: usize) -> egui::Id {
+    egui::Id::new(("reflog-row", index))
+}
+
+fn entry_row(ui: &mut Ui, id: egui::Id, entry: &Entry, selected: bool, now: i64) -> bool {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
+    let response = ui.interact(rect, id, Sense::click());
     let painter = ui.painter_at(rect);
     if selected {
         painter.rect_filled(rect, 0.0, theme::selected_row());
@@ -457,6 +475,13 @@ fn entry_row(ui: &mut Ui, entry: &Entry, selected: bool, now: i64) -> bool {
         pos2(title_x, rect.center().y - title.size().y / 2.0),
         title,
         theme::text(),
+    );
+    widgets::focus_ring(ui, &response, 0.0);
+    crate::focus_areas::offer(ui.ctx(), crate::focus_areas::Area::Graph, id, selected);
+    widgets::describe_selected(
+        &response,
+        format!("{} {}", entry.action.label(), entry.title),
+        selected,
     );
     response
         .on_hover_text(format!("{}: {}", entry.action.label(), entry.message))
@@ -558,5 +583,73 @@ mod tests {
             }
             _ => panic!("restore should open a confirm"),
         }
+    }
+
+    fn view_frame(
+        ctx: &egui::Context,
+        view: &mut ReflogView,
+        repo: &gix::Repository,
+        events: Vec<Event>,
+    ) {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 700.0))),
+            events,
+            ..Default::default()
+        };
+        let mut review = Review::default();
+        let mut avatars = crate::avatars::AvatarStore::new(ctx.clone(), None);
+        let _ = ctx.run_ui(input, |ui| {
+            view.ui(ui, repo, None, &mut review, "T", &mut avatars, Some("main"));
+        });
+    }
+
+    #[test]
+    fn arrows_walk_the_reflog() {
+        let dir = std::env::temp_dir().join(format!("kelp-reflog-keys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |args: &[&str]| kelp_core::git_cli::run(&dir, args).unwrap();
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "test@example.com"]);
+        run(&["config", "user.name", "Test"]);
+        for n in 1..=3 {
+            run(&[
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                &format!("change {n}"),
+            ]);
+        }
+
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let repo = gix::open(&dir).unwrap();
+        let mut view = ReflogView::open(&ctx, dir.clone(), HEAD.to_string());
+        let started = std::time::Instant::now();
+        while view.entries().len() < 3 && started.elapsed() < std::time::Duration::from_secs(5) {
+            view_frame(&ctx, &mut view, &repo, vec![]);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(view.entries().len(), 3);
+        let press = |view: &mut ReflogView, key| {
+            view_frame(&ctx, view, &repo, crate::list_keys::tap(key));
+            view_frame(&ctx, view, &repo, vec![]);
+        };
+        assert_eq!(view.selected, Some(0));
+        press(&mut view, egui::Key::ArrowDown);
+        assert_eq!(view.selected, Some(1));
+        press(&mut view, egui::Key::End);
+        assert_eq!(view.selected, Some(2));
+        press(&mut view, egui::Key::Home);
+        assert_eq!(view.selected, Some(0));
+        assert!(view.details.is_some());
+
+        ctx.memory_mut(|m| m.request_focus(row_id(0)));
+        view_frame(&ctx, &mut view, &repo, vec![]);
+        press(&mut view, egui::Key::ArrowDown);
+        assert_eq!(view.selected, Some(1));
+        assert!(ctx.memory(|m| m.has_focus(row_id(1))));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
