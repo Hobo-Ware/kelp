@@ -15,6 +15,10 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-09-30
 
+- **Docs pages showed a stale version.** The four pages under `site/docs/` still
+  said v0.7.0; bumped, and `scripts/check-site.py` now compares every
+  page pill with `Cargo.toml`.
+
 - **v0.8.13: worktrees page matches the sidebar.** Agent marks in the
   name column (fixed slot, truncated names), rows ordered by
   `worktree_rank`. 456 tests pass.
