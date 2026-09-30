@@ -115,7 +115,7 @@ pub fn load(dir: &Path, base: &str) -> anyhow::Result<Plan> {
             "log",
             "--reverse",
             "--topo-order",
-            "--format=%H%x1f%P%x1f%an%x1f%at%x1f%B%x1e",
+            "--format=%H%x1f%P%x1f%an%x1f%ct%x1f%B%x1e",
             &format!("{base_id}..HEAD"),
         ],
     )?;

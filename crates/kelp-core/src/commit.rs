@@ -7,6 +7,7 @@ pub struct Summary {
     pub body_preview: String,
     pub author: String,
     pub email: String,
+    /// Committer date, so an amended commit reads as recent.
     pub time: i64,
 }
 
@@ -17,7 +18,10 @@ pub struct Details {
     pub body: String,
     pub author: String,
     pub email: String,
+    /// Author date; it survives amends and rebases.
     pub time: i64,
+    /// Committer date; moves whenever the commit is rewritten.
+    pub commit_time: i64,
     pub committer: String,
     pub committer_email: String,
     pub parents: Vec<ObjectId>,
@@ -42,6 +46,7 @@ pub fn summary(repo: &gix::Repository, id: ObjectId) -> anyhow::Result<Summary> 
     let commit = repo.find_commit(id)?;
     let message = commit.message().map_err(|e| e.into_error())?;
     let author = commit.author().map_err(|e| e.into_error())?;
+    let committer = commit.committer().map_err(|e| e.into_error())?;
     let body_preview = message
         .body
         .map(|b| {
@@ -56,7 +61,7 @@ pub fn summary(repo: &gix::Repository, id: ObjectId) -> anyhow::Result<Summary> 
         body_preview,
         author: author.name.to_string(),
         email: author.email.to_string(),
-        time: author.time().map_err(|e| e.into_error())?.seconds,
+        time: committer.time().map_err(|e| e.into_error())?.seconds,
     })
 }
 
@@ -87,6 +92,7 @@ pub fn details(repo: &gix::Repository, id: ObjectId) -> anyhow::Result<Details> 
         author: author.name.to_string(),
         email: author.email.to_string(),
         time: author.time().map_err(|e| e.into_error())?.seconds,
+        commit_time: committer.time().map_err(|e| e.into_error())?.seconds,
         committer: committer.name.to_string(),
         committer_email: committer.email.to_string(),
         parents,

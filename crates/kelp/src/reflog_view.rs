@@ -292,7 +292,7 @@ impl ReflogView {
             RichText::new(format!(
                 "{} · {}",
                 details.author,
-                commit::relative_time(details.time, now())
+                commit::relative_time(details.commit_time, now())
             ))
             .color(theme::text()),
         );

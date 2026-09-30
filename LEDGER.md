@@ -13,6 +13,20 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-07
+
+- **Relative time uses the commit date.** `commit::Summary.time` is now
+  the committer date (graph rows, columns, tooltip, worktrees page), so
+  an amended or rebased commit reads as recent. The rebase list and file
+  history read it too (`%ct`). `Details` gains `commit_time`. The details
+  pane shows the graph's date first (`committed X ago`, or `authored X
+  ago` when the two dates match), plus `authored X ago` below it when
+  they differ; hover gives the exact time in UTC. Filters and blame stay
+  on the author date. Round-trip test in `commit_dates_roundtrip.rs`.
+  Scroll bench on trakt-web: smooth avg 0.11 ms / p95 0.17 ms, random
+  jumps avg 0.99 ms (git/git not checked out on this machine). Local
+  time zone display is a possible follow-up.
+
 ## 2026-10-06
 
 - **v0.8.19: crash on a repository with no commits.** A robustness sweep
