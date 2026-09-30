@@ -23,6 +23,10 @@ A running log of what got done, newest first. The plan lives in
   `window_drag_area` ignores a title bar double-click unless the window
   has been focused for 0.4 s (`FocusGain`); dragging is unchanged. No
   new repaints.
+- **Push a tag as you create it.** The New tag dialog has a "Push tag to" checkbox and
+  remote picker (shown when the repo has a remote). It is one `Op::CreateTag { push_to }`
+  job running `git tag` then `git push <remote> refs/tags/<name>` (two jobs would race);
+  a pushed tag is not undoable. The `tag` dev dialog prechecks it.
 
 - **v0.8.13: worktrees page matches the sidebar.** Agent marks in the
   name column (fixed slot, truncated names), rows ordered by

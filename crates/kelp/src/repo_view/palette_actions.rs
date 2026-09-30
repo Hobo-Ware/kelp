@@ -189,12 +189,16 @@ impl Repo {
                 .current_branch()
                 .map(|b| Command::StartRename(b.to_string())),
             RepoAction::CreateTag => self.selected_commit().map(|(id, _)| {
+                let menu = self.menu_context();
                 Command::Open(crate::dialogs::Dialog::NewTag {
                     commit_label: id[..7.min(id.len())].to_string(),
                     commit: id,
                     name: String::new(),
                     annotated: false,
                     message: String::new(),
+                    push: false,
+                    remote: menu.tag_remote(),
+                    remotes: menu.remotes.clone(),
                 })
             }),
             RepoAction::PushTags => crate::menus::push_all_tags(&self.menu_context()),
