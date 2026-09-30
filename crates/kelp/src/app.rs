@@ -891,16 +891,43 @@ fn paint_window_buttons(ui: &egui::Ui) {
     }
 }
 
+const FOCUS_CLICK_GRACE: f64 = 0.4;
+
+#[derive(Clone, Copy, Default)]
+struct FocusGain {
+    focused: bool,
+    since: f64,
+}
+
+impl FocusGain {
+    fn update(&mut self, focused: bool, now: f64) {
+        if focused && !self.focused {
+            self.since = now;
+        }
+        self.focused = focused;
+    }
+
+    fn allows_maximize(&self, now: f64) -> bool {
+        self.focused && now - self.since > FOCUS_CLICK_GRACE
+    }
+}
+
 fn window_drag_area(ui: &egui::Ui) {
     let bar = ui.interact(
         ui.max_rect(),
         egui::Id::new("window-drag"),
         Sense::click_and_drag(),
     );
+    let (focused, now) = ui.input(|i| (i.focused, i.time));
+    let gain = ui.data_mut(|d| {
+        let gain = d.get_temp_mut_or_default::<FocusGain>(egui::Id::new("window-focus-gain"));
+        gain.update(focused, now);
+        *gain
+    });
     if bar.drag_started() {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
-    if bar.double_clicked() {
+    if bar.double_clicked() && gain.allows_maximize(now) {
         let maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
         ui.ctx()
             .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
@@ -1325,6 +1352,69 @@ mod tests {
     use super::{
         Switch, cycled, drop_index, drop_target, moved_index, plan_switch, tab_for_number,
     };
+
+    fn maximize_requests(focused_at: f64, click_at: f64) -> usize {
+        use eframe::egui::{
+            self, Event, PointerButton, Pos2, RawInput, Rect, ViewportCommand, vec2,
+        };
+        let ctx = egui::Context::default();
+        let at = Pos2::new(100.0, 20.0);
+        let frame = |time: f64, events: Vec<Event>| {
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(400.0, 40.0))),
+                time: Some(time),
+                focused: true,
+                events,
+                ..Default::default()
+            };
+            let output = ctx.run_ui(input, |ui| super::window_drag_area(ui));
+            output
+                .viewport_output
+                .values()
+                .flat_map(|v| v.commands.iter())
+                .filter(|c| matches!(c, ViewportCommand::Maximized(_)))
+                .count()
+        };
+        let press = |pressed| Event::PointerButton {
+            pos: at,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(focused_at, vec![]);
+        frame(click_at, vec![Event::PointerMoved(at)]);
+        [
+            (click_at + 0.01, press(true)),
+            (click_at + 0.05, press(false)),
+            (click_at + 0.10, press(true)),
+            (click_at + 0.15, press(false)),
+        ]
+        .into_iter()
+        .map(|(time, event)| frame(time, vec![event]))
+        .sum()
+    }
+
+    #[test]
+    fn a_double_click_right_after_focusing_does_not_maximize_but_a_later_one_does() {
+        assert_eq!(maximize_requests(10.0, 10.1), 0);
+        assert_eq!(maximize_requests(10.0, 12.0), 1);
+    }
+
+    #[test]
+    fn focus_click_does_not_maximize() {
+        let mut gain = super::FocusGain::default();
+        gain.update(false, 1.0);
+        assert!(!gain.allows_maximize(1.0));
+        gain.update(true, 2.0);
+        assert!(!gain.allows_maximize(2.0));
+        assert!(!gain.allows_maximize(2.3));
+        gain.update(true, 2.6);
+        assert!(gain.allows_maximize(2.6));
+        gain.update(false, 5.0);
+        assert!(!gain.allows_maximize(5.0));
+        gain.update(true, 6.0);
+        assert!(!gain.allows_maximize(6.1));
+    }
 
     #[test]
     fn opening_a_worktree_takes_over_the_active_tab_unless_one_already_shows_it() {
