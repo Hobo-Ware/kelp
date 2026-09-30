@@ -165,6 +165,13 @@ fn message_viewer(ui: &Ui, details: &commit::Details) -> bool {
     open
 }
 
+/// "<label> 3h ago"; hovering gives the exact time in UTC.
+fn date_line(ui: &mut Ui, label: &str, secs: i64, now: i64) {
+    let text = format!("{label} {}", commit::relative_time(secs, now));
+    ui.label(RichText::new(text).size(12.0).color(theme::text_muted()))
+        .on_hover_text(commit::calendar_time(secs));
+}
+
 fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Option<usize> {
     let now = now();
     let lane = repo
@@ -226,11 +233,15 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
                     ui.label(RichText::new(&details.author).color(theme::text_strong()));
-                    let when = format!("authored {}", commit::relative_time(details.time, now));
-                    ui.label(RichText::new(when).size(12.0).color(theme::text_muted()));
+                    let amended = details.time != details.commit_time;
+                    let first = if amended { "committed" } else { "authored" };
+                    date_line(ui, first, details.commit_time, now);
                     if details.committer != details.author {
                         let by = format!("committed by {}", details.committer);
                         ui.label(RichText::new(by).size(12.0).color(theme::text_muted()));
+                    }
+                    if amended {
+                        date_line(ui, "authored", details.time, now);
                     }
                 });
             });

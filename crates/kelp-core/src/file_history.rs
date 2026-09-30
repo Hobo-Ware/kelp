@@ -10,7 +10,7 @@ use gix::ObjectId;
 
 const RECORD: char = '\u{1e}';
 const FIELD: char = '\u{1f}';
-const FORMAT: &str = "--format=%x1e%H%x1f%at%x1f%an%x1f%ae%x1f%s";
+const FORMAT: &str = "--format=%x1e%H%x1f%ct%x1f%an%x1f%ae%x1f%s";
 const FIRST_BATCH: usize = 40;
 const BATCH: usize = 400;
 const POLL: Duration = Duration::from_millis(30);
