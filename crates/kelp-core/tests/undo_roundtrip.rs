@@ -275,6 +275,7 @@ fn created_and_deleted_tags_are_undone() {
             name: "v1".into(),
             commit: "HEAD".into(),
             message: Some("first".into()),
+            push_to: None,
         },
     );
     let object = repo.git(&["rev-parse", "v1"]).trim().to_string();

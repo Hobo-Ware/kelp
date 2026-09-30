@@ -81,8 +81,8 @@ folder if it is a repo.
   fetch, pull, push. Switching with local changes stashes them and puts
   them back on the new branch. Every action shows the git command it runs.
 - **Tags and remotes:** create lightweight or annotated tags from any
-  commit, push one or all, delete locally or on the remote. Add, rename,
-  repoint, fetch, prune and remove remotes from the Remote section.
+  commit (the dialog can push the new tag to a remote), push one or all,
+  delete locally or on the remote. Add, rename, repoint, fetch, prune and remove remotes from the Remote section.
 - **Sidebar:** branches, remotes and tags grouped into folders by their
   `/` prefix (a folder with one branch folds into it), a filter box that
   also matches worktrees and stashes, pinned branches on top, "Hide

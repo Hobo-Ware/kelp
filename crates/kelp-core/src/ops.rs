@@ -117,6 +117,7 @@ pub enum Op {
         name: String,
         commit: String,
         message: Option<String>,
+        push_to: Option<String>,
     },
     DeleteTag(String),
     SubmoduleUpdate {
@@ -330,11 +331,13 @@ impl Op {
                 name,
                 commit,
                 message: None,
+                ..
             } => v(&["tag", name, commit]),
             Op::CreateTag {
                 name,
                 commit,
                 message: Some(message),
+                ..
             } => v(&["tag", "-a", name, "-m", message, commit]),
             Op::DeleteTag(name) => v(&["tag", "-d", name]),
             Op::SubmoduleUpdate { path, init } => {
@@ -485,6 +488,18 @@ impl Op {
                 self.args(),
                 v(&["stash", "drop", "-q", stash]),
                 v(&["stash", "store", "-m", message, "<sha>"]),
+            ],
+            Op::CreateTag {
+                name,
+                push_to: Some(remote),
+                ..
+            } => vec![
+                self.args(),
+                Op::PushTag {
+                    remote: remote.clone(),
+                    name: name.clone(),
+                }
+                .args(),
             ],
             Op::DiscardFiles { tracked, untracked }
                 if !tracked.is_empty() && !untracked.is_empty() =>

@@ -64,7 +64,10 @@ impl Record {
 
 pub fn not_undoable_reason(op: &Op) -> Option<&'static str> {
     match op {
-        Op::Push { .. }
+        Op::CreateTag {
+            push_to: Some(_), ..
+        }
+        | Op::Push { .. }
         | Op::DeleteRemoteBranch { .. }
         | Op::RenameRemoteBranch { .. }
         | Op::PushTag { .. }

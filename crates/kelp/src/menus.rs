@@ -33,6 +33,13 @@ impl MenuContext {
     pub fn push_remote(&self) -> Option<String> {
         kelp_core::workspace::default_push_remote(&self.remotes)
     }
+
+    /// The remote the New tag dialog starts on: the default push remote, else the first one.
+    pub fn tag_remote(&self) -> String {
+        self.push_remote()
+            .or_else(|| self.remotes.first().cloned())
+            .unwrap_or_default()
+    }
 }
 
 const ROW_H: f32 = 30.0;
@@ -555,6 +562,9 @@ pub fn commit(
             name: String::new(),
             annotated: false,
             message: String::new(),
+            push: false,
+            remote: ctx.tag_remote(),
+            remotes: ctx.remotes.clone(),
         })
     });
     separator(ui);

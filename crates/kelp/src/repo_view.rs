@@ -489,6 +489,9 @@ impl Repo {
                     name: "v1.0.0".into(),
                     annotated: true,
                     message: "First stable release".into(),
+                    push: true,
+                    remote: "origin".into(),
+                    remotes: vec!["origin".into()],
                 });
             }
             Ok("add-remote") => ready.execute(ctx, vec![menus::add_remote()]),
