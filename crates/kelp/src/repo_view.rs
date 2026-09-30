@@ -30,6 +30,7 @@ use crate::graph_view::{self, GraphView};
 use crate::icons::{self, Icon};
 use crate::jobs::Jobs;
 use crate::menus::{self, MenuContext};
+use crate::multi_diff_view::MultiDiff;
 use crate::panels::{Panels, Side};
 use crate::rebase_view::{self, HeadReach, RebaseView};
 use crate::ref_labels::MenuFor;
@@ -38,9 +39,12 @@ use crate::stash_view::{self, StashView};
 use crate::{details, sidebar, theme, worktrees_view};
 
 mod compare_actions;
+mod file_picks;
 mod palette_actions;
 mod rewrite_actions;
 mod undo_actions;
+
+pub use file_picks::{FilePicks, PickHow};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Selection {
@@ -143,6 +147,7 @@ pub enum FileListMode {
 pub enum Center {
     Graph,
     Diff(Box<DiffView>),
+    Multi(Box<MultiDiff>),
     Conflict(Box<ConflictView>),
     Worktrees,
     Rebase(Box<RebaseView>),
@@ -211,6 +216,7 @@ pub struct Repo {
     pub author: String,
     pub file_list_mode: FileListMode,
     pub show_all_files: bool,
+    pub picks: FilePicks,
     pub tree_cache: HashMap<String, Vec<commit::TreeEntry>>,
     pub search: Search,
     lit_cache: Option<(LitKey, Vec<bool>)>,
@@ -272,6 +278,7 @@ impl Repo {
             review,
             author,
             file_list_mode: FileListMode::Path,
+            picks: FilePicks::default(),
             show_all_files: false,
             tree_cache: HashMap::new(),
             search: Search::default(),
@@ -426,6 +433,16 @@ impl Repo {
                 view.show_preview();
             }
         }
+        if let Some(paths) = open_diff.strip_prefix("paths:") {
+            for (i, path) in paths.split(',').enumerate() {
+                let how = if i == 0 {
+                    PickHow::Only
+                } else {
+                    PickHow::Toggle
+                };
+                ready.pick_file(path, how);
+            }
+        }
         if std::env::var_os("KELP_SELECT_WIP").is_some() {
             ready.selected = Some(Selection::Wip);
         }
@@ -533,6 +550,7 @@ impl Repo {
             return;
         }
         self.selected = Some(selection);
+        self.picks.clear();
         self.tree_cache.clear();
         self.details = match selection {
             Selection::Commit(row) => commit::details(&self.repo, self.history.id(row)).ok(),
@@ -548,9 +566,9 @@ impl Repo {
         }
     }
 
-    pub fn open_diff(&mut self, path: &str) {
-        let source = match self.selected {
-            Some(Selection::Wip) => {
+    fn diff_source_for(&self, path: &str) -> Option<DiffSource> {
+        Some(match self.selected? {
+            Selection::Wip => {
                 let staged_only = self.status.staged.iter().any(|c| c.path == path)
                     && !self.status.unstaged.iter().any(|c| c.path == path);
                 if staged_only {
@@ -559,7 +577,7 @@ impl Repo {
                     DiffSource::Unstaged
                 }
             }
-            Some(Selection::Commit(row)) => {
+            Selection::Commit(row) => {
                 let id = self.history.id(row);
                 let changed = self
                     .details
@@ -571,7 +589,12 @@ impl Repo {
                     DiffSource::File(id)
                 }
             }
-            None => return,
+        })
+    }
+
+    pub fn open_diff(&mut self, path: &str) {
+        let Some(source) = self.diff_source_for(path) else {
+            return;
         };
         match DiffView::load(&self.repo, self.workdir.as_deref(), source, path) {
             Ok(view) => self.show_diff(view),
@@ -1495,6 +1518,7 @@ impl Repo {
         self.graph.clear_cache();
         self.filter.history_changed();
         let keep_wip = self.selected == Some(Selection::Wip);
+        let picks = std::mem::take(&mut self.picks);
         self.selected = None;
         if keep_wip {
             self.select(Selection::Wip);
@@ -1503,6 +1527,9 @@ impl Repo {
             .or_else(|| self.head_row())
         {
             self.select(Selection::Commit(row));
+            if selected_id == Some(self.history.id(row)) {
+                self.picks = picks;
+            }
         }
     }
 
@@ -1600,26 +1627,26 @@ impl Repo {
                 Center::Diff(view) => {
                     let event = view.ui(ui, &mut self.review, &self.author, &mut self.avatars);
                     self.diff_layout = view.layout();
-                    match event {
-                        diff_view::Event::Close => self.center = Center::Graph,
-                        diff_view::Event::Changed => {
-                            if let Err(e) = self.review.save() {
-                                self.toast = Some(Toast::new(
-                                    format!("Could not save comment: {e:#}"),
-                                    true,
-                                ));
-                            }
-                        }
-                        diff_view::Event::Run(op) => commands.push(Command::Run(op)),
-                        diff_view::Event::Ask(dialog) => commands.push(Command::Open(dialog)),
-                        diff_view::Event::OpenInEditor => {
+                    match route_diff_event(event, &mut self.review, &mut self.toast, &mut commands)
+                    {
+                        Some(diff_view::Event::Close) => self.center = Center::Graph,
+                        Some(diff_view::Event::OpenInEditor) => {
                             commands.push(Command::OpenInEditor(view.path().to_string()))
                         }
-                        diff_view::Event::FileHistory => {
+                        Some(diff_view::Event::FileHistory) => {
                             commands.push(Command::FileHistory(view.path().to_string()))
                         }
-                        diff_view::Event::Reveal(id) => commands.push(Command::ShowCommit(id)),
-                        diff_view::Event::None => {}
+                        _ => {}
+                    }
+                }
+                Center::Multi(view) => {
+                    let (event, from) =
+                        view.ui(ui, &mut self.review, &self.author, &mut self.avatars);
+                    self.diff_layout = view.layout();
+                    let own =
+                        route_diff_event(event, &mut self.review, &mut self.toast, &mut commands);
+                    if let (Some(diff_view::Event::OpenInEditor), Some(path)) = (own, from) {
+                        commands.push(Command::OpenInEditor(path));
                     }
                 }
                 Center::FileHistory(view) => match view.ui(
@@ -2385,6 +2412,30 @@ fn picker(ui: &mut egui::Ui, caption: &str, value: &str) {
 
 fn tool(ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool, hint: &str) -> bool {
     tool_with_badge(ui, icon, label, enabled, hint, None)
+}
+
+/// Handles the events every diff screen shares; hands back the ones only the caller can act on.
+fn route_diff_event(
+    event: diff_view::Event,
+    review: &mut Review,
+    toast: &mut Option<Toast>,
+    commands: &mut Vec<Command>,
+) -> Option<diff_view::Event> {
+    match event {
+        diff_view::Event::Changed => {
+            if let Err(e) = review.save() {
+                *toast = Some(Toast::new(format!("Could not save comment: {e:#}"), true));
+            }
+        }
+        diff_view::Event::Run(op) => commands.push(Command::Run(op)),
+        diff_view::Event::Ask(dialog) => commands.push(Command::Open(dialog)),
+        diff_view::Event::Reveal(id) => commands.push(Command::ShowCommit(id)),
+        diff_view::Event::None => {}
+        own @ (diff_view::Event::Close
+        | diff_view::Event::OpenInEditor
+        | diff_view::Event::FileHistory) => return Some(own),
+    }
+    None
 }
 
 fn tool_with_badge(

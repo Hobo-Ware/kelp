@@ -34,6 +34,7 @@ mod macos;
 mod mascot;
 mod menus;
 mod message_editor;
+mod multi_diff_view;
 mod open_with;
 mod palette;
 mod panels;
