@@ -40,6 +40,9 @@ pub enum Dialog {
         name: String,
         annotated: bool,
         message: String,
+        push: bool,
+        remote: String,
+        remotes: Vec<String>,
     },
     AddRemote {
         name: String,
@@ -397,7 +400,18 @@ pub fn show(ctx: &egui::Context, dialog: &mut Dialog) -> Outcome {
                     name,
                     annotated,
                     message,
-                } => new_tag(ui, commit, commit_label, name, annotated, message),
+                    push,
+                    remote,
+                    remotes,
+                } => new_tag(
+                    ui,
+                    commit,
+                    commit_label,
+                    name,
+                    annotated,
+                    message,
+                    (push, remote, remotes),
+                ),
                 Dialog::AddRemote { name, url } => add_remote(ui, name, url),
             };
         });
@@ -549,6 +563,7 @@ fn new_tag(
     name: &mut String,
     annotated: &mut bool,
     message: &mut String,
+    (push, remote, remotes): (&mut bool, &mut String, &[String]),
 ) -> Outcome {
     title(ui, "New tag");
     field(ui, "Tag name", name, true);
@@ -561,16 +576,41 @@ fn new_tag(
     if *annotated {
         field(ui, "Message", message, false);
     }
-    let op = Op::CreateTag {
-        name: name.trim().to_string(),
-        commit: commit.to_string(),
-        message: annotated.then(|| message.trim().to_string()),
-    };
+    if !remotes.is_empty() {
+        ui.horizontal(|ui| {
+            ui.checkbox(push, "Push tag to");
+            ui.add_enabled_ui(*push, |ui| {
+                egui::ComboBox::from_id_salt("new-tag-remote")
+                    .selected_text(remote.clone())
+                    .show_ui(ui, |ui| {
+                        for option in remotes {
+                            ui.selectable_value(remote, option.clone(), option);
+                        }
+                    });
+            });
+        });
+    }
+    let op = tag_op(commit, name, message, *annotated, (*push, remote, remotes));
     preview(ui, &op);
     let enabled = valid_branch_name(name) && (!*annotated || !message.trim().is_empty());
     with(buttons(ui, "Create tag", enabled, false), || {
         vec![Command::Run(op)]
     })
+}
+
+fn tag_op(
+    commit: &str,
+    name: &str,
+    message: &str,
+    annotated: bool,
+    (push, remote, remotes): (bool, &str, &[String]),
+) -> Op {
+    Op::CreateTag {
+        name: name.trim().to_string(),
+        commit: commit.to_string(),
+        message: annotated.then(|| message.trim().to_string()),
+        push_to: (push && !remotes.is_empty()).then(|| remote.to_string()),
+    }
 }
 
 fn add_remote(ui: &mut Ui, name: &mut String, url: &mut String) -> Outcome {
@@ -808,6 +848,20 @@ mod tests {
             op: Op::StashDrop("stash@{0}".into()),
             danger,
         }
+    }
+
+    #[test]
+    fn a_new_tag_pushes_only_when_asked_and_a_remote_exists() {
+        let remotes = ["origin".to_string()];
+        let op =
+            |push, remotes: &[String]| tag_op("HEAD", "v1", "", false, (push, "origin", remotes));
+        let pushed = op(true, &remotes);
+        assert_eq!(
+            pushed.command_line(),
+            "git tag v1 HEAD && git push origin refs/tags/v1"
+        );
+        assert_eq!(op(false, &remotes).command_line(), "git tag v1 HEAD");
+        assert_eq!(op(true, &[]).command_line(), "git tag v1 HEAD");
     }
 
     #[test]
