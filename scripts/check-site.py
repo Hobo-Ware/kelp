@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import html.parser
 import pathlib
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -51,11 +52,15 @@ def main():
     pages = {path: parse(path) for path in sorted(SITE.rglob("*.html"))}
     sitemap = (SITE / "sitemap.xml").read_text()
     outside = set()
+    cargo = re.search(r'^version = "(.*)"', (ROOT / "Cargo.toml").read_text(), re.M).group(1)
     for path, page in pages.items():
         name = path.relative_to(SITE).as_posix()
         url = ORIGIN if name == "index.html" else ORIGIN + name
         if f"<loc>{url}</loc>" not in sitemap:
             problems.append(f"{name}: not in sitemap.xml")
+        pill = re.search(r'<span class="version">(.*?)</span>', path.read_text())
+        if pill and pill.group(1) != f"v{cargo}":
+            problems.append(f"{name}: version pill {pill.group(1)} should be v{cargo}")
         if not page.title.strip():
             problems.append(f"{name}: no <title>")
         for key in ("description", "canonical", "og:title", "og:description", "og:url", "og:image"):
