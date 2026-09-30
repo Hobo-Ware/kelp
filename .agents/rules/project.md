@@ -49,7 +49,8 @@ face. When work is done, check both against what shipped:
 - A user-visible feature, a new shortcut, or a changed number (speed, memory) gets added or
   corrected there, in the same branch.
 - Removed or renamed behavior comes off; never leave a claim the app no longer backs.
-- The nav version pill and the JSON-LD `softwareVersion` track `Cargo.toml` on every release.
+- The version pill on every page (nav, docs, changelog) and the JSON-LD `softwareVersion` track
+  `Cargo.toml` on every release; `scripts/check-site.py` flags a stale pill.
 - Screenshots come from the screenshot switch on the kelp repo or the fictional demo repo that
   `scripts/make-demo-repo.py` generates, never a private or work repo. Rebuild them with
   `scripts/make-site-assets.sh`, which compresses them (pngquant + oxipng) and checks PSNR.
