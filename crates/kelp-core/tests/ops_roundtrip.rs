@@ -376,6 +376,21 @@ fn moving_a_worktree() {
 }
 
 #[test]
+fn a_tag_can_be_created_and_pushed_in_one_op() {
+    let repo = Scratch::new("tag-and-push");
+    let bare = with_bare_remote(&repo, "origin");
+    Op::CreateTag {
+        name: "v1".into(),
+        commit: "HEAD".into(),
+        message: Some("first".into()),
+        push_to: Some("origin".into()),
+    }
+    .run(repo.path())
+    .unwrap();
+    assert_eq!(run(bare.path(), &["tag"]).unwrap().trim(), "v1");
+}
+
+#[test]
 fn tags_are_created_pushed_and_deleted() {
     let repo = Scratch::new("tags");
     let bare = with_bare_remote(&repo, "origin");
@@ -383,6 +398,7 @@ fn tags_are_created_pushed_and_deleted() {
         name: "v1".into(),
         commit: "HEAD".into(),
         message: None,
+        push_to: None,
     }
     .run(repo.path())
     .unwrap();
@@ -390,6 +406,7 @@ fn tags_are_created_pushed_and_deleted() {
         name: "v2".into(),
         commit: "HEAD~1".into(),
         message: Some("Second \"release\"".into()),
+        push_to: None,
     }
     .run(repo.path())
     .unwrap();
