@@ -891,16 +891,46 @@ fn paint_window_buttons(ui: &egui::Ui) {
     }
 }
 
+/// Clicks this soon after the window gained focus belong to the click that activated it.
+const FOCUS_CLICK_GRACE: f64 = 0.4;
+
+/// When the window last gained focus.
+#[derive(Clone, Copy, Default)]
+struct FocusGain {
+    focused: bool,
+    since: f64,
+}
+
+impl FocusGain {
+    fn update(&mut self, focused: bool, now: f64) {
+        if focused && !self.focused {
+            self.since = now;
+        }
+        self.focused = focused;
+    }
+
+    /// Whether a double-click may maximize: focused, and not just activated by the click itself.
+    fn allows_maximize(&self, now: f64) -> bool {
+        self.focused && now - self.since > FOCUS_CLICK_GRACE
+    }
+}
+
 fn window_drag_area(ui: &egui::Ui) {
     let bar = ui.interact(
         ui.max_rect(),
         egui::Id::new("window-drag"),
         Sense::click_and_drag(),
     );
+    let (focused, now) = ui.input(|i| (i.focused, i.time));
+    let gain = ui.data_mut(|d| {
+        let gain = d.get_temp_mut_or_default::<FocusGain>(egui::Id::new("window-focus-gain"));
+        gain.update(focused, now);
+        *gain
+    });
     if bar.drag_started() {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
-    if bar.double_clicked() {
+    if bar.double_clicked() && gain.allows_maximize(now) {
         let maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
         ui.ctx()
             .send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
@@ -1322,6 +1352,22 @@ impl MascotScreen<'_> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn focus_click_does_not_maximize() {
+        let mut gain = super::FocusGain::default();
+        gain.update(false, 1.0);
+        assert!(!gain.allows_maximize(1.0));
+        gain.update(true, 2.0);
+        assert!(!gain.allows_maximize(2.0));
+        assert!(!gain.allows_maximize(2.3));
+        gain.update(true, 2.6);
+        assert!(gain.allows_maximize(2.6));
+        gain.update(false, 5.0);
+        assert!(!gain.allows_maximize(5.0));
+        gain.update(true, 6.0);
+        assert!(!gain.allows_maximize(6.1));
+    }
+
     use super::{
         Switch, cycled, drop_index, drop_target, moved_index, plan_switch, tab_for_number,
     };

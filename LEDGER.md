@@ -15,6 +15,11 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-09-30
 
+- **Fix: the click that focuses the window no longer maximizes it.**
+  `window_drag_area` ignores a title bar double-click unless the window
+  has been focused for 0.4 s (`FocusGain`); dragging is unchanged. No
+  new repaints.
+
 - **v0.8.13: worktrees page matches the sidebar.** Agent marks in the
   name column (fixed slot, truncated names), rows ordered by
   `worktree_rank`. 456 tests pass.
