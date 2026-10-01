@@ -71,6 +71,7 @@ pub enum RepoAction {
     RenameBranch,
     CreateTag,
     PushTags,
+    PushTagsTo,
     AddRemote,
     FileHistory,
     Blame,
@@ -195,6 +196,7 @@ pub static ACTIONS: &[Action] = &[
     repo("rename-branch", "Rename the current branch…", "branch name move", None, Some(Icon::Pencil), RepoAction::RenameBranch),
     repo("create-tag", "Create a tag on the selected commit…", "tag release version", None, Some(Icon::Tag), RepoAction::CreateTag),
     repo("push-tags", "Push all tags", "tag release upload", None, Some(Icon::Push), RepoAction::PushTags),
+    repo("push-tags-to", "Push all tags to…", "tag release upload remote choose fork", None, Some(Icon::Push), RepoAction::PushTagsTo),
     repo("add-remote", "Add a remote…", "remote origin upstream fork url", None, Some(Icon::Plus), RepoAction::AddRemote),
     repo("file-history", "File history of the open file", "log commits changes over time", None, Some(Icon::Clock), RepoAction::FileHistory),
     repo("blame", "Blame the open file", "annotate who wrote line author", None, Some(Icon::Commit), RepoAction::Blame),
@@ -254,6 +256,7 @@ pub struct State {
     pub pull: bool,
     pub github: bool,
     pub file_open: bool,
+    pub several_remotes: bool,
 }
 
 impl State {
@@ -282,6 +285,7 @@ impl State {
             FileHistory | Blame => self.file_open,
             CreatePullRequest => self.github && self.branch && !self.pull,
             ShowPulls => self.github,
+            PushTagsTo => self.several_remotes,
             CheckoutCommit | CherryPick | Revert | InteractiveRebase | EditMessage
             | CopyCommitHash | CreateTag | CompareWithHead => self.commit_selected,
             CompareWithWorkTree => self.commit_selected && self.workdir,
@@ -465,6 +469,21 @@ mod tests {
     ];
 
     #[test]
+    fn push_all_tags_to_needs_several_remotes() {
+        let run = Run::Repo(RepoAction::PushTagsTo);
+        let one = State {
+            repo: true,
+            ..State::default()
+        };
+        assert!(!one.allows(run));
+        let several = State {
+            several_remotes: true,
+            ..one
+        };
+        assert!(several.allows(run));
+    }
+
+    #[test]
     fn every_action_is_listed_once() {
         let ids: Vec<&str> = ACTIONS.iter().map(|a| a.id).collect();
         let unique: HashSet<&str> = ids.iter().copied().collect();
@@ -508,6 +527,7 @@ mod tests {
             "rename-branch",
             "create-tag",
             "push-tags",
+            "push-tags-to",
             "add-remote",
             "file-history",
             "blame",
