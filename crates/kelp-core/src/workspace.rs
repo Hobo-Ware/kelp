@@ -50,6 +50,31 @@ pub fn upstreams<'a>(
         .collect()
 }
 
+/// The remote the tag dialogs start on: the one last used for a tag here, if it still exists,
+/// else the default push remote, else the first remote.
+pub fn tag_remote(remotes: &[String], last: Option<&str>) -> Option<String> {
+    last.and_then(|last| remotes.iter().find(|r| *r == last).cloned())
+        .or_else(|| default_push_remote(remotes))
+        .or_else(|| remotes.first().cloned())
+}
+
+fn last_tag_remote_file(common_dir: &Path) -> PathBuf {
+    common_dir.join("kelp").join("tag-remote")
+}
+
+pub fn last_tag_remote(common_dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(last_tag_remote_file(common_dir)).ok()?;
+    Some(text.trim().to_string()).filter(|r| !r.is_empty())
+}
+
+pub fn save_last_tag_remote(common_dir: &Path, remote: &str) -> std::io::Result<()> {
+    let file = last_tag_remote_file(common_dir);
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(file, remote)
+}
+
 pub fn default_push_remote(remotes: &[String]) -> Option<String> {
     match remotes {
         [only] => Some(only.clone()),
@@ -137,6 +162,28 @@ pub fn change_count(dir: &Path) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tags_start_on_the_last_used_remote_then_fall_back() {
+        let names = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let both = names(&["origin", "fork"]);
+        assert_eq!(tag_remote(&both, Some("fork")).as_deref(), Some("fork"));
+        assert_eq!(tag_remote(&both, Some("gone")).as_deref(), Some("origin"));
+        assert_eq!(tag_remote(&both, None).as_deref(), Some("origin"));
+        let odd = names(&["a", "b"]);
+        assert_eq!(tag_remote(&odd, None).as_deref(), Some("a"));
+        assert_eq!(tag_remote(&[], Some("fork")), None);
+    }
+
+    #[test]
+    fn the_last_tag_remote_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("kelp-tag-remote-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(last_tag_remote(&dir), None);
+        save_last_tag_remote(&dir, "fork").unwrap();
+        assert_eq!(last_tag_remote(&dir).as_deref(), Some("fork"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn push_goes_to_the_only_remote_or_origin() {

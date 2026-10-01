@@ -196,6 +196,7 @@ pub struct Repo {
     commit_in_flight: bool,
     pub push_after_commit: bool,
     pub commit_prefs: kelp_core::commit_message::Prefs,
+    last_tag_remote: Option<String>,
     pub conventional_detected: Option<bool>,
     pub co_author_people: Option<Vec<kelp_core::commit_message::Person>>,
     pub workspace: WorkspaceInfo,
@@ -260,6 +261,7 @@ impl Repo {
         let avatars = AvatarStore::new(ctx.clone(), github.clone());
         let review = Review::load(repo.common_dir());
         let commit_prefs = kelp_core::commit_message::Prefs::load(repo.common_dir());
+        let last_tag_remote = workspace::last_tag_remote(repo.common_dir());
         let view = ViewFilter::load(repo.common_dir());
         let sidebar = sidebar::State::new(repo.common_dir());
         let stale_undo_dir = dir.clone();
@@ -298,6 +300,7 @@ impl Repo {
             commit_in_flight: false,
             push_after_commit: false,
             commit_prefs,
+            last_tag_remote,
             conventional_detected: None,
             co_author_people: None,
             workspace: WorkspaceInfo::default(),
@@ -507,6 +510,14 @@ impl Repo {
                     annotated: true,
                     message: "First stable release".into(),
                     push: true,
+                    remote: "origin".into(),
+                    remotes: vec!["origin".into()],
+                });
+            }
+            Ok("delete-tag") => {
+                ready.dialog = Some(Dialog::DeleteTag {
+                    name: "v1.0.0".into(),
+                    delete_remote: true,
                     remote: "origin".into(),
                     remotes: vec!["origin".into()],
                 });
@@ -835,7 +846,38 @@ impl Repo {
             local_branches,
             head: self.history.refs.head.map(|h| h.to_string()),
             on_github: self.github.is_some(),
+            last_tag_remote: self.last_tag_remote.clone(),
         }
+    }
+
+    pub fn palette_tag_remote(&self) -> Option<String> {
+        let remotes: Vec<String> = self
+            .repo
+            .remote_names()
+            .iter()
+            .map(|r| r.to_string())
+            .collect();
+        (remotes.len() > 1)
+            .then(|| workspace::tag_remote(&remotes, self.last_tag_remote.as_deref()))
+            .flatten()
+    }
+
+    fn remember_tag_remote(&mut self, op: &Op) {
+        let (Op::CreateTag {
+            push_to: Some(remote),
+            ..
+        }
+        | Op::DeleteTagAndRemote { remote, .. }
+        | Op::PushTag { remote, .. }
+        | Op::PushTags(remote)
+        | Op::DeleteRemoteTag { remote, .. }) = op
+        else {
+            return;
+        };
+        if !crate::settings::is_dev_run() {
+            let _ = workspace::save_last_tag_remote(self.repo.common_dir(), remote);
+        }
+        self.last_tag_remote = Some(remote.clone());
     }
 
     pub fn execute(&mut self, ctx: &egui::Context, commands: Vec<Command>) {
@@ -848,6 +890,7 @@ impl Repo {
                     ran_op |= self.switch_or_open_worktree(op);
                 }
                 Command::Run(op) => {
+                    self.remember_tag_remote(&op);
                     ran_op |= self.switch_or_open_worktree(op);
                 }
                 Command::Push(branch) => match self.push_plan(&branch) {

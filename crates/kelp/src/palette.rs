@@ -122,6 +122,7 @@ pub struct Sources<'a> {
     pub tabs: Vec<String>,
     pub active_tab: usize,
     pub history: Option<(&'a Path, &'a [ObjectId])>,
+    pub tag_remote: Option<String>,
 }
 
 pub enum Pick {
@@ -701,7 +702,10 @@ impl Palette {
         match target {
             Target::Action(a) => (
                 a.icon,
-                a.title.to_string(),
+                match (a.id, &sources.tag_remote) {
+                    ("push-tags", Some(remote)) => format!("{} to '{remote}'", a.title),
+                    _ => a.title.to_string(),
+                },
                 None,
                 a.shortcut.map(str::to_string),
                 false,
@@ -1029,6 +1033,7 @@ mod tests {
             tabs: vec!["kelp".into()],
             active_tab: 0,
             history: None,
+            tag_remote: None,
         }
     }
 
@@ -1068,6 +1073,23 @@ mod tests {
             modifiers,
         };
         frame(&ctx, &mut palette, &sources, vec![enter])
+    }
+
+    #[test]
+    fn push_all_tags_names_its_remote_in_the_palette() {
+        let action = actions::ACTIONS
+            .iter()
+            .find(|a| a.id == "push-tags")
+            .unwrap();
+        let label = |tag_remote: Option<&str>| {
+            let mut sources = sources();
+            sources.tag_remote = tag_remote.map(str::to_string);
+            Palette::default()
+                .describe(Target::Action(action), &sources)
+                .1
+        };
+        assert_eq!(label(Some("fork")), "Push all tags to 'fork'");
+        assert_eq!(label(None), "Push all tags");
     }
 
     #[test]
