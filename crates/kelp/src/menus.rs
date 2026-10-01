@@ -20,6 +20,7 @@ pub struct MenuContext {
     pub on_github: bool,
     pub remotes: Vec<String>,
     pub upstreams: Vec<(String, String)>,
+    pub last_tag_remote: Option<String>,
 }
 
 impl MenuContext {
@@ -30,14 +31,8 @@ impl MenuContext {
             .map(|(local, _)| local.clone())
     }
 
-    pub fn push_remote(&self) -> Option<String> {
-        kelp_core::workspace::default_push_remote(&self.remotes)
-    }
-
-    /// The remote the New tag dialog starts on: the default push remote, else the first one.
     pub fn tag_remote(&self) -> String {
-        self.push_remote()
-            .or_else(|| self.remotes.first().cloned())
+        kelp_core::workspace::tag_remote(&self.remotes, self.last_tag_remote.as_deref())
             .unwrap_or_default()
     }
 }
@@ -494,7 +489,7 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
                 let text = if ctx.remotes.len() == 1 {
                     "Push tag".to_string()
                 } else {
-                    format!("Push tag to {remote}")
+                    format!("Push tag to '{remote}'")
                 };
                 sink.item(Icon::Push, &text, &|| {
                     Command::Run(Op::PushTag {
@@ -505,25 +500,30 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
             }
             sink.separator();
             sink.danger(Icon::Trash, "Delete tag…", &|| {
-                confirm(
-                    format!("Delete tag {name}?"),
-                    "Only the local tag is removed. Undo brings it back.",
-                    Op::DeleteTag(name.clone()),
-                    true,
-                )
+                Command::Open(Dialog::DeleteTag {
+                    name: name.clone(),
+                    delete_remote: false,
+                    remote: ctx.tag_remote(),
+                    remotes: ctx.remotes.clone(),
+                })
             });
-            if let Some(remote) = ctx.push_remote() {
-                sink.danger(Icon::Trash, &format!("Delete tag on {remote}…"), &|| {
-                    confirm(
-                        format!("Delete tag {name} on {remote}?"),
-                        "This removes the tag for everyone using this remote.",
-                        Op::DeleteRemoteTag {
-                            remote: remote.clone(),
-                            name: name.clone(),
-                        },
-                        true,
-                    )
-                });
+            if !ctx.remotes.is_empty() {
+                let remote = ctx.tag_remote();
+                sink.danger(
+                    Icon::Trash,
+                    &format!("Delete tag on '{remote}'…"),
+                    &|| {
+                        confirm(
+                            format!("Delete tag {name} on {remote}?"),
+                            "This removes the tag for everyone using this remote.",
+                            Op::DeleteRemoteTag {
+                                remote: remote.clone(),
+                                name: name.clone(),
+                            },
+                            true,
+                        )
+                    },
+                );
             }
         }
     }
@@ -905,8 +905,16 @@ pub fn add_remote() -> Command {
 }
 
 pub fn push_all_tags(ctx: &MenuContext) -> Option<Command> {
-    ctx.push_remote()
-        .map(|remote| Command::Run(Op::PushTags(remote)))
+    (!ctx.remotes.is_empty()).then(|| Command::Run(Op::PushTags(ctx.tag_remote())))
+}
+
+pub fn push_tags_to(ctx: &MenuContext) -> Option<Command> {
+    (!ctx.remotes.is_empty()).then(|| {
+        Command::Open(Dialog::PushTags {
+            remote: ctx.tag_remote(),
+            remotes: ctx.remotes.clone(),
+        })
+    })
 }
 
 pub fn remove_worktree_body(agents: &[kelp_core::agents::Agent]) -> String {
@@ -1044,6 +1052,32 @@ mod tests {
     use super::{MenuContext, branch_entries};
     use crate::commands::Command;
 
+    #[test]
+    fn push_all_tags_goes_to_the_last_used_remote_and_never_to_nothing() {
+        use kelp_core::ops::Op;
+        let mut ctx = ctx(false);
+        ctx.remotes = vec!["origin".into(), "fork".into()];
+        let remote = |ctx: &MenuContext| match super::push_all_tags(ctx) {
+            Some(Command::Run(Op::PushTags(remote))) => remote,
+            _ => panic!("expected a push"),
+        };
+        assert_eq!(remote(&ctx), "origin");
+        ctx.last_tag_remote = Some("fork".into());
+        assert_eq!(remote(&ctx), "fork");
+        ctx.remotes = vec!["a".into(), "b".into()];
+        ctx.last_tag_remote = None;
+        assert_eq!(remote(&ctx), "a");
+        ctx.remotes = vec!["origin".into(), "fork".into()];
+        ctx.last_tag_remote = Some("fork".into());
+        assert!(matches!(
+            super::push_tags_to(&ctx),
+            Some(Command::Open(crate::dialogs::Dialog::PushTags { remote, .. })) if remote == "fork"
+        ));
+        ctx.remotes.clear();
+        assert!(super::push_all_tags(&ctx).is_none());
+        assert!(super::push_tags_to(&ctx).is_none());
+    }
+
     fn ctx(on_github: bool) -> MenuContext {
         MenuContext {
             current_branch: Some("main".into()),
@@ -1053,6 +1087,7 @@ mod tests {
             on_github,
             remotes: vec!["origin".into()],
             upstreams: vec![("feat/a".into(), "origin/feat/a".into())],
+            last_tag_remote: None,
         }
     }
 
@@ -1074,6 +1109,27 @@ mod tests {
             .into_iter()
             .map(|e| e.label)
             .collect()
+    }
+
+    #[test]
+    fn a_tag_can_be_deleted_on_a_remote_even_when_none_is_named_origin() {
+        let tag = branch("v1", RefKind::Tag, false);
+        let mut ctx = ctx(false);
+        ctx.remotes = vec!["alpha".into(), "beta".into()];
+        let labels = |ctx: &MenuContext| -> Vec<String> {
+            branch_entries(&tag, ctx)
+                .into_iter()
+                .map(|e| e.label)
+                .collect()
+        };
+        let shown = labels(&ctx);
+        assert!(shown.contains(&"Push tag to 'alpha'".to_string()));
+        assert!(shown.contains(&"Push tag to 'beta'".to_string()));
+        assert!(shown.contains(&"Delete tag on 'alpha'\u{2026}".to_string()));
+        ctx.last_tag_remote = Some("beta".into());
+        assert!(labels(&ctx).contains(&"Delete tag on 'beta'\u{2026}".to_string()));
+        ctx.remotes.clear();
+        assert!(!labels(&ctx).iter().any(|l| l.starts_with("Delete tag on")));
     }
 
     #[test]

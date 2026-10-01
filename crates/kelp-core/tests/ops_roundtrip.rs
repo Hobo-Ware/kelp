@@ -391,6 +391,23 @@ fn a_tag_can_be_created_and_pushed_in_one_op() {
 }
 
 #[test]
+fn a_tag_can_be_deleted_here_and_on_the_remote_in_one_op() {
+    let repo = Scratch::new("tag-delete-both");
+    let bare = with_bare_remote(&repo, "origin");
+    repo.git(&["tag", "v1"]);
+    repo.git(&["push", "origin", "refs/tags/v1"]);
+    assert_eq!(run(bare.path(), &["tag"]).unwrap().trim(), "v1");
+    Op::DeleteTagAndRemote {
+        remote: "origin".into(),
+        name: "v1".into(),
+    }
+    .run(repo.path())
+    .unwrap();
+    assert!(repo.git(&["tag"]).trim().is_empty());
+    assert!(run(bare.path(), &["tag"]).unwrap().trim().is_empty());
+}
+
+#[test]
 fn tags_are_created_pushed_and_deleted() {
     let repo = Scratch::new("tags");
     let bare = with_bare_remote(&repo, "origin");

@@ -814,8 +814,20 @@ fn section_menu(
             RefKind::Tag => {
                 if let Some(push) = menus::push_all_tags(ctx) {
                     menus::separator(ui);
-                    if menus::row(ui, Some(Icon::Push), "Push all tags", None, false) {
+                    let many = ctx.remotes.len() > 1;
+                    let label = if many {
+                        format!("Push all tags to '{}'", ctx.tag_remote())
+                    } else {
+                        "Push all tags".to_string()
+                    };
+                    if menus::row(ui, Some(Icon::Push), &label, None, false) {
                         commands.push(push);
+                    }
+                    if many
+                        && menus::row(ui, Some(Icon::Push), "Push all tags to…", None, false)
+                        && let Some(ask) = menus::push_tags_to(ctx)
+                    {
+                        commands.push(ask);
                     }
                 }
             }

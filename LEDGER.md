@@ -23,6 +23,15 @@ A running log of what got done, newest first. The plan lives in
   `make-changelog-page.py` stamps every page's version but #6's script
   change never landed; fixed. Markdown preview lists line up.
   462 tests pass.
+## 2026-10-01
+
+- **Delete a tag here and on the remote.** "Delete tag…" opens a dialog with an "Also delete on"
+  checkbox and remote picker (unticked). Ticked, `Op::DeleteTagAndRemote` runs
+  `git push <remote> --delete refs/tags/<name>` then `git tag -d`, remote first so a failed
+  remote delete leaves the local tag. Not undoable. The remote-only item stays. Both tag
+  dialogs start on the remote last used for a tag push or delete in that repo (`.git/kelp/tag-remote`, cached
+  on the repo view so the per-frame menu context never reads disk), else origin/only/first. "Push all tags" follows it too (it used to do nothing with several
+  remotes and no origin); "Push all tags to…" (Tags `...` menu and palette, with several remotes) opens a remote picker.
 
 ## 2026-09-30
 
