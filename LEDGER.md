@@ -13,7 +13,22 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-01
+
+- **Delete a tag here and on the remote.** "Delete tag…" opens a dialog with an "Also delete on"
+  checkbox and remote picker (unticked). Ticked, `Op::DeleteTagAndRemote` runs
+  `git push <remote> --delete refs/tags/<name>` then `git tag -d`, remote first so a failed
+  remote delete leaves the local tag. Not undoable. The remote-only item stays. Both tag
+  dialogs start on the remote last used for a tag push or delete in that repo (`.git/kelp/tag-remote`, cached
+  on the repo view so the per-frame menu context never reads disk), else origin/only/first. "Push all tags" follows it too (it used to do nothing with several
+  remotes and no origin); "Push all tags to…" (Tags `...` menu and palette, with several remotes) opens a remote picker.
+
 ## 2026-09-30
+
+- **Push a tag as you create it.** The New tag dialog has a "Push tag to" checkbox and
+  remote picker (shown when the repo has a remote). It is one `Op::CreateTag { push_to }`
+  job running `git tag` then `git push <remote> refs/tags/<name>` (two jobs would race);
+  a pushed tag is not undoable. The `tag` dev dialog prechecks it.
 
 - **v0.8.13: worktrees page matches the sidebar.** Agent marks in the
   name column (fixed slot, truncated names), rows ordered by

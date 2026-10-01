@@ -64,12 +64,16 @@ impl Record {
 
 pub fn not_undoable_reason(op: &Op) -> Option<&'static str> {
     match op {
-        Op::Push { .. }
+        Op::CreateTag {
+            push_to: Some(_), ..
+        }
+        | Op::Push { .. }
         | Op::DeleteRemoteBranch { .. }
         | Op::RenameRemoteBranch { .. }
         | Op::PushTag { .. }
         | Op::PushTags(_)
-        | Op::DeleteRemoteTag { .. } => Some("it changed the remote"),
+        | Op::DeleteRemoteTag { .. }
+        | Op::DeleteTagAndRemote { .. } => Some("it changed the remote"),
         Op::Fetch | Op::FetchRemote(_) | Op::PruneRemote(_) => {
             Some("fetching only updates remote branches")
         }

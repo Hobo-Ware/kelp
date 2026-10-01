@@ -117,8 +117,13 @@ pub enum Op {
         name: String,
         commit: String,
         message: Option<String>,
+        push_to: Option<String>,
     },
     DeleteTag(String),
+    DeleteTagAndRemote {
+        remote: String,
+        name: String,
+    },
     SubmoduleUpdate {
         path: Option<String>,
         init: bool,
@@ -330,13 +335,18 @@ impl Op {
                 name,
                 commit,
                 message: None,
+                ..
             } => v(&["tag", name, commit]),
             Op::CreateTag {
                 name,
                 commit,
                 message: Some(message),
+                ..
             } => v(&["tag", "-a", name, "-m", message, commit]),
             Op::DeleteTag(name) => v(&["tag", "-d", name]),
+            Op::DeleteTagAndRemote { remote, name } => {
+                v(&["push", remote, "--delete", &format!("refs/tags/{name}")])
+            }
             Op::SubmoduleUpdate { path, init } => {
                 let mut args = vec!["submodule".to_string(), "update".to_string()];
                 if *init {
@@ -428,6 +438,9 @@ impl Op {
             Op::WorktreeMove { to, .. } => format!("Moving worktree to {to}"),
             Op::CreateTag { name, .. } => format!("Tagging {name}"),
             Op::DeleteTag(name) => format!("Deleting tag {name}"),
+            Op::DeleteTagAndRemote { remote, name } => {
+                format!("Deleting tag {name} here and on {remote}")
+            }
             Op::SubmoduleUpdate { init: true, .. } => "Initializing submodules".into(),
             Op::SubmoduleUpdate {
                 path: Some(path), ..
@@ -485,6 +498,21 @@ impl Op {
                 self.args(),
                 v(&["stash", "drop", "-q", stash]),
                 v(&["stash", "store", "-m", message, "<sha>"]),
+            ],
+            Op::DeleteTagAndRemote { name, .. } => {
+                vec![self.args(), Op::DeleteTag(name.clone()).args()]
+            }
+            Op::CreateTag {
+                name,
+                push_to: Some(remote),
+                ..
+            } => vec![
+                self.args(),
+                Op::PushTag {
+                    remote: remote.clone(),
+                    name: name.clone(),
+                }
+                .args(),
             ],
             Op::DiscardFiles { tracked, untracked }
                 if !tracked.is_empty() && !untracked.is_empty() =>

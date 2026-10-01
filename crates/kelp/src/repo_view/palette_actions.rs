@@ -30,6 +30,7 @@ impl Repo {
             github: self.github.is_some(),
             filtering: self.view.is_filtering(),
             file_open: self.open_file().is_some(),
+            several_remotes: self.repo.remote_names().len() > 1,
             tabs: 0,
         }
     }
@@ -189,15 +190,20 @@ impl Repo {
                 .current_branch()
                 .map(|b| Command::StartRename(b.to_string())),
             RepoAction::CreateTag => self.selected_commit().map(|(id, _)| {
+                let menu = self.menu_context();
                 Command::Open(crate::dialogs::Dialog::NewTag {
                     commit_label: id[..7.min(id.len())].to_string(),
                     commit: id,
                     name: String::new(),
                     annotated: false,
                     message: String::new(),
+                    push: false,
+                    remote: menu.tag_remote(),
+                    remotes: menu.remotes.clone(),
                 })
             }),
             RepoAction::PushTags => crate::menus::push_all_tags(&self.menu_context()),
+            RepoAction::PushTagsTo => crate::menus::push_tags_to(&self.menu_context()),
             RepoAction::AddRemote => Some(crate::menus::add_remote()),
             RepoAction::FilterCommits => {
                 self.filter.toggle();

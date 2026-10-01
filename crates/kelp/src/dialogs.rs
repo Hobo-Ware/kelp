@@ -40,6 +40,19 @@ pub enum Dialog {
         name: String,
         annotated: bool,
         message: String,
+        push: bool,
+        remote: String,
+        remotes: Vec<String>,
+    },
+    PushTags {
+        remote: String,
+        remotes: Vec<String>,
+    },
+    DeleteTag {
+        name: String,
+        delete_remote: bool,
+        remote: String,
+        remotes: Vec<String>,
     },
     AddRemote {
         name: String,
@@ -397,7 +410,25 @@ pub fn show(ctx: &egui::Context, dialog: &mut Dialog) -> Outcome {
                     name,
                     annotated,
                     message,
-                } => new_tag(ui, commit, commit_label, name, annotated, message),
+                    push,
+                    remote,
+                    remotes,
+                } => new_tag(
+                    ui,
+                    commit,
+                    commit_label,
+                    name,
+                    annotated,
+                    message,
+                    (push, remote, remotes),
+                ),
+                Dialog::PushTags { remote, remotes } => push_tags_to(ui, remote, remotes),
+                Dialog::DeleteTag {
+                    name,
+                    delete_remote,
+                    remote,
+                    remotes,
+                } => delete_tag(ui, name, (delete_remote, remote, remotes)),
                 Dialog::AddRemote { name, url } => add_remote(ui, name, url),
             };
         });
@@ -549,6 +580,7 @@ fn new_tag(
     name: &mut String,
     annotated: &mut bool,
     message: &mut String,
+    (push, remote, remotes): (&mut bool, &mut String, &[String]),
 ) -> Outcome {
     title(ui, "New tag");
     field(ui, "Tag name", name, true);
@@ -561,16 +593,105 @@ fn new_tag(
     if *annotated {
         field(ui, "Message", message, false);
     }
-    let op = Op::CreateTag {
-        name: name.trim().to_string(),
-        commit: commit.to_string(),
-        message: annotated.then(|| message.trim().to_string()),
-    };
+    if !remotes.is_empty() {
+        ui.horizontal(|ui| {
+            ui.checkbox(push, "Push tag to");
+            ui.add_enabled_ui(*push, |ui| {
+                egui::ComboBox::from_id_salt("new-tag-remote")
+                    .selected_text(remote.clone())
+                    .show_ui(ui, |ui| {
+                        for option in remotes {
+                            ui.selectable_value(remote, option.clone(), option);
+                        }
+                    });
+            });
+        });
+    }
+    let op = tag_op(commit, name, message, *annotated, (*push, remote, remotes));
     preview(ui, &op);
     let enabled = valid_branch_name(name) && (!*annotated || !message.trim().is_empty());
     with(buttons(ui, "Create tag", enabled, false), || {
         vec![Command::Run(op)]
     })
+}
+
+fn tag_op(
+    commit: &str,
+    name: &str,
+    message: &str,
+    annotated: bool,
+    (push, remote, remotes): (bool, &str, &[String]),
+) -> Op {
+    Op::CreateTag {
+        name: name.trim().to_string(),
+        commit: commit.to_string(),
+        message: annotated.then(|| message.trim().to_string()),
+        push_to: (push && !remotes.is_empty()).then(|| remote.to_string()),
+    }
+}
+
+fn push_tags_to(ui: &mut Ui, remote: &mut String, remotes: &[String]) -> Outcome {
+    title(ui, "Push all tags");
+    ui.label(RichText::new("Remote").size(12.0).color(theme::text_body()));
+    egui::ComboBox::from_id_salt("push-tags-remote")
+        .width(ui.available_width())
+        .selected_text(remote.clone())
+        .show_ui(ui, |ui| {
+            for option in remotes {
+                ui.selectable_value(remote, option.clone(), option);
+            }
+        });
+    let op = Op::PushTags(remote.clone());
+    preview(ui, &op);
+    with(buttons(ui, "Push tags", true, false), || {
+        vec![Command::Run(op)]
+    })
+}
+
+fn delete_tag(
+    ui: &mut Ui,
+    name: &str,
+    (delete_remote, remote, remotes): (&mut bool, &mut String, &[String]),
+) -> Outcome {
+    title(ui, &format!("Delete tag {name}?"));
+    ui.label(
+        RichText::new(if *delete_remote {
+            "The tag is removed here and from the remote, for everyone using it. Undo cannot bring it back."
+        } else {
+            "Only the local tag is removed. Undo brings it back."
+        })
+        .color(theme::text_muted()),
+    );
+    if !remotes.is_empty() {
+        ui.horizontal(|ui| {
+            ui.checkbox(delete_remote, "Also delete on");
+            ui.add_enabled_ui(*delete_remote, |ui| {
+                egui::ComboBox::from_id_salt("delete-tag-remote")
+                    .selected_text(remote.clone())
+                    .show_ui(ui, |ui| {
+                        for option in remotes {
+                            ui.selectable_value(remote, option.clone(), option);
+                        }
+                    });
+            });
+        });
+    }
+    let op = delete_tag_op(name, (*delete_remote, remote, remotes));
+    preview(ui, &op);
+    with(buttons(ui, "Delete tag", true, true), || {
+        vec![Command::Run(op)]
+    })
+}
+
+fn delete_tag_op(name: &str, (delete_remote, remote, remotes): (bool, &str, &[String])) -> Op {
+    if delete_remote && !remotes.is_empty() {
+        Op::DeleteTagAndRemote {
+            remote: remote.to_string(),
+            name: name.to_string(),
+        }
+    } else {
+        Op::DeleteTag(name.to_string())
+    }
 }
 
 fn add_remote(ui: &mut Ui, name: &mut String, url: &mut String) -> Outcome {
@@ -808,6 +929,32 @@ mod tests {
             op: Op::StashDrop("stash@{0}".into()),
             danger,
         }
+    }
+
+    #[test]
+    fn deleting_a_tag_also_hits_the_remote_only_when_asked() {
+        let remotes = ["origin".to_string()];
+        let op = |on, remotes: &[String]| delete_tag_op("v1", (on, "origin", remotes));
+        assert_eq!(op(false, &remotes).command_line(), "git tag -d v1");
+        assert_eq!(
+            op(true, &remotes).command_line(),
+            "git push origin --delete refs/tags/v1 && git tag -d v1"
+        );
+        assert_eq!(op(true, &[]).command_line(), "git tag -d v1");
+    }
+
+    #[test]
+    fn a_new_tag_pushes_only_when_asked_and_a_remote_exists() {
+        let remotes = ["origin".to_string()];
+        let op =
+            |push, remotes: &[String]| tag_op("HEAD", "v1", "", false, (push, "origin", remotes));
+        let pushed = op(true, &remotes);
+        assert_eq!(
+            pushed.command_line(),
+            "git tag v1 HEAD && git push origin refs/tags/v1"
+        );
+        assert_eq!(op(false, &remotes).command_line(), "git tag v1 HEAD");
+        assert_eq!(op(true, &[]).command_line(), "git tag v1 HEAD");
     }
 
     #[test]
