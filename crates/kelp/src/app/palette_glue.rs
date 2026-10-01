@@ -27,6 +27,7 @@ impl KelpApp {
             tabs,
             active_tab: self.active,
             history: repo.map(|r| r.palette_history()),
+            tag_remote: repo.and_then(|r| r.palette_tag_remote()),
         };
         if let Some(pick) = self.palette.ui(ctx, &sources) {
             self.run_pick(ctx, pick);
