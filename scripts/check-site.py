@@ -61,6 +61,9 @@ def main():
         pill = re.search(r'<span class="version">(.*?)</span>', path.read_text())
         if pill and pill.group(1) != f"v{cargo}":
             problems.append(f"{name}: version pill {pill.group(1)} should be v{cargo}")
+        software = re.search(r'"softwareVersion": "(.*?)"', path.read_text())
+        if software and software.group(1) != cargo:
+            problems.append(f"{name}: softwareVersion {software.group(1)} should be {cargo}")
         if not page.title.strip():
             problems.append(f"{name}: no <title>")
         for key in ("description", "canonical", "og:title", "og:description", "og:url", "og:image"):
