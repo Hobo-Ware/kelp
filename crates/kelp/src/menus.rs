@@ -493,6 +493,7 @@ fn branch_items(sink: &mut impl Sink, label: &RefLabel, ctx: &MenuContext) {
                 };
                 sink.item(Icon::Push, &text, &|| {
                     Command::Run(Op::PushTag {
+                        force: false,
                         remote: remote.clone(),
                         name: name.clone(),
                     })
