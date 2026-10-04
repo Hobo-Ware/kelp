@@ -5,13 +5,24 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.13 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.14 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
   site like stdusk (SEO, OG images, upkeep instructions); Homebrew
   publishing like stdusk with auto-install on release and an in-app
   update check.
+
+## 2026-10-04
+
+- **v0.8.14: contributor PRs.** Merged @tysonkerridge's #4 (stacked
+  multi-file diffs), #5 (focus click no longer maximizes), #6 (docs
+  pages show the version) and #7 (push a tag as you create it); #8
+  (delete a tag on the remote too) is held while it is a draft. The
+  reviewed fixes were folded into each author's commit. The docs said
+  `make-changelog-page.py` stamps every page's version but #6's script
+  change never landed; fixed. Markdown preview lists line up.
+  462 tests pass.
 
 ## 2026-09-30
 

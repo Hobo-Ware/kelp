@@ -2,6 +2,13 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.14 - 2026-10-04
+
+- Cmd-click or Shift-click several files of a commit to see their diffs stacked in one view. Thanks @tysonkerridge.
+- The New tag dialog can push the tag to a remote as it creates it. Thanks @tysonkerridge.
+- The click that focuses the window no longer maximizes it when it lands on the title bar. Thanks @tysonkerridge.
+- Bullets and numbers in the Markdown preview line up with their text.
+
 ## v0.8.13 - 2026-09-30
 
 - The Worktrees page shows the same agent marks and sorts worktrees the same way as the sidebar: yours first, then the ones with an agent running, then the ones with changes, and idle ones last. Long worktree names no longer run into the branch column.
