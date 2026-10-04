@@ -2,6 +2,12 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.15 - 2026-10-04
+
+- Deleting a tag can remove it from a remote in the same step (the remote copy goes first, so a failure leaves your local tag alone). Tag dialogs and "Push all tags" start on the remote you last used for a tag, and "Push all tags to…" asks which one when there are several. Thanks @tysonkerridge.
+- When a remote refuses a tag push because it already has that tag on another commit, Kelp asks before replacing it, instead of showing git's raw error.
+- Deleting a tag that is not on the remote offers to delete just the local one.
+
 ## v0.8.14 - 2026-10-04
 
 - Cmd-click or Shift-click several files of a commit to see their diffs stacked in one view. Thanks @tysonkerridge.
