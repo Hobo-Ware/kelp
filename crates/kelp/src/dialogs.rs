@@ -212,6 +212,23 @@ fn capitalize(text: &str) -> String {
         .unwrap_or_default()
 }
 
+pub fn replace_remote_tag_dialog(remote: &str, name: &str) -> Dialog {
+    Dialog::Confirm {
+        title: format!("Replace tag {name} on {remote}?"),
+        body: format!(
+            "{remote} already has a tag named {name} on a different commit. Your local tag \
+             is in place. Replacing the remote one changes it for everyone who already \
+             fetched it, and Undo cannot bring the old one back."
+        ),
+        op: Op::PushTag {
+            remote: remote.to_string(),
+            name: name.to_string(),
+            force: true,
+        },
+        danger: true,
+    }
+}
+
 pub fn force_push_dialog(op: Op) -> Dialog {
     Dialog::Confirm {
         title: "Force push (with lease)?".into(),
@@ -236,6 +253,20 @@ pub fn recovery(op: &Op, error: &str) -> Option<Dialog> {
             set_upstream: *set_upstream,
             force_with_lease: true,
         })),
+        Op::PushTag {
+            remote,
+            name,
+            force: false,
+        } if kelp_core::ops::tag_exists_on_remote(error) => {
+            Some(replace_remote_tag_dialog(remote, name))
+        }
+        Op::CreateTag {
+            name,
+            push_to: Some(remote),
+            ..
+        } if kelp_core::ops::tag_exists_on_remote(error) => {
+            Some(replace_remote_tag_dialog(remote, name))
+        }
         Op::WorktreeRemove { path, force: false }
             if error.contains("contains modified or untracked files") =>
         {
@@ -1003,6 +1034,48 @@ mod tests {
             }
             _ => panic!("expected a confirm"),
         }
+    }
+
+    #[test]
+    fn a_tag_the_remote_already_has_asks_before_replacing_it() {
+        let error =
+            "git push origin refs/tags/v1 failed: ! [rejected]        v1 -> v1 (already exists)";
+        let expected = Op::PushTag {
+            remote: "origin".into(),
+            name: "v1".into(),
+            force: true,
+        };
+        let pushed = Op::PushTag {
+            remote: "origin".into(),
+            name: "v1".into(),
+            force: false,
+        };
+        let created = Op::CreateTag {
+            name: "v1".into(),
+            commit: "HEAD".into(),
+            message: None,
+            push_to: Some("origin".into()),
+        };
+        for op in [&pushed, &created] {
+            match recovery(op, error) {
+                Some(Dialog::Confirm {
+                    title, op, danger, ..
+                }) => {
+                    assert!(danger);
+                    assert_eq!(op, expected);
+                    assert_eq!(title, "Replace tag v1 on origin?");
+                }
+                _ => panic!("expected a confirm"),
+            }
+        }
+        assert!(recovery(&pushed, "fatal: unable to access").is_none());
+        let local_only = Op::CreateTag {
+            name: "v1".into(),
+            commit: "HEAD".into(),
+            message: None,
+            push_to: None,
+        };
+        assert!(recovery(&local_only, error).is_none());
     }
 
     #[test]

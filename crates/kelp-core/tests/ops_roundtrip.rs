@@ -408,6 +408,60 @@ fn a_tag_can_be_deleted_here_and_on_the_remote_in_one_op() {
 }
 
 #[test]
+fn a_tag_the_remote_already_has_on_another_commit_can_be_replaced() {
+    let repo = Scratch::new("tag-replace");
+    let bare = with_bare_remote(&repo, "origin");
+    repo.git(&["tag", "v1", "HEAD~1"]);
+    repo.git(&["push", "origin", "refs/tags/v1"]);
+    let old = run(bare.path(), &["rev-parse", "v1"]).unwrap();
+    repo.git(&["tag", "-f", "v1", "HEAD"]);
+    let new = repo.git(&["rev-parse", "v1^{commit}"]);
+
+    let push = Op::PushTag {
+        remote: "origin".into(),
+        name: "v1".into(),
+        force: false,
+    };
+    let error = push.run(repo.path()).unwrap_err().to_string();
+    assert!(kelp_core::ops::tag_exists_on_remote(&error), "{error}");
+    assert_eq!(run(bare.path(), &["rev-parse", "v1"]).unwrap(), old);
+
+    Op::PushTag {
+        remote: "origin".into(),
+        name: "v1".into(),
+        force: true,
+    }
+    .run(repo.path())
+    .unwrap();
+    assert_eq!(
+        run(bare.path(), &["rev-parse", "v1^{commit}"])
+            .unwrap()
+            .trim(),
+        new.trim()
+    );
+}
+
+#[test]
+fn creating_and_pushing_a_tag_the_remote_has_is_rejected_with_a_matchable_error() {
+    let repo = Scratch::new("tag-create-push-clash");
+    let _bare = with_bare_remote(&repo, "origin");
+    repo.git(&["tag", "v9", "HEAD~1"]);
+    repo.git(&["push", "origin", "refs/tags/v9"]);
+    repo.git(&["tag", "-d", "v9"]);
+    let error = Op::CreateTag {
+        name: "v9".into(),
+        commit: "HEAD".into(),
+        message: None,
+        push_to: Some("origin".into()),
+    }
+    .run(repo.path())
+    .unwrap_err()
+    .to_string();
+    assert!(kelp_core::ops::tag_exists_on_remote(&error), "{error}");
+    assert_eq!(repo.git(&["tag"]).trim(), "v9");
+}
+
+#[test]
 fn tags_are_created_pushed_and_deleted() {
     let repo = Scratch::new("tags");
     let bare = with_bare_remote(&repo, "origin");
@@ -436,6 +490,7 @@ fn tags_are_created_pushed_and_deleted() {
     Op::PushTag {
         remote: "origin".into(),
         name: "v1".into(),
+        force: false,
     }
     .run(repo.path())
     .unwrap();

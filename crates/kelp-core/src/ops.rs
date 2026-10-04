@@ -131,6 +131,7 @@ pub enum Op {
     PushTag {
         remote: String,
         name: String,
+        force: bool,
     },
     PushTags(String),
     DeleteRemoteTag {
@@ -358,7 +359,16 @@ impl Op {
                 }
                 args
             }
-            Op::PushTag { remote, name } => v(&["push", remote, &format!("refs/tags/{name}")]),
+            Op::PushTag {
+                remote,
+                name,
+                force: false,
+            } => v(&["push", remote, &format!("refs/tags/{name}")]),
+            Op::PushTag {
+                remote,
+                name,
+                force: true,
+            } => v(&["push", "--force", remote, &format!("refs/tags/{name}")]),
             Op::PushTags(remote) => v(&["push", remote, "--tags"]),
             Op::DeleteRemoteTag { remote, name } => {
                 v(&["push", remote, "--delete", &format!("refs/tags/{name}")])
@@ -446,7 +456,16 @@ impl Op {
                 path: Some(path), ..
             } => format!("Updating {path}"),
             Op::SubmoduleUpdate { .. } => "Updating submodules".into(),
-            Op::PushTag { remote, name } => format!("Pushing tag {name} to {remote}"),
+            Op::PushTag {
+                remote,
+                name,
+                force: false,
+            } => format!("Pushing tag {name} to {remote}"),
+            Op::PushTag {
+                remote,
+                name,
+                force: true,
+            } => format!("Replacing tag {name} on {remote}"),
             Op::PushTags(remote) => format!("Pushing tags to {remote}"),
             Op::DeleteRemoteTag { remote, name } => format!("Deleting tag {name} on {remote}"),
             Op::AddRemote { name, .. } => format!("Adding remote {name}"),
@@ -511,6 +530,7 @@ impl Op {
                 Op::PushTag {
                     remote: remote.clone(),
                     name: name.clone(),
+                    force: false,
                 }
                 .args(),
             ],
@@ -610,6 +630,10 @@ impl Op {
         };
         Ok(out.trim().to_string())
     }
+}
+
+pub fn tag_exists_on_remote(error: &str) -> bool {
+    error.contains("[rejected]") && error.contains("already exists")
 }
 
 pub fn push_rejected(error: &str) -> bool {

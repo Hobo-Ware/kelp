@@ -522,6 +522,9 @@ impl Repo {
                     remotes: vec!["origin".into()],
                 });
             }
+            Ok("replace-tag") => {
+                ready.dialog = Some(dialogs::replace_remote_tag_dialog("origin", "v1.0.0"));
+            }
             Ok("add-remote") => ready.execute(ctx, vec![menus::add_remote()]),
             Ok("rename-remote-branch") => {
                 ready.dialog = Some(dialogs::TextDialog::open(
