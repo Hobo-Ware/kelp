@@ -17,7 +17,8 @@ A running log of what got done, newest first. The plan lives in
 
 - **Docs pages showed a stale version.** The four pages under `site/docs/` still
   said v0.7.0; bumped, and `scripts/check-site.py` now compares every
-  page pill with `Cargo.toml`.
+  page pill and `softwareVersion` with `Cargo.toml`. A release only needs
+  `scripts/make-changelog-page.py`, which stamps them all.
 
 - **v0.8.13: worktrees page matches the sidebar.** Agent marks in the
   name column (fixed slot, truncated names), rows ordered by

@@ -8,7 +8,9 @@ real one with the right version and sha256.
 ## Release flow (automated)
 
 1. Bump `version` in the workspace `Cargo.toml`.
-2. Update `site/index.html` (version pill on every page, anything new; `scripts/check-site.py` flags stale pills) and `LEDGER.md`.
+2. Add the release to `CHANGELOG.md`, run `python3 scripts/make-changelog-page.py` (rebuilds the
+   changelog page and stamps the version pill and `softwareVersion` on every page), update anything
+   new in `site/index.html`, and update `LEDGER.md`. `scripts/check-site.py` flags stale pills.
 3. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
 4. `.github/workflows/release.yml` checks the tag matches `Cargo.toml`, runs the tests, builds a
    **universal** binary (arm64 + x86_64), wraps it in `Kelp.app`, zips it with `ditto`, cuts the
