@@ -101,15 +101,31 @@ def render(markdown):
     return "".join(out)
 
 
+def cargo_version():
+    return re.search(r'^version = "(.*)"', (ROOT / "Cargo.toml").read_text(), re.M).group(1)
+
+
+def stamped(text, version):
+    text = re.sub(r'(<span class="version">)v[^<]*(</span>)', rf"\g<1>v{version}\g<2>", text)
+    return re.sub(r'("softwareVersion": ")[^"]*(")', rf"\g<1>{version}\g<2>", text)
+
+
 def main():
-    page = render(SOURCE.read_text())
+    version = cargo_version()
+    page = stamped(render(SOURCE.read_text()), version)
+    others = [p for p in sorted((ROOT / "site").rglob("*.html")) if p != PAGE]
     if "--check" in sys.argv[1:]:
-        if not PAGE.exists() or PAGE.read_text() != page:
-            print("site/changelog.html is out of date: run scripts/make-changelog-page.py", file=sys.stderr)
-            return 1
-        return 0
+        stale = [p for p in [PAGE, *others] if not p.exists() or p.read_text() != (page if p == PAGE else stamped(p.read_text(), version))]
+        for path in stale:
+            print(f"{path.relative_to(ROOT)} is out of date: run scripts/make-changelog-page.py", file=sys.stderr)
+        return 1 if stale else 0
     PAGE.write_text(page)
     print(f"Wrote {PAGE.relative_to(ROOT)}")
+    for path in others:
+        text = path.read_text()
+        if stamped(text, version) != text:
+            path.write_text(stamped(text, version))
+            print(f"Stamped {path.relative_to(ROOT)} v{version}")
     return 0
 
 
