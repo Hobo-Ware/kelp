@@ -288,6 +288,8 @@ fn markdown_style(ui: &mut Ui) {
     style.spacing.item_spacing.y = 8.0;
     style.visuals.override_text_color = None;
     style.visuals.widgets.noninteractive.fg_stroke.color = theme::text();
+    let line = ui.text_style_height(&egui::TextStyle::Body);
+    ui.spacing_mut().interact_size.y = line;
 }
 
 fn fingerprint(bytes: &[u8]) -> u64 {
