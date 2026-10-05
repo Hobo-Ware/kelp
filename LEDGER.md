@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.16 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.17 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,13 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-10-05
+
+- **v0.8.17: hover edge cases.** `graph_hover::Label` (None, Remote,
+  Local): only local labels and HEAD end the path; a remote marker ends
+  it only when no same-lane child continues above. A path with no
+  segments (a tip) extends down its own line to the fork or the next
+  label, capped at 500 rows. Scroll bench on trakt-web unchanged
+  (smooth 0.25 ms, jumps 0.83 ms avg). 482 tests pass.
 
 - **v0.8.16: stacked diffs stay loaded.** `Repo::loaded_views` hands the
   already-loaded `DiffView`s to `open_files`, which loads only newly
