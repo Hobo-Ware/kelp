@@ -15,6 +15,8 @@ const BODY_MAX_H: f32 = 170.0;
 const BODY_FADE_H: f32 = 36.0;
 const INDENT: f32 = 16.0;
 
+type Active<'a> = std::collections::HashSet<&'a str>;
+
 pub fn ui(ui: &mut Ui, repo: &mut Repo) {
     let active = repo.range_diff_path().map(str::to_string);
     if let Some(compare) = &mut repo.compare {
@@ -52,7 +54,8 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                 let multi = matches!(repo.center, Center::Multi(_));
                 let open = open_diff_path(repo);
                 let cursor = repo.picks.cursor(multi).or_else(|| open.clone());
-                let active = repo.picks.shown(multi, open);
+                let shown = repo.picks.shown(multi, open);
+                let active: Active = shown.iter().map(String::as_str).collect();
                 match repo.file_list_mode {
                     FileListMode::Path => {
                         path_list(ui, &changes, &active, &repo.review, &mut picks)
@@ -344,7 +347,7 @@ fn open_diff_path(repo: &Repo) -> Option<String> {
 fn path_list(
     ui: &mut Ui,
     changes: &[FileChange],
-    active: &[String],
+    active: &Active,
     review: &Review,
     picks: &mut Picks,
 ) {
@@ -354,7 +357,7 @@ fn path_list(
             path: &change.path,
             label: None,
             depth: 0,
-            active: active.contains(&change.path),
+            active: active.contains(change.path.as_str()),
             comments: review.count_for(&change.path),
         };
         picks.take(row.show(ui), &change.path);
@@ -437,7 +440,7 @@ pub fn display_order(changes: &[FileChange], mode: FileListMode) -> Vec<String> 
 fn tree_list(
     ui: &mut Ui,
     changes: &[FileChange],
-    active: &[String],
+    active: &Active,
     review: &Review,
     picks: &mut Picks,
 ) {
@@ -450,7 +453,7 @@ fn show_folder(
     folder: &Folder<'_>,
     prefix: &str,
     depth: usize,
-    active: &[String],
+    active: &Active,
     review: &Review,
     picks: &mut Picks,
 ) {
@@ -488,7 +491,7 @@ fn show_folder(
             path: &change.path,
             label: Some(name),
             depth,
-            active: active.contains(&change.path),
+            active: active.contains(change.path.as_str()),
             comments: review.count_for(&change.path),
         };
         picks.take(row.show(ui), &change.path);
@@ -499,7 +502,7 @@ fn all_files(
     ui: &mut Ui,
     repo: &mut Repo,
     changes: &[FileChange],
-    active: &[String],
+    active: &Active,
     picks: &mut Picks,
 ) {
     let Some(Selection::Commit(row)) = repo.selected else {
@@ -528,7 +531,7 @@ fn browse(
     dir: &str,
     depth: usize,
     changes: &[FileChange],
-    active: &[String],
+    active: &Active,
     picks: &mut Picks,
 ) {
     let entries = match repo.tree_cache.get(dir) {
@@ -560,7 +563,7 @@ fn browse(
                 path: &entry.path,
                 label: Some(&entry.name),
                 depth,
-                active: active.contains(&entry.path),
+                active: active.contains(entry.path.as_str()),
                 comments: repo.review.count_for(&entry.path),
             };
             picks.take(row.show(ui), &entry.path);

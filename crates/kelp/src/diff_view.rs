@@ -54,7 +54,7 @@ enum Mode {
     Blame,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum Layout {
     #[default]
     Unified,
