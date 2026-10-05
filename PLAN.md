@@ -254,7 +254,7 @@ milestone is a release; each item ends with a check we can run.
 | Light theme (follows macOS) built from the same tokens | Screenshots of every view in both themes. |
 | Keyboard reach: every action has a shortcut or palette entry; visible focus everywhere; AccessKit labels for VoiceOver | Checklist of all actions; VoiceOver pass on the main views. |
 | Scale: linux kernel (1.48M commits) opens and scrolls within the speed targets; its history costs under 300 MB on top of the window's baseline (the 400 MB total first planned did not account for ~200 MB of Retina graphics buffers every window has) | Numbers in `LEDGER.md`. Done 2026-09-28: 1.4 s load, 0.41 ms scroll, ~250 MB for the history. |
-| Soak test: 8-hour session with watcher, auto-fetch and tab churn, no leaks or stalls | RSS and CPU logged over time. |
+| Soak test: 8-hour session with watcher, auto-fetch and tab churn, no leaks or stalls | RSS and CPU logged over time. Done 2026-10-05, signed off by the owner: the installed app ran for days of daily use on work repos with many worktrees; one process measured at 14 h 16 min uptime used 114 MB (about 18 MB above a fresh start) at 0.0% CPU. The scripted run only reached 1.2 h (flat, 119-138 MB, 0.11% CPU) the first time and was stopped after 2 min the second time. |
 | Commit box helpers: Conventional Commit type picker, co-author picker, commit and push | Headless tests. |
 
 ### v1.0 "Ship"
