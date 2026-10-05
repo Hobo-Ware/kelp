@@ -18,7 +18,7 @@ use crate::avatars::AvatarStore;
 use crate::change_counts::{self, Counts};
 use crate::columns::GraphColumns;
 use crate::commands::Command;
-use crate::graph_hover::{HoverPath, VisiblePath};
+use crate::graph_hover::{HoverPath, Label, VisiblePath};
 use crate::graph_rows::{Row, RowMap, WipLink};
 use crate::ref_labels::{self, DropPlan, DropTarget, LabelEvent, MenuFor};
 use crate::repo_view::Selection;
@@ -1389,7 +1389,16 @@ fn trace_hover(history: &History, row: usize) -> HoverPath {
     HoverPath::toward_tip(
         row,
         |r| history.parents(r).first().copied(),
-        |r| history.refs.at_row(r).any(|l| l.kind != RefKind::Tag),
+        |r| {
+            history
+                .refs
+                .at_row(r)
+                .fold(Label::None, |found, l| match (found, l.kind) {
+                    (Label::Local, _) | (_, RefKind::Local) => Label::Local,
+                    (_, RefKind::Remote) => Label::Remote,
+                    (found, _) => found,
+                })
+        },
         |r| history.layout.node_lane(r),
     )
 }
