@@ -5,13 +5,29 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.18 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.19 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
   site like stdusk (SEO, OG images, upkeep instructions); Homebrew
   publishing like stdusk with auto-install on release and an in-app
   update check.
+
+## 2026-10-06
+
+- **v0.8.19: crash on a repository with no commits.** A robustness sweep
+  (about 25 awkward repos: empty, bare, shallow, unicode paths, 30 MB
+  files, 30k-commit history, mid-merge, mid-rebase, broken worktree,
+  detached, orphan branch, locked index, submodule) found one panic:
+  `paint_wip_row` indexed the layout at a HEAD row that does not exist
+  when a repo has files but no commits (graph.rs:55). Fixed with an
+  `unborn` path (plain row, no lines) plus an empty-graph hint; tests
+  render that state (fail without the fix) and run the first commit.
+  The screenshot-switch hangs are not an app freeze: a hidden window
+  gets no frames, so the capture never completes (verified by hiding the
+  process; visible runs always finish). Still cosmetic: on a new orphan
+  branch in a repo with history the uncommitted row links to the old
+  tip. 486 tests pass.
 
 ## 2026-10-05
 
