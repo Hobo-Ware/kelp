@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.17 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.18 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,14 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-10-05
+
+- **v0.8.18: tab thread leak.** The soak showed threads growing with
+  tabs but ran offline, which skips the avatar workers. `AvatarStore`'s 4
+  workers blocked on their queue forever, so each closed tab leaked 4
+  threads online (measured +20 for 5 stores, none gone after drop). The
+  queue now closes on drop (`Queue::closed`, `Drop for AvatarStore`) and
+  a test counts live workers (fails without the fix). The file watcher
+  already ended its thread on drop; now tested. 484 tests pass.
 
 - **v0.8.17: hover edge cases.** `graph_hover::Label` (None, Remote,
   Local): only local labels and HEAD end the path; a remote marker ends
