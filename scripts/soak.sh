@@ -23,7 +23,7 @@ for i in $(seq 1 200); do
 done
 
 export HOME="$work/home" KELP_OFFLINE=1 KELP_INSTANCE_SOCKET="$work/kelp.sock"
-"$kelp" -w "$repo" >/dev/null 2>&1 &
+"$kelp" -w "$repo" >"$work/kelp.log" 2>&1 &
 app=$!
 trap 'kill "$app" 2>/dev/null || true' EXIT
 sleep 5
@@ -38,9 +38,10 @@ churn() {
     3) git -C "$repo" stash push -q -u -m "soak $step" || true ;;
     4) git -C "$repo" switch -q main
        git -C "$repo" stash pop -q 2>/dev/null || true ;;
-    5) git -C "$repo" worktree add -q "$work/wt-$step" -b "wt/$step" 2>/dev/null || true
-       script -q /dev/null "$kelp" "$work/wt-$step" </dev/null >/dev/null 2>&1 || true
-       git -C "$repo" worktree remove --force "$work/wt-$step" 2>/dev/null || true ;;
+    5) if [ $((step / 6 % 20)) -eq 0 ]; then
+         git -C "$repo" worktree add -q "$work/wt-$step" -b "wt/$step" 2>/dev/null || true
+         script -q /dev/null "$kelp" "$work/wt-$step" </dev/null >/dev/null 2>&1 || true
+       fi ;;
   esac
 }
 
@@ -61,9 +62,25 @@ while [ "$(date +%s)" -lt "$deadline" ] && kill -0 "$app" 2>/dev/null; do
   fi
 done
 
+summary() {
+  python3 - "$log" <<'PY'
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1])))
+if rows:
+    rss = [int(r["rss_kb"]) for r in rows]
+    cpu = [float(r["cpu_percent"]) for r in rows]
+    hours = int(rows[-1]["elapsed_s"]) / 3600
+    print(f"samples={len(rows)} hours={hours:.2f} rss first={rss[0]//1024}MB max={max(rss)//1024}MB last={rss[-1]//1024}MB cpu avg={sum(cpu)/len(cpu):.2f}% max={max(cpu):.1f}% threads last={rows[-1]['threads']}")
+PY
+}
+
 if kill -0 "$app" 2>/dev/null; then
   echo "Kelp still running after $step churn steps. Samples: $log"
+  summary
 else
-  echo "Kelp exited early after $step steps. Samples: $log" >&2
+  wait "$app" 2>/dev/null && code=0 || code=$?
+  echo "Kelp exited early with code $code after $step steps. Log: $work/kelp.log" >&2
+  tail -5 "$work/kelp.log" >&2
+  summary
   exit 1
 fi
