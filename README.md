@@ -43,8 +43,9 @@ folder if it is a repo.
   color, avatars (GitHub, then Gravatar, then generated initials),
   branch and tag labels (remote branches on GitHub show the owner's
   avatar instead of `origin/`). Drag the graph column edge to resize; scroll
-  sideways for wide histories. Hover a commit to light up its path to
-  the branch tip and see its full message, author, date and hash.
+  sideways for wide histories. Hover a commit to light up its line up to
+  the branch tip (a branch tip lights up its own line down to where it forks off) and see its
+  full message, author, date and hash.
   Your uncommitted changes sit at the top of the graph, with a dashed
   line down to the commit you have checked out; other worktrees' changes
   sit above their own HEAD, with an Open button.
