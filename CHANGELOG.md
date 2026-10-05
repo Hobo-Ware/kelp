@@ -2,6 +2,10 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.19 - 2026-10-06
+
+- Fixed a crash when opening a repository that has files but no commits yet, which is the state right after `git init` or "New repository". Kelp now shows your uncommitted files and lets you make the first commit, and an empty repository shows a short hint instead of a blank graph.
+
 ## v0.8.18 - 2026-10-05
 
 - Closing a tab now frees everything it started. Avatar loading left 4 background threads behind for every tab you opened and closed, which added up over a long session.
