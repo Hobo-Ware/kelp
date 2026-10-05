@@ -2,6 +2,11 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.17 - 2026-10-05
+
+- Hovering a branch tip lights up its own line down to where it forks off, instead of dimming the graph and highlighting nothing.
+- The hover highlight runs through a remote marker like origin/main when your local branch continues above it, so it reaches your local branch.
+
 ## v0.8.16 - 2026-10-05
 
 - Picking more files for the stacked diffs view is fast however many files you have picked: adding or removing one takes about a millisecond instead of reloading every diff each time.
