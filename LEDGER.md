@@ -5,13 +5,24 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.15 released. Left for v1.0: the 8 h soak rerun and the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.15 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
   site like stdusk (SEO, OG images, upkeep instructions); Homebrew
   publishing like stdusk with auto-install on release and an in-app
   update check.
+
+## 2026-10-05
+
+- **Soak signed off.** The owner's installed Kelp has run for days of daily
+  use on work repos; the running process measured at 14 h 16 min uptime:
+  114 MB resident, 0.0% CPU, 37 threads (a fresh instance starts near
+  96 MB). The scripted 8 h run was not completed: the first attempt
+  stopped at 1.2 h with flat memory, the second (with Kelp's log and exit
+  code now captured, one worktree tab every 20 minutes) was stopped after
+  2 minutes at the owner's request. Soak is done; the bug bash is the only
+  v1.0 item left that Kelp itself can't do.
 
 ## 2026-10-04
 
