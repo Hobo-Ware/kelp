@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use kelp_core::commit::FileChange;
 
-use super::{Center, Repo};
+use super::{Center, Repo, Selection};
 use crate::details;
 use crate::diff_view::DiffView;
 use crate::multi_diff_view::MultiDiff;
@@ -106,10 +108,34 @@ impl Repo {
         }
     }
 
+    fn loaded_views(&mut self) -> HashMap<String, DiffView> {
+        if !matches!(self.selected, Some(Selection::Commit(_))) {
+            return HashMap::new();
+        }
+        match std::mem::replace(&mut self.center, Center::Graph) {
+            Center::Multi(multi) => multi
+                .views
+                .into_iter()
+                .map(|view| (view.path().to_string(), view))
+                .collect(),
+            Center::Diff(view) => HashMap::from([(view.path().to_string(), *view)]),
+            other => {
+                self.center = other;
+                HashMap::new()
+            }
+        }
+    }
+
     fn open_files(&mut self, paths: &[String]) {
+        let mut reusable = self.loaded_views();
         let mut views = Vec::new();
         let mut loaded = Vec::new();
         for path in paths {
+            if let Some(view) = reusable.remove(path) {
+                views.push(view);
+                loaded.push(path.clone());
+                continue;
+            }
             let Some(source) = self.diff_source_for(path) else {
                 continue;
             };
@@ -122,10 +148,15 @@ impl Repo {
                 Err(e) => self.notify(format!("Could not open {path}: {e:#}"), true),
             }
         }
+        let first = loaded.first().cloned();
         self.picks.set = loaded;
         match views.len() {
             0 => {}
-            1 => self.show_diff(views.remove(0)),
+            1 => {
+                if let Some(path) = first {
+                    self.open_diff(&path);
+                }
+            }
             _ => {
                 let views = views.into_iter().map(DiffView::embedded).collect();
                 self.center = Center::Multi(Box::new(MultiDiff::new(views)));
@@ -197,6 +228,91 @@ mod tests {
         repo.replace_history(fresh);
         assert_eq!(picked(&repo), ["b.txt", "c.txt", "d.txt"]);
         assert!(matches!(repo.center, Center::Multi(_)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn commit_with_files(name: &str, files: &[&str]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "T"],
+        ] {
+            run(&dir, args).unwrap();
+        }
+        for name in files {
+            std::fs::write(dir.join(name), "one\n").unwrap();
+        }
+        run(&dir, &["add", "."]).unwrap();
+        run(&dir, &["commit", "-q", "-m", "files"]).unwrap();
+        dir
+    }
+
+    fn open_commit(dir: &std::path::Path) -> Repo {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let (git, history) = kelp_core::history::History::open(dir).unwrap();
+        let mut repo = Repo::new(&ctx, git, history, Duration::ZERO);
+        repo.select(Selection::Commit(0));
+        let started = Instant::now();
+        while repo.details.is_none() && started.elapsed() < Duration::from_secs(5) {
+            repo.poll(&ctx, None);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        repo
+    }
+
+    fn layouts(repo: &Repo) -> Vec<crate::diff_view::Layout> {
+        match &repo.center {
+            Center::Multi(multi) => multi.views.iter().map(|v| v.layout()).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn adding_a_pick_keeps_the_diffs_that_are_already_loaded() {
+        use crate::diff_view::Layout;
+        let dir = commit_with_files("kelp-picks-reuse", &["a.txt", "b.txt", "c.txt"]);
+        let mut repo = open_commit(&dir);
+
+        repo.pick_file("a.txt", PickHow::Only);
+        repo.pick_file("b.txt", PickHow::Toggle);
+        assert_eq!(layouts(&repo), [Layout::Unified, Layout::Unified]);
+        if let Center::Multi(multi) = &mut repo.center {
+            multi.views[0].set_layout(Layout::Split);
+        }
+
+        repo.pick_file("c.txt", PickHow::Toggle);
+        assert_eq!(picked(&repo), ["a.txt", "b.txt", "c.txt"]);
+        assert_eq!(
+            layouts(&repo),
+            [Layout::Split, Layout::Unified, Layout::Unified],
+            "the first diff was loaded again instead of kept"
+        );
+
+        repo.pick_file("b.txt", PickHow::Toggle);
+        assert_eq!(picked(&repo), ["a.txt", "c.txt"]);
+        assert_eq!(layouts(&repo), [Layout::Split, Layout::Unified]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_open_diff_becomes_the_first_of_the_stack() {
+        use crate::diff_view::Layout;
+        let dir = commit_with_files("kelp-picks-first", &["a.txt", "b.txt"]);
+        let mut repo = open_commit(&dir);
+
+        repo.pick_file("a.txt", PickHow::Only);
+        if let Center::Diff(view) = &mut repo.center {
+            view.set_layout(Layout::Split);
+        }
+        repo.pick_file("b.txt", PickHow::Toggle);
+        assert_eq!(layouts(&repo), [Layout::Split, Layout::Unified]);
+
+        repo.pick_file("b.txt", PickHow::Toggle);
+        assert!(matches!(repo.center, Center::Diff(_)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
