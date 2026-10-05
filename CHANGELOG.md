@@ -2,6 +2,10 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.18 - 2026-10-05
+
+- Closing a tab now frees everything it started. Avatar loading left 4 background threads behind for every tab you opened and closed, which added up over a long session.
+
 ## v0.8.17 - 2026-10-05
 
 - Hovering a branch tip lights up its own line down to where it forks off, instead of dimming the graph and highlighting nothing.
