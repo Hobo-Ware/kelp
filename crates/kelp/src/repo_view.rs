@@ -2816,6 +2816,47 @@ mod tests {
     }
 
     #[test]
+    fn the_first_commit_of_a_new_repository_works_from_stage_to_history() {
+        let root = std::env::temp_dir().join(format!("kelp-first-commit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "T"],
+        ] {
+            run(&root, args).unwrap();
+        }
+        std::fs::write(root.join("README.md"), "hello\n").unwrap();
+        let ctx = egui::Context::default();
+        let (git, history) = kelp_core::history::History::open(&root).unwrap();
+        let mut repo = Repo::new(&ctx, git, history, Duration::ZERO);
+        assert_eq!(repo.history.len(), 0);
+        assert!(!repo.has_head());
+        let settle = |repo: &mut Repo, done: &dyn Fn(&Repo) -> bool| {
+            let started = Instant::now();
+            while !done(repo) && started.elapsed() < Duration::from_secs(5) {
+                repo.poll(&ctx, None);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(done(repo), "timed out");
+        };
+        settle(&mut repo, &|r| !r.status.unstaged.is_empty());
+
+        repo.run_op(Op::Stage(vec!["README.md".into()]));
+        settle(&mut repo, &|r| !r.status.staged.is_empty());
+        repo.run_op(Op::Commit {
+            message: "first".into(),
+            amend: false,
+        });
+        settle(&mut repo, &|r| r.history.len() == 1);
+
+        assert!(repo.has_head());
+        assert!(repo.status.staged.is_empty() && repo.status.unstaged.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn a_worktree_missing_from_the_graph_falls_back_to_the_worktrees_page() {
         let (root, dir, _other) = two_worktrees("kelp-reveal-missing");
         let ctx = egui::Context::default();

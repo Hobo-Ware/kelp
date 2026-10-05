@@ -189,6 +189,27 @@ impl GraphView {
             self.columns_changed = Some(columns);
         }
 
+        if map.total() == 0 {
+            ui.add_space(56.0);
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    egui::RichText::new("No commits yet")
+                        .size(15.0)
+                        .family(theme::semibold())
+                        .color(theme::text_muted()),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "Add files to this folder, then stage and commit them from the \
+                         uncommitted changes row.",
+                    )
+                    .size(12.0)
+                    .color(theme::text_faint()),
+                );
+            });
+            return None;
+        }
+
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
@@ -1201,8 +1222,17 @@ fn paint_wip_row(
 ) {
     let pinned = label.pinned;
     let layout = &history.layout;
-    let head_lane = layout.node_lane(head_row);
-    let head_color = theme::lane(layout.node_color(head_row));
+    let unborn = head_row >= layout.rows();
+    let head_lane = if unborn {
+        0
+    } else {
+        layout.node_lane(head_row)
+    };
+    let head_color = theme::lane(if unborn {
+        0
+    } else {
+        layout.node_color(head_row)
+    });
     let mark_color = if label.current {
         head_color
     } else {
@@ -1232,7 +1262,12 @@ fn paint_wip_row(
         let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
         painter.rect_filled(bg, 0.0, theme::selected_row());
     }
-    for edge in layout.edges(head_row).into_iter().filter(|_| !pinned) {
+    let above = if unborn || pinned {
+        Vec::new()
+    } else {
+        layout.edges(head_row)
+    };
+    for edge in above {
         let from_above = matches!(edge.kind, EdgeKind::Pass | EdgeKind::Top | EdgeKind::JoinIn);
         if from_above && geo.lane_visible(edge.lane) {
             let x = geo.lane_x(edge.lane);
@@ -1244,7 +1279,9 @@ fn paint_wip_row(
     if tint.off_path(head_row) {
         graph.multiply_opacity(OFF_PATH_OPACITY + 0.3);
     }
-    dashed(&graph, node, pos2(node.x, geo.bottom()), mark_color);
+    if !unborn {
+        dashed(&graph, node, pos2(node.x, geo.bottom()), mark_color);
+    }
 
     let ring: Vec<Pos2> = (0..=48)
         .map(|i| {
@@ -1683,9 +1720,10 @@ mod tests {
     use std::process::Command;
 
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, vec2};
+    use kelp_core::commit::FileChange;
     use kelp_core::history::History;
 
-    use super::{Action, GraphInput, GraphView, HEADER_H, ROW_H};
+    use super::{Action, GraphInput, GraphView, HEADER_H, ROW_H, Wip};
     use crate::avatars::AvatarStore;
     use crate::repo_view::Selection;
 
@@ -1722,11 +1760,30 @@ mod tests {
         avatars: AvatarStore,
         selected: Option<Selection>,
         action: Option<Action>,
+        wip: Vec<FileChange>,
     }
 
     impl Harness {
         fn new(name: &str) -> (Self, PathBuf) {
-            let dir = scratch_repo(name);
+            Self::in_dir(scratch_repo(name))
+        }
+
+        fn unborn(name: &str) -> (Self, PathBuf) {
+            let dir =
+                std::env::temp_dir().join(format!("kelp-graph-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let ok = Command::new("git")
+                .current_dir(&dir)
+                .args(["init", "-q", "-b", "main"])
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok);
+            Self::in_dir(dir)
+        }
+
+        fn in_dir(dir: PathBuf) -> (Self, PathBuf) {
             let (repo, history) = History::open(Path::new(&dir)).unwrap();
             let ctx = egui::Context::default();
             crate::fonts::install(&ctx);
@@ -1740,6 +1797,7 @@ mod tests {
                 avatars,
                 selected: None,
                 action: None,
+                wip: Vec::new(),
             };
             (harness, dir)
         }
@@ -1759,6 +1817,7 @@ mod tests {
                 avatars,
                 selected,
                 action,
+                wip,
             } = self;
             let no_checks = std::collections::HashMap::new();
             ctx.run_ui(input, |ui| {
@@ -1767,7 +1826,10 @@ mod tests {
                     history,
                     selected: *selected,
                     head_row: Some(0),
-                    wip: None,
+                    wip: (!wip.is_empty()).then_some(Wip {
+                        head_row: 0,
+                        changes: wip,
+                    }),
                     lit: None,
                     descriptions: false,
                     other_wips: &[],
@@ -1920,6 +1982,28 @@ mod tests {
         h.frame(vec![]);
         let picked = switch_target(double_click_label(&mut h, "main"));
         assert_eq!(picked.as_deref(), Some("main"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_repository_with_no_commits_still_draws_its_uncommitted_changes() {
+        let (mut h, dir) = Harness::unborn("no-commits");
+        h.wip = vec![
+            FileChange {
+                path: "README.md".into(),
+                kind: kelp_core::commit::ChangeKind::Added,
+            },
+            FileChange {
+                path: "src/main.rs".into(),
+                kind: kelp_core::commit::ChangeKind::Added,
+            },
+        ];
+        h.selected = Some(Selection::Wip);
+        for _ in 0..3 {
+            h.frame(vec![]);
+        }
+        h.frame(vec![Event::PointerMoved(row_center(0))]);
+        h.frame(vec![]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
