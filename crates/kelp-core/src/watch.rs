@@ -279,6 +279,41 @@ fn settle_loop(
 mod tests {
     use super::*;
 
+    struct Signal(mpsc::Sender<()>);
+
+    impl Drop for Signal {
+        fn drop(&mut self) {
+            let _ = self.0.send(());
+        }
+    }
+
+    #[test]
+    fn dropping_a_watcher_ends_its_worker_thread() {
+        let dir = std::env::temp_dir().join(format!("kelp-watch-drop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        let real = dir.canonicalize().unwrap();
+        let layout = Layout {
+            workdir: Some(real.clone()),
+            git_dir: real.join(".git"),
+            common_dir: real.join(".git"),
+        };
+        let (tx, ended) = mpsc::channel();
+        let signal = Signal(tx);
+        let watcher = Watcher::start(layout, move |_| {
+            let _keep = &signal;
+        })
+        .unwrap();
+        assert!(ended.recv_timeout(Duration::from_millis(300)).is_err());
+
+        drop(watcher);
+        assert!(
+            ended.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "the worker thread kept running after its watcher was dropped"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     fn layout() -> Layout {
         Layout {
             workdir: Some("/r".into()),
