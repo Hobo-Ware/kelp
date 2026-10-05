@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.15 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.16 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,13 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-10-05
+
+- **v0.8.16: stacked diffs stay loaded.** `Repo::loaded_views` hands the
+  already-loaded `DiffView`s to `open_files`, which loads only newly
+  picked files (commits only; the working tree reloads). With 499 files
+  stacked, a Cmd-click went from 39 ms to 1 ms and a removal from 41 ms
+  to 0.7 ms (release build); the first range pick is unchanged at 46 ms.
+  The file list checks picks against a `HashSet`. 476 tests pass.
 
 - **Soak signed off.** The owner's installed Kelp has run for days of daily
   use on work repos; the running process measured at 14 h 16 min uptime:

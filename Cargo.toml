@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/kelp-core", "crates/kelp"]
 
 [workspace.package]
-version = "0.8.15"
+version = "0.8.16"
 edition = "2024"
 license = "MIT"
 

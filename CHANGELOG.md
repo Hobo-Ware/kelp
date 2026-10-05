@@ -2,6 +2,10 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.16 - 2026-10-05
+
+- Picking more files for the stacked diffs view is fast however many files you have picked: adding or removing one takes about a millisecond instead of reloading every diff each time.
+
 ## v0.8.15 - 2026-10-04
 
 - Deleting a tag can remove it from a remote in the same step (the remote copy goes first, so a failure leaves your local tag alone). Tag dialogs and "Push all tags" start on the remote you last used for a tag, and "Push all tags to…" asks which one when there are several. Thanks @tysonkerridge.
