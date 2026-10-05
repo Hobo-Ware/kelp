@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -24,6 +25,23 @@ enum Request {
 struct Queue {
     items: Mutex<VecDeque<(String, Request)>>,
     ready: Condvar,
+    closed: AtomicBool,
+    alive: AtomicUsize,
+}
+
+struct Alive<'a>(&'a AtomicUsize);
+
+impl<'a> Alive<'a> {
+    fn enter(count: &'a AtomicUsize) -> Self {
+        count.fetch_add(1, Ordering::SeqCst);
+        Self(count)
+    }
+}
+
+impl Drop for Alive<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl Queue {
@@ -42,6 +60,9 @@ impl Queue {
         loop {
             if let Some(item) = items.pop_front() {
                 return Some(item);
+            }
+            if self.closed.load(Ordering::Acquire) {
+                return None;
             }
             items = self.ready.wait(items).ok()?;
         }
@@ -79,6 +100,7 @@ impl AvatarStore {
                 let result_tx: Sender<(String, Option<Image>)> = result_tx.clone();
                 let ctx = worker_ctx.clone();
                 std::thread::spawn(move || {
+                    let _alive = Alive::enter(&queue.alive);
                     while let Some((key, request)) = queue.pop_newest() {
                         let image = match request {
                             Request::Author { email, commit } => resolver.resolve(&email, &commit),
@@ -152,5 +174,50 @@ impl AvatarStore {
             };
             self.slots.insert(email, slot);
         }
+    }
+}
+
+impl Drop for AvatarStore {
+    fn drop(&mut self) {
+        if let Some(queue) = &self.queue {
+            let _items = queue.items.lock();
+            queue.closed.store(true, Ordering::Release);
+            queue.ready.notify_all();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    fn wait_for(queue: &Queue, alive: usize) -> bool {
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(10) {
+            if queue.alive.load(Ordering::SeqCst) == alive {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        false
+    }
+
+    #[test]
+    fn dropping_the_store_ends_its_workers() {
+        if std::env::var_os("KELP_OFFLINE").is_some() {
+            return;
+        }
+        let store = AvatarStore::new(egui::Context::default(), None);
+        let queue = store.queue.clone().expect("an online store has a queue");
+        assert!(wait_for(&queue, WORKERS), "the workers never started");
+
+        drop(store);
+        assert!(
+            wait_for(&queue, 0),
+            "{} workers kept running after their store was dropped",
+            queue.alive.load(Ordering::SeqCst)
+        );
     }
 }
