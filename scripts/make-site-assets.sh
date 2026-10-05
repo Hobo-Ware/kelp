@@ -53,13 +53,19 @@ cd "$root"
 echo "== screenshots"
 shoot() {
   local name="$1" repo="$2"; shift 2
-  env KELP_SCREENSHOT="$raw/$name.png" "$@" timeout 120 "$kelp" "$repo"
+  local attempt
+  for attempt in 1 2 3; do
+    env KELP_SCREENSHOT="$raw/$name.png" KELP_POINTER="${KELP_SHOT_POINTER:-900,18}" "$@" timeout 60 "$kelp" "$repo" && return 0
+    echo "  $name: attempt $attempt did not finish, retrying" >&2
+  done
+  return 1
 }
 shoot graph "$work/tidepool" KELP_OFFLINE=1 KELP_SCREENSHOT_WAIT=4 KELP_SELECT_COMMIT="$demo_sha"
 shoot review "$work/kelp" KELP_OFFLINE=1 KELP_SCREENSHOT_WAIT=1.5 \
   KELP_SELECT_COMMIT="$review_sha" KELP_OPEN_DIFF=path:crates/kelp-core/src/diff.rs
 shoot staging "$work/kelp" KELP_SCREENSHOT_WAIT=4 KELP_SELECT_WIP=1 KELP_OPEN_DIFF=unstaged:README.md
-shoot worktrees "$work/kelp" KELP_SCREENSHOT_WAIT=4 KELP_OPEN_WORKTREES=1
+shoot worktrees "$work/kelp" KELP_SCREENSHOT_WAIT=4 KELP_OPEN_WORKTREES=1 \
+  KELP_FAKE_AGENTS="$work/kelp-review:claude,$work/kelp-review:claude,$work/kelp:codex"
 
 echo "== compress"
 compress() {
