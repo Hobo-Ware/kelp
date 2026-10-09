@@ -394,11 +394,7 @@ pub fn interact(
                         Sense::click_and_drag(),
                     )
                     .on_hover_cursor(CursorIcon::PointingHand);
-                let response = if label.kind == RefKind::Remote {
-                    response.on_hover_text(&label.name)
-                } else {
-                    response
-                };
+                let response = response.on_hover_text(&label.name);
                 if response.double_clicked() {
                     if let Some(op) = checkout_op(label) {
                         events.push(LabelEvent::Command(Command::Run(op)));
