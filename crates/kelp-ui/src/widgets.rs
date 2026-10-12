@@ -1,4 +1,4 @@
-use eframe::egui::{self, Align2, CornerRadius, CursorIcon, FontId, Rect, Sense, Stroke, Ui, vec2};
+use egui::{self, Align2, CornerRadius, CursorIcon, FontId, Rect, Sense, Stroke, Ui, vec2};
 
 use crate::theme;
 
@@ -221,7 +221,7 @@ pub fn enter_pressed(response: &egui::Response) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use eframe::egui::{self, Event, PointerButton, Pos2, RawInput, Rect, pos2, vec2};
+    use egui::{self, Event, PointerButton, Pos2, RawInput, Rect, pos2, vec2};
 
     use super::segmented;
 
