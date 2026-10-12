@@ -243,7 +243,7 @@ fn row(
     } else if hovered {
         painter.rect_filled(rect, CornerRadius::same(8), theme::control());
     }
-    crate::graph_view::draw_avatar(
+    kelp_ui::paint::draw_avatar(
         &painter,
         pos2(rect.left() + 12.0 + AVATAR_R, rect.center().y),
         AVATAR_R,
@@ -262,7 +262,7 @@ fn row(
     crate::pulls_ui::paint_pill(&painter, pill, pull, false);
     let actions_w = if hovered { 250.0 } else { 90.0 };
     let title_room = (rect.right() - actions_w - pill.right() - 10.0).max(40.0);
-    let title = crate::graph_view::truncated(
+    let title = kelp_ui::paint::truncated(
         &painter,
         pull.title.clone(),
         FontId::new(13.5, theme::semibold()),
@@ -277,7 +277,7 @@ fn row(
     let mut meta = vec![format!("{} wants to merge {}", item.author, pull.head)];
     meta.extend(pull.review_text().map(str::to_string));
     meta.extend(pull.checks_text().map(str::to_string));
-    let meta = crate::graph_view::truncated(
+    let meta = kelp_ui::paint::truncated(
         &painter,
         meta.join("  ·  "),
         FontId::proportional(12.0),

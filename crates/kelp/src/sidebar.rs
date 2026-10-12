@@ -1033,7 +1033,7 @@ fn folder_row(
         theme::text_faint(),
     );
     let right = rect.right() - 12.0 - count_galley.size().x;
-    let name = crate::graph_view::truncated(
+    let name = kelp_ui::paint::truncated(
         &painter,
         format!("{label}/"),
         FontId::new(12.5, theme::semibold()),
@@ -1437,7 +1437,7 @@ impl<'a> Row<'a> {
             *clicked = pill_response.clicked();
         }
         if let Some(sub) = self.subtitle {
-            let sub = crate::graph_view::truncated(
+            let sub = kelp_ui::paint::truncated(
                 &painter,
                 sub.to_string(),
                 FontId::proportional(11.0),

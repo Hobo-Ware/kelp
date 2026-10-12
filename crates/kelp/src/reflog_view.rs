@@ -460,7 +460,7 @@ fn entry_row(ui: &mut Ui, id: egui::Id, entry: &Entry, selected: bool, now: i64)
         title_right = badge.left() - 8.0;
     }
     let title_x = hash_x + 70.0;
-    let title = crate::graph_view::truncated(
+    let title = kelp_ui::paint::truncated(
         &painter,
         entry.title.clone(),
         FontId::proportional(13.0),

@@ -1,7 +1,6 @@
 mod actions;
 mod agent_watch;
 mod app;
-mod avatars;
 mod blame_view;
 mod change_counts;
 mod checks_ui;
@@ -27,7 +26,6 @@ mod graph_view;
 mod help;
 mod icons;
 mod instance;
-mod jobs;
 mod list_keys;
 mod macos;
 mod mascot;
@@ -61,7 +59,7 @@ mod worktrees_view;
 use std::path::PathBuf;
 
 use eframe::egui;
-use kelp_ui::{fonts, theme};
+use kelp_ui::{avatars, fonts, jobs, theme};
 
 fn main() -> eframe::Result {
     let args = match cli::start() {

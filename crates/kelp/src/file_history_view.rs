@@ -10,7 +10,7 @@ use kelp_core::review::Review;
 
 use crate::avatars::AvatarStore;
 use crate::diff_view::{self, DiffSource, DiffView};
-use crate::{graph_view, theme, widgets};
+use crate::{theme, widgets};
 
 const LIST_W: f32 = 380.0;
 const ROW_H: f32 = 50.0;
@@ -226,7 +226,7 @@ fn entry_row(
         painter.rect_filled(rect, 0.0, theme::overlay(0x08));
     }
     let avatar = pos2(rect.left() + 26.0, rect.center().y);
-    graph_view::draw_avatar(
+    kelp_ui::paint::draw_avatar(
         &painter,
         avatar,
         AVATAR_R,
@@ -247,7 +247,7 @@ fn entry_row(
     } else {
         theme::text()
     };
-    let title = graph_view::truncated(
+    let title = kelp_ui::paint::truncated(
         &painter,
         entry.title.clone(),
         FontId::new(13.0, theme::semibold()),
@@ -269,7 +269,7 @@ fn entry_row(
     if let Some(from) = &entry.renamed_from {
         meta.push_str(&format!(" · renamed from {from}"));
     }
-    let meta = graph_view::truncated(
+    let meta = kelp_ui::paint::truncated(
         &painter,
         meta,
         FontId::proportional(12.0),

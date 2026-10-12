@@ -258,7 +258,11 @@ impl Repo {
         let workdir = repo.workdir().map(Path::to_path_buf);
         let dir = workdir.clone().unwrap_or_else(|| repo.path().to_path_buf());
         let github = kelp_core::avatar::GitHubRepo::from_repo(&repo);
-        let avatars = AvatarStore::new(ctx.clone(), github.clone());
+        let avatars = if std::env::var_os("KELP_OFFLINE").is_some() {
+            AvatarStore::offline(ctx.clone())
+        } else {
+            AvatarStore::new(ctx.clone(), github.clone())
+        };
         let review = Review::load(repo.common_dir());
         let commit_prefs = kelp_core::commit_message::Prefs::load(repo.common_dir());
         let last_tag_remote = workspace::last_tag_remote(repo.common_dir());

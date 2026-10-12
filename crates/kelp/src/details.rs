@@ -213,7 +213,7 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
             ui.horizontal(|ui| {
                 let (rect, _) = ui.allocate_exact_size(vec2(38.0, 38.0), Sense::hover());
                 let texture = repo.avatars.texture(&details.email, details.id);
-                crate::graph_view::draw_avatar(
+                kelp_ui::paint::draw_avatar(
                     ui.painter(),
                     rect.center(),
                     18.0,
@@ -665,7 +665,7 @@ impl FileRow<'_> {
         };
         match self.label {
             Some(label) => {
-                let g = crate::graph_view::truncated(
+                let g = kelp_ui::paint::truncated(
                     &painter,
                     label.to_string(),
                     font,
