@@ -991,14 +991,14 @@ impl Repo {
                     }
                 }
                 Command::OpenUrl(url) => {
-                    if let Err(e) = crate::pulls_ui::open_url(&url) {
+                    if let Err(e) = crate::pull_requests::open_url(&url) {
                         self.notify(format!("Could not open {url}: {e}"), true);
                     }
                 }
                 Command::OpenChecks(id) => {
                     if let Some(github) = &self.github {
                         let url = kelp_core::checks::checks_url(github, &id.to_string());
-                        if let Err(e) = crate::pulls_ui::open_url(&url) {
+                        if let Err(e) = crate::pull_requests::open_url(&url) {
                             self.notify(format!("Could not open {url}: {e}"), true);
                         }
                     }
@@ -1219,7 +1219,7 @@ impl Repo {
             return;
         }
         self.jobs.spawn("Checking pull requests", move || {
-            JobOutput::Pulls(crate::pulls_ui::load(&github, force))
+            JobOutput::Pulls(crate::pull_requests::load(&github, force))
         });
     }
 
@@ -1247,7 +1247,7 @@ impl Repo {
                 Ok(())
             } else {
                 let url = kelp_core::pulls::compare_url(&github, &base, &branch);
-                crate::pulls_ui::open_url(&url)
+                crate::pull_requests::open_url(&url)
                     .map_err(|e| format!("Could not open the pull request form: {e}"))
             };
             JobOutput::Opened(result)

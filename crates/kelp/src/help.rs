@@ -39,7 +39,7 @@ impl Page {
     }
 
     pub fn open(self) -> std::io::Result<()> {
-        crate::pulls_ui::open_url(self.url())
+        crate::pull_requests::open_url(self.url())
     }
 }
 
