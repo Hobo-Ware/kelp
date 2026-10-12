@@ -1,5 +1,9 @@
 pub mod avatars;
 pub mod fonts;
+pub mod icons;
 pub mod jobs;
+pub mod menu;
 pub mod paint;
+pub mod pulls_ui;
 pub mod theme;
+pub mod widgets;

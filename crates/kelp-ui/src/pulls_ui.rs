@@ -1,4 +1,4 @@
-use eframe::egui::{
+use egui::{
     self, Color32, CornerRadius, CursorIcon, FontId, Rect, RichText, Sense, Stroke, Ui, pos2, vec2,
 };
 use kelp_core::avatar::GitHubRepo;

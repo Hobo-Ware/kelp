@@ -1,4 +1,4 @@
-use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2};
+use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
@@ -35,8 +35,8 @@ pub enum Icon {
 
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
     let scale = rect.width().min(rect.height()) / 24.0;
-    let origin = rect.center() - eframe::egui::vec2(12.0, 12.0) * scale;
-    let p = |x: f32, y: f32| origin + eframe::egui::vec2(x, y) * scale;
+    let origin = rect.center() - egui::vec2(12.0, 12.0) * scale;
+    let p = |x: f32, y: f32| origin + egui::vec2(x, y) * scale;
     let stroke = Stroke::new(1.8 * scale.max(0.75), color);
     let line = |points: &[(f32, f32)]| {
         let pts: Vec<Pos2> = points.iter().map(|&(x, y)| p(x, y)).collect();
@@ -297,6 +297,6 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
 pub fn center_square(rect: Rect, size: f32) -> Rect {
     Rect::from_center_size(
         pos2(rect.center().x, rect.center().y),
-        eframe::egui::vec2(size, size),
+        egui::vec2(size, size),
     )
 }
