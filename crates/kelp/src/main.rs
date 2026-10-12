@@ -31,6 +31,7 @@ mod open_with;
 mod palette;
 mod panels;
 mod preview_view;
+mod pull_requests;
 mod pulls_view;
 mod rebase_view;
 mod recents;
