@@ -260,8 +260,13 @@ impl Settings {
                             .hint_text(hint)
                             .desired_width(260.0),
                     );
+                    let editor_help = if cfg!(target_os = "macos") {
+                        "An app name, like Visual Studio Code. Empty uses the first installed of Cursor, VS Code, Zed and Sublime Text."
+                    } else {
+                        "A command, like code or zed. Empty uses the system default app."
+                    };
                     ui.label(
-                        RichText::new("An app name, like Visual Studio Code. Empty uses the first installed of Cursor, VS Code, Zed and Sublime Text.")
+                        RichText::new(editor_help)
                             .size(12.0)
                             .color(theme::text_faint()),
                     );
