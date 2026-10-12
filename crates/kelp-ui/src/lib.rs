@@ -8,4 +8,5 @@ pub mod menu;
 pub mod paint;
 pub mod pulls_ui;
 pub mod theme;
+pub mod update;
 pub mod widgets;

@@ -7,6 +7,7 @@ description = "egui widgets from the Kelp git client, so other egui apps can emb
 
 [dependencies]
 egui = { version = "0.35.0", default-features = false, features = ["default_fonts"] }
+anyhow = "1.0.104"
 kelp-core.workspace = true
 serde = { version = "1.0.229", features = ["derive"] }
 
