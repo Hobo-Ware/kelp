@@ -1,3 +1,4 @@
+use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -19,17 +20,50 @@ static FALLBACK_INSTALLED: AtomicBool = AtomicBool::new(false);
 
 /// Registers the bundled fonts, including the `semibold` family. Call once at startup.
 pub fn install(ctx: &egui::Context) {
-    ctx.set_fonts(definitions(false));
+    ctx.set_fonts(definitions(None));
+}
+
+fn char_needs_fallback(c: char) -> bool {
+    let c = c as u32;
+    c > 0x024F
+        && !(0x2000..=0x2BFF).contains(&c)
+        && !(0x1F000..=0x1FAFF).contains(&c)
+        && c != 0xFE0F
+}
+
+fn first_uncovered(text: &str) -> Option<char> {
+    text.chars().find(|&c| char_needs_fallback(c))
 }
 
 pub fn needs_fallback(text: &str) -> bool {
-    text.chars().any(|c| {
-        let c = c as u32;
-        c > 0x024F
-            && !(0x2000..=0x2BFF).contains(&c)
-            && !(0x1F000..=0x1FAFF).contains(&c)
-            && c != 0xFE0F
-    })
+    first_uncovered(text).is_some()
+}
+
+fn fontconfig_font(missing: char) -> Option<Vec<u8>> {
+    let output = Command::new("fc-match")
+        .args(["-f", "%{file}", &format!(":charset={:x}", missing as u32)])
+        .output()
+        .ok()?;
+    let path = String::from_utf8(output.stdout).ok()?;
+    output
+        .status
+        .success()
+        .then(|| std::fs::read(path.trim()).ok())
+        .flatten()
+}
+
+fn listed_font() -> Option<Vec<u8>> {
+    FALLBACKS.iter().find_map(|path| std::fs::read(path).ok())
+}
+
+fn system_fallback(text: &str) -> Option<Vec<u8>> {
+    if cfg!(target_os = "macos") {
+        listed_font()
+    } else {
+        first_uncovered(text)
+            .and_then(fontconfig_font)
+            .or_else(listed_font)
+    }
 }
 
 /// Adds a system font with wide Unicode coverage the first time `text` needs one.
@@ -38,10 +72,10 @@ pub fn ensure_fallback(ctx: &egui::Context, text: &str) {
         return;
     }
     FALLBACK_INSTALLED.store(true, Ordering::Relaxed);
-    ctx.set_fonts(definitions(true));
+    ctx.set_fonts(definitions(system_fallback(text)));
 }
 
-fn definitions(with_fallback: bool) -> FontDefinitions {
+fn definitions(fallback: Option<Vec<u8>>) -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
     let mut add = |name: &str, bytes: FontData| {
         fonts.font_data.insert(name.into(), Arc::new(bytes));
@@ -49,9 +83,6 @@ fn definitions(with_fallback: bool) -> FontDefinitions {
     add("plex", FontData::from_static(PLEX_REGULAR));
     add("plex-semibold", FontData::from_static(PLEX_SEMIBOLD));
     add("jetbrains-mono", FontData::from_static(JETBRAINS_MONO));
-    let fallback = with_fallback
-        .then(|| FALLBACKS.iter().find_map(|path| std::fs::read(path).ok()))
-        .flatten();
     if let Some(bytes) = fallback {
         add("fallback", FontData::from_owned(bytes));
     }
@@ -79,7 +110,7 @@ fn definitions(with_fallback: bool) -> FontDefinitions {
 
 #[cfg(test)]
 mod tests {
-    use super::needs_fallback;
+    use super::{first_uncovered, needs_fallback};
 
     #[test]
     fn latin_punctuation_and_emoji_do_not_need_the_fallback() {
@@ -88,5 +119,11 @@ mod tests {
         ));
         assert!(needs_fallback("\"button_label\": \"ابدأ\""));
         assert!(needs_fallback("日本語"));
+    }
+
+    #[test]
+    fn the_first_character_outside_the_bundled_fonts_picks_the_system_font() {
+        assert_eq!(first_uncovered("café 日本語"), Some('日'));
+        assert_eq!(first_uncovered("café ✔"), None);
     }
 }
