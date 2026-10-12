@@ -13,6 +13,32 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-12
+
+- **kelp-ui: the graph and diff as a reusable crate.** So other egui apps
+  can embed the commit graph and the diff view, `crates/kelp-ui` now holds
+  the theme, fonts, icons, avatar store, job runner, the commit graph
+  painter, the diff body with review threads, and the self-updater. Pure
+  refactor, nothing changes for users. The painter takes plain data (a
+  `History`, selection, uncommitted rows, a summary lookup that runs only
+  for rows on screen) and returns a `GraphAction`; Kelp maps that to its
+  `Command`s in `graph_glue.rs`. `DiffBody` takes a `FileDiff` and the
+  review threads as plain data and returns `DiffAction`s (add, reply,
+  resolve, delete, hunk button); Kelp applies them to `comments.json` and
+  keeps staging and discarding in its own `DiffView`. The updater's repo,
+  cask, tap and Caskroom folder (hardcoded in `kelp-core::update`) now come
+  from an `update::Source`, passed in by `crates/kelp/src/updater.rs`.
+  `kelp-ui` has no direct `gix` dependency and reads no `KELP_*` switches
+  (the app passes them in as a `Preview`). The supported API is listed in
+  its `lib.rs`. Checked against the same build before the change: 11
+  screenshots of a fixed demo clone (graph dark and light, columns, ref
+  list, uncommitted row, unified, split and stacked diffs with review
+  threads, unstaged diff with hunk buttons, commit menu, settings) are
+  pixel-identical or above 59 dB (the rest is the status bar's changing
+  text); layout bench 1.2314 ms to 1.2327 ms (100k) and 14.25 ms to
+  14.38 ms (1M); release scroll bench on the demo repo unchanged (smooth
+  0.14 ms, jumps 0.47 ms avg). 500 tests pass (486 before).
+
 ## 2026-10-06
 
 - **v0.8.19: crash on a repository with no commits.** A robustness sweep
