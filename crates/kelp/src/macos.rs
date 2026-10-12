@@ -1,5 +1,3 @@
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-
 pub const TRAFFIC_LIGHTS_W: f32 = 78.0;
 
 /// Folds the title bar into the app: an empty compact toolbar makes AppKit
@@ -10,6 +8,7 @@ pub fn unify_titlebar(frame: &eframe::Frame) {
     use objc2_app_kit::{
         NSTitlebarSeparatorStyle, NSToolbar, NSView, NSWindowTitleVisibility, NSWindowToolbarStyle,
     };
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
     let Ok(handle) = frame.window_handle() else {
         return;
