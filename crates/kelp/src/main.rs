@@ -24,7 +24,6 @@ mod graph_hover;
 mod graph_rows;
 mod graph_view;
 mod help;
-mod icons;
 mod instance;
 mod list_keys;
 mod macos;
@@ -36,7 +35,6 @@ mod open_with;
 mod palette;
 mod panels;
 mod preview_view;
-mod pulls_ui;
 mod pulls_view;
 mod rebase_view;
 mod recents;
@@ -52,14 +50,13 @@ mod stash_view;
 mod updater;
 mod welcome;
 mod whats_new;
-mod widgets;
 mod window;
 mod worktrees_view;
 
 use std::path::PathBuf;
 
 use eframe::egui;
-use kelp_ui::{avatars, fonts, jobs, theme};
+use kelp_ui::{avatars, fonts, icons, jobs, pulls_ui, theme, widgets};
 
 fn main() -> eframe::Result {
     let args = match cli::start() {
