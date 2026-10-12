@@ -238,7 +238,7 @@ fn end_line(ui: &mut Ui, mark: &str, hash: &str, title: &str) {
         hash,
         Color32::PLACEHOLDER,
     );
-    let title = crate::graph_view::truncated(
+    let title = kelp_ui::paint::truncated(
         &painter,
         title.to_string(),
         FontId::proportional(13.0),

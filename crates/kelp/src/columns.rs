@@ -3,7 +3,7 @@ use gix::ObjectId;
 use kelp_core::commit::{self, Summary};
 use serde::{Deserialize, Serialize};
 
-use crate::{graph_view, menus, theme};
+use crate::{menus, theme};
 
 const MIN_W: f32 = 56.0;
 const MAX_W: f32 = 420.0;
@@ -165,7 +165,7 @@ pub fn paint_cells(
             ),
         };
         let max_width = (end - start - PAD * 2.0).max(0.0);
-        let galley = graph_view::truncated(painter, text, font, color, max_width);
+        let galley = kelp_ui::paint::truncated(painter, text, font, color, max_width);
         painter.galley(
             pos2(start + PAD, mid_y - galley.size().y / 2.0),
             galley,

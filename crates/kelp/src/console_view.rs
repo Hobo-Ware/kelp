@@ -278,7 +278,7 @@ fn entry_row(
         );
         x = tag_rect.right() + 8.0;
     }
-    let command = crate::graph_view::truncated(
+    let command = kelp_ui::paint::truncated(
         &painter,
         entry.command_line(),
         egui::FontId::monospace(12.0),

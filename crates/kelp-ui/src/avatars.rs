@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 
-use eframe::egui::{self, ColorImage, TextureHandle, TextureId, TextureOptions};
-use gix::ObjectId;
+use egui::{self, ColorImage, TextureHandle, TextureId, TextureOptions};
+use kelp_core::ObjectId;
 use kelp_core::avatar::{self, GitHubRepo, Image, Resolver};
 
 const WORKERS: usize = 4;
@@ -78,17 +78,19 @@ pub struct AvatarStore {
 }
 
 impl AvatarStore {
+    pub fn offline(ctx: egui::Context) -> Self {
+        let (_, results) = mpsc::channel();
+        Self {
+            queue: None,
+            results,
+            slots: HashMap::new(),
+            ctx,
+            enabled: false,
+        }
+    }
+
     pub fn new(ctx: egui::Context, github: Option<GitHubRepo>) -> Self {
         let (result_tx, results) = mpsc::channel();
-        if std::env::var_os("KELP_OFFLINE").is_some() {
-            return Self {
-                queue: None,
-                results,
-                slots: HashMap::new(),
-                ctx,
-                enabled: false,
-            };
-        }
         let queue = Arc::new(Queue::default());
         let worker_queue = queue.clone();
         let worker_ctx = ctx.clone();
@@ -206,9 +208,6 @@ mod tests {
 
     #[test]
     fn dropping_the_store_ends_its_workers() {
-        if std::env::var_os("KELP_OFFLINE").is_some() {
-            return;
-        }
         let store = AvatarStore::new(egui::Context::default(), None);
         let queue = store.queue.clone().expect("an online store has a queue");
         assert!(wait_for(&queue, WORKERS), "the workers never started");

@@ -1,3 +1,5 @@
+pub use gix::ObjectId;
+
 pub mod agents;
 pub mod avatar;
 pub mod blame;
