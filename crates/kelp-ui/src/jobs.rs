@@ -1,7 +1,5 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use eframe::egui;
-
 pub struct Jobs<T> {
     tx: Sender<(u64, T)>,
     rx: Receiver<(u64, T)>,

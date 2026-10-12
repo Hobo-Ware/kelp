@@ -184,7 +184,7 @@ fn lay<'a>(
     };
     let text_room = (text_limit - LABEL_PAD - pill_w - badge_w).min(LABEL_MAX_TEXT_W);
     let text = badge.map_or_else(|| label_text(label), |(_, branch)| branch.to_string());
-    let galley = crate::graph_view::truncated(
+    let galley = kelp_ui::paint::truncated(
         painter,
         text,
         FontId::proportional(12.0),
@@ -340,7 +340,7 @@ pub fn paint_ghost(ctx: &egui::Context, label: &RefLabel, at: Pos2, lane: Color3
         egui::Order::Tooltip,
         Id::new("ref-label-ghost"),
     ));
-    let galley = crate::graph_view::truncated(
+    let galley = kelp_ui::paint::truncated(
         &painter,
         label_text(label),
         FontId::proportional(12.0),
@@ -480,7 +480,7 @@ fn ref_list(
                 );
             }
         }
-        let name = crate::graph_view::truncated(
+        let name = kelp_ui::paint::truncated(
             &painter,
             label_text(label),
             FontId::proportional(13.0),

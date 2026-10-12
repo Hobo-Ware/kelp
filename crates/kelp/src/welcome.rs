@@ -297,7 +297,7 @@ fn paint_row(
         when,
         theme::text_faint(),
     );
-    let path = crate::graph_view::truncated(
+    let path = kelp_ui::paint::truncated(
         &painter,
         path,
         FontId::proportional(12.0),
@@ -310,7 +310,7 @@ fn paint_row(
         theme::text_faint(),
     );
     if let Some(branch) = branch {
-        let branch = crate::graph_view::truncated(
+        let branch = kelp_ui::paint::truncated(
             &painter,
             branch.to_string(),
             FontId::proportional(12.0),

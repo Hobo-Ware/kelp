@@ -766,7 +766,7 @@ fn file_row(
         .rsplit_once('/')
         .map_or(("", change.path.as_str()), |(d, n)| (d, n));
     let left = rect.left() + 36.0;
-    let name_galley = crate::graph_view::truncated(
+    let name_galley = kelp_ui::paint::truncated(
         &painter,
         name.to_string(),
         font.clone(),
@@ -777,7 +777,7 @@ fn file_row(
     let dir_w = (right - left - name_w).max(0.0);
     let mut x = left;
     if !dir.is_empty() && dir_w > 24.0 {
-        let g = crate::graph_view::truncated(
+        let g = kelp_ui::paint::truncated(
             &painter,
             format!("{dir}/"),
             font,

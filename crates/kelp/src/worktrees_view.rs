@@ -8,7 +8,7 @@ use kelp_core::refs::RefKind;
 use crate::commands::Command;
 use crate::dialogs::{Dialog, NewWorktree};
 use crate::repo_view::{Repo, Selection};
-use crate::{graph_view, menus, theme};
+use crate::{menus, theme};
 
 const ROW_H: f32 = 52.0;
 const BRANCH_ROW_H: f32 = 44.0;
@@ -175,7 +175,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 let name_room = cols[0].width()
                                     - NAME_SLOT
                                     - if current { CURRENT_BADGE_W } else { 0.0 };
-                                let name = graph_view::truncated(
+                                let name = kelp_ui::paint::truncated(
                                     &painter,
                                     wt.tree.name(),
                                     FontId::proportional(13.5),
@@ -200,7 +200,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                     wt.tree.branch.clone().unwrap_or_else(|| "detached".into());
                                 let dot = lane_of(repo, wt.tree.branch.as_deref());
                                 painter.circle_filled(pos2(cols[1].left() + 4.0, y), 4.0, dot);
-                                let g = graph_view::truncated(
+                                let g = kelp_ui::paint::truncated(
                                     &painter,
                                     branch,
                                     FontId::proportional(13.0),
@@ -212,7 +212,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                     g,
                                     theme::text_control(),
                                 );
-                                let folder = graph_view::truncated(
+                                let folder = kelp_ui::paint::truncated(
                                     &painter,
                                     tilde(&wt.tree.path),
                                     FontId::monospace(12.0),
@@ -334,7 +334,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                 } else {
                                     theme::text_control()
                                 };
-                                let g = graph_view::truncated(
+                                let g = kelp_ui::paint::truncated(
                                     &painter,
                                     label.name.clone(),
                                     FontId::proportional(13.0),
@@ -361,7 +361,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo, commands: &mut Vec<Command>) {
                                     commit::summary(&repo.repo, repo.history.id(r as usize)).ok()
                                 });
                                 if let Some(summary) = &summary {
-                                    let g = graph_view::truncated(
+                                    let g = kelp_ui::paint::truncated(
                                         &painter,
                                         summary.title.clone(),
                                         FontId::proportional(13.0),

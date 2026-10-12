@@ -8,9 +8,9 @@ use gix::ObjectId;
 use kelp_core::blame::{self, Blame};
 
 use crate::avatars::AvatarStore;
-use crate::graph_view::{self, TooltipCommit};
 use crate::menus;
 use crate::theme;
+use kelp_ui::paint::TooltipCommit;
 
 const LINE_H: f32 = 22.0;
 const GUTTER_W: f32 = 250.0;
@@ -176,7 +176,7 @@ impl BlameView {
                             id: origin.id,
                         };
                         let response = response.clone().on_hover_ui_at_pointer(|ui| {
-                            graph_view::commit_tooltip(ui, &tooltip, now)
+                            kelp_ui::paint::commit_tooltip(ui, &tooltip, now)
                         });
                         crate::menus::context_menu(&response, |ui| {
                             ui.set_min_width(230.0);
@@ -291,7 +291,7 @@ fn paint_origin(
             theme::text_muted(),
         )
     };
-    graph_view::draw_avatar(
+    kelp_ui::paint::draw_avatar(
         painter,
         pos2(gutter.left() + 18.0, mid),
         AVATAR_R,
@@ -316,7 +316,7 @@ fn paint_origin(
         hash,
         color,
     );
-    let author = graph_view::truncated(
+    let author = kelp_ui::paint::truncated(
         painter,
         origin.author.clone(),
         FontId::proportional(12.0),

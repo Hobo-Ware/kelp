@@ -213,7 +213,7 @@ fn danger(
 
 pub fn heading(ui: &mut Ui, text: &str) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
-    let g = crate::graph_view::truncated(
+    let g = kelp_ui::paint::truncated(
         ui.painter(),
         text.to_string(),
         FontId::monospace(11.0),
