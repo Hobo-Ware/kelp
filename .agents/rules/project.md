@@ -1,7 +1,10 @@
 # Kelp - project rules
 
 A small, fast, low-power git client for macOS in Rust (egui/eframe UI, gitoxide for reads, the
-git CLI for writes). The plan and decisions live in `PLAN.md`; progress, with measured numbers,
+git CLI for writes). macOS first; the workspace also builds and tests on Linux (the
+`check (ubuntu)` CI job), unpackaged. Keep `kelp-core` and `kelp-ui` portable, put macOS-only
+dependencies under `[target.'cfg(target_os = "macos")'.dependencies]`, and give every macOS-only
+path a Linux fallback. The plan and decisions live in `PLAN.md`; progress, with measured numbers,
 in `LEDGER.md`.
 
 ## Layout
