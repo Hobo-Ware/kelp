@@ -35,7 +35,7 @@ pub struct KelpApp {
     window: window::Tracker,
     started: Instant,
     ctx: egui::Context,
-    updater: crate::updater::Updater,
+    updater: kelp_ui::update::Updater,
     palette: Palette,
     shortcuts_open: bool,
     whats_new: Option<crate::whats_new::WhatsNew>,
@@ -132,7 +132,7 @@ impl KelpApp {
             settings,
             window: window::Tracker::default(),
             started: Instant::now(),
-            updater: crate::updater::Updater::new({
+            updater: crate::updater::new({
                 crate::agent_watch::init(&ctx);
                 ctx.clone()
             }),
