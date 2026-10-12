@@ -6,7 +6,7 @@ work="${KELP_SHOWCASE_DIR:-$HOME/Library/Caches/kelp-showcase}"
 site="$root/site"
 raw="$work/raw"
 kelp="$root/target/release/kelp"
-fonts="$root/crates/kelp/assets/fonts"
+fonts="$root/crates/kelp-ui/assets/fonts"
 mkdir -p "$work" "$raw" "$site"
 
 cargo build --release -p kelp --manifest-path "$root/Cargo.toml"

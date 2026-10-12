@@ -1,0 +1,10 @@
+[package]
+name = "kelp-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "egui widgets from the Kelp git client, so other egui apps can embed the commit graph and the diff view"
+
+[dependencies]
+egui = { version = "0.35.0", default-features = false, features = ["default_fonts"] }
+kelp-core.workspace = true

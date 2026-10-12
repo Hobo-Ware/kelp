@@ -316,7 +316,7 @@ checks the site's links, meta tags and sitemap.
 
 The plan, design rules and decisions are in [PLAN.md](PLAN.md); progress
 is logged in [LEDGER.md](LEDGER.md). Fonts: IBM Plex Sans and JetBrains
-Mono, both under the SIL Open Font License (see `crates/kelp/assets/fonts`).
+Mono, both under the SIL Open Font License (see `crates/kelp-ui/assets/fonts`).
 
 ## License
 
