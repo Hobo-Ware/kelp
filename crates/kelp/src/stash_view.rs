@@ -194,7 +194,7 @@ fn file_row(ui: &mut Ui, file: &StashFile, active: bool) -> egui::Response {
     } else {
         0.0
     };
-    let name = crate::graph_view::truncated(
+    let name = kelp_ui::paint::truncated(
         ui.painter(),
         change.path.clone(),
         FontId::monospace(12.0),
