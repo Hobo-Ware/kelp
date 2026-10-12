@@ -2,10 +2,10 @@ use eframe::egui;
 
 use super::{KelpApp, State, Tab};
 use crate::actions::{AppAction, Run};
-use crate::columns::Column;
 use crate::palette::{self, Pick, Sources};
 use crate::panels::{self, Side};
 use crate::{settings, welcome};
+use kelp_ui::graph::Column;
 
 impl KelpApp {
     pub(super) fn palette_frame(&mut self, ctx: &egui::Context) {

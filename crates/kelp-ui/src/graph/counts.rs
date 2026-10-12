@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, FontId, Painter, Pos2, Rect, Sense, Ui, pos2, vec2};
+use egui::{self, Color32, FontId, Painter, Pos2, Rect, Sense, Ui, pos2, vec2};
 use kelp_core::commit::{ChangeKind, FileChange};
 
 use crate::icons::{self, Icon};
