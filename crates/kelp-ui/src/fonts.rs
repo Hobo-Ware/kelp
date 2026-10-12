@@ -17,6 +17,7 @@ const FALLBACKS: &[&str] = &[
 
 static FALLBACK_INSTALLED: AtomicBool = AtomicBool::new(false);
 
+/// Registers the bundled fonts, including the `semibold` family. Call once at startup.
 pub fn install(ctx: &egui::Context) {
     ctx.set_fonts(definitions(false));
 }
@@ -31,6 +32,7 @@ pub fn needs_fallback(text: &str) -> bool {
     })
 }
 
+/// Adds a system font with wide Unicode coverage the first time `text` needs one.
 pub fn ensure_fallback(ctx: &egui::Context, text: &str) {
     if FALLBACK_INSTALLED.load(Ordering::Relaxed) || !needs_fallback(text) {
         return;

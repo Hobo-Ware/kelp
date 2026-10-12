@@ -24,6 +24,7 @@ use crate::avatars::AvatarStore;
 use crate::paint::{AVATAR_R, TooltipCommit, commit_tooltip, paint_avatar, selection_halo};
 use crate::theme;
 
+/// Height of one graph row, in points.
 pub const ROW_H: f32 = 30.0;
 const LANE_W: f32 = 24.0;
 const ARC_R: f32 = ROW_H / 2.0;
@@ -40,8 +41,11 @@ const OFF_PATH_OPACITY: f32 = 0.45;
 const OPEN_BUTTON_W: f32 = 56.0;
 const COUNTS_GAP: f32 = 12.0;
 
+/// The commit graph widget and the state it keeps between frames (scroll, widths, hover, cached
+/// summaries).
 pub struct GraphView {
     summaries: HashMap<usize, Summary>,
+    /// Set to scroll the given row into view on the next frame.
     pub scroll_to: Option<Selection>,
     graph_w: Option<f32>,
     lane_offset: f32,
@@ -49,28 +53,48 @@ pub struct GraphView {
     hover: Option<(usize, HoverPath)>,
     drag: Option<ref_labels::Drag>,
     drop: Option<DropPlan>,
+    /// Set when the user toggled or resized a column; the host should store the new value.
     pub columns_changed: Option<GraphColumns>,
+    /// Set when the funnel in the header was clicked.
     pub filter_clicked: bool,
+    /// The commit rows drawn in the last frame.
     pub visible_commits: Vec<usize>,
+    /// The id of the keyboard focus target, set while the graph is drawn.
     pub focus_id: Option<egui::Id>,
     stack: Option<(usize, Rect)>,
 }
 
+/// Everything the graph draws in one frame.
 pub struct GraphInput<'a> {
+    /// Commit ids, parents, lane layout and ref labels for every row.
     pub history: &'a History,
+    /// Returns the summary of a commit row. Called at most once per row, and only for rows that
+    /// scroll into view; the view caches the answer until `clear_cache`. A host that already has
+    /// all summaries just returns them.
     pub summary: &'a mut dyn FnMut(usize) -> Summary,
+    /// `(remote name, GitHub owner)` pairs; remote branch chips show the owner's avatar.
     pub remote_owners: &'a [(String, String)],
+    /// Forced hover and popup states for screenshots and tests. `Preview::default()` otherwise.
     pub preview: Preview<'a>,
     pub selected: Option<Selection>,
+    /// The row HEAD points at.
     pub head_row: Option<usize>,
+    /// Uncommitted changes of the current worktree, drawn above `head_row`.
     pub wip: Option<Wip<'a>>,
+    /// Rows to keep at full strength (the rest fade), for example search hits.
     pub lit: Option<&'a [bool]>,
+    /// Show the first lines of each commit body after its title.
     pub descriptions: bool,
+    /// Uncommitted changes of other worktrees.
     pub other_wips: &'a [OtherWip<'a>],
     pub columns: GraphColumns,
+    /// The two commits being compared, marked A and B.
     pub compare: Marks,
+    /// A plain click on a commit asks to compare instead of select.
     pub picking: bool,
+    /// Tints the funnel in the header.
     pub filter_active: bool,
+    /// CI state per commit; commits found here get a status dot.
     pub checks: &'a HashMap<kelp_core::ObjectId, kelp_core::checks::Status>,
 }
 
@@ -84,22 +108,29 @@ struct RowStyle {
     labels_stacked: bool,
 }
 
+/// The current worktree's uncommitted changes.
 pub struct Wip<'a> {
     pub head_row: usize,
     pub changes: &'a [FileChange],
 }
 
+/// Uncommitted changes in another worktree, drawn with an Open button.
 pub struct OtherWip<'a> {
     pub head_row: usize,
     pub tree: &'a Worktree,
     pub changes: usize,
 }
 
+/// Pointer-free states to draw, so a screenshot or a test can show a hover or an open popup.
 #[derive(Clone, Copy, Default)]
 pub struct Preview<'a> {
+    /// Draw as if this commit row were hovered.
     pub hover_row: Option<usize>,
+    /// Hash prefix of the commit whose "+N" ref list opens.
     pub open_ref_list: Option<&'a str>,
+    /// `<ref name>@<hash prefix>`: open the drop menu for that ref dropped on that commit.
     pub open_drop: Option<&'a str>,
+    /// Open the context menu of the selected row.
     pub open_commit_menu: bool,
 }
 
@@ -135,10 +166,12 @@ impl GraphView {
         }
     }
 
+    /// Forgets cached commit summaries; call after the history changed.
     pub fn clear_cache(&mut self) {
         self.summaries.clear();
     }
 
+    /// Draws the graph. `menu` fills the context menu for the row, chip or drop the user opened.
     pub fn ui(
         &mut self,
         ui: &mut Ui,

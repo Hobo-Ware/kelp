@@ -4,14 +4,19 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 
+/// Where an app's releases are published and which Homebrew cask installs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Source {
+    /// GitHub `owner/name` whose latest release is the newest version.
     pub repo: String,
+    /// Cask as `owner/tap/name`, or just `name` for a cask in a default tap.
     pub cask: String,
+    /// Sent with release lookups.
     pub user_agent: String,
 }
 
 impl Source {
+    /// The user agent defaults to `<cask name>-updater`.
     pub fn new(repo: impl Into<String>, cask: impl Into<String>) -> Self {
         let cask = cask.into();
         let user_agent = format!("{}-updater", cask_name(&cask));

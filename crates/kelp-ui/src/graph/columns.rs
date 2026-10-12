@@ -9,6 +9,7 @@ const MIN_W: f32 = 56.0;
 const MAX_W: f32 = 420.0;
 const PAD: f32 = 12.0;
 
+/// An optional text column to the right of the commit message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Column {
     Author,
@@ -36,6 +37,8 @@ impl Column {
     }
 }
 
+/// Which optional columns are shown and how wide they are. Serializable so a host can keep it
+/// in its settings.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GraphColumns {
