@@ -284,7 +284,7 @@ fn pull_line(ui: &mut Ui, repo: &Repo, commit: gix::ObjectId) {
                     .color(theme::text_muted()),
             );
             if crate::pulls_ui::clicked_pill(ui, pull) {
-                let _ = crate::pulls_ui::open_url(&pull.url);
+                let _ = crate::pull_requests::open_url(&pull.url);
             }
             ui.add(
                 egui::Label::new(RichText::new(&pull.title).size(12.0).color(theme::text()))
