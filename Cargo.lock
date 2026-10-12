@@ -2992,6 +2992,7 @@ dependencies = [
  "gix",
  "image",
  "kelp-core",
+ "kelp-ui",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
@@ -3017,6 +3018,14 @@ dependencies = [
  "sha2",
  "similar",
  "ureq",
+]
+
+[[package]]
+name = "kelp-ui"
+version = "0.8.19"
+dependencies = [
+ "egui",
+ "kelp-core",
 ]
 
 [[package]]

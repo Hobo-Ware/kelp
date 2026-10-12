@@ -21,7 +21,6 @@ mod diff_view;
 mod file_history_view;
 mod filter_bar;
 mod focus_areas;
-mod fonts;
 mod graph_hover;
 mod graph_rows;
 mod graph_view;
@@ -52,7 +51,6 @@ mod signatures;
 mod signing_panel;
 mod staging;
 mod stash_view;
-mod theme;
 mod updater;
 mod welcome;
 mod whats_new;
@@ -63,6 +61,7 @@ mod worktrees_view;
 use std::path::PathBuf;
 
 use eframe::egui;
+use kelp_ui::{fonts, theme};
 
 fn main() -> eframe::Result {
     let args = match cli::start() {
