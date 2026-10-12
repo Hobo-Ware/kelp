@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::sync::OnceLock;
 
-use eframe::egui::{self, Color32};
+use egui::{self, Color32};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Palette {

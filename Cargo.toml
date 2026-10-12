@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/kelp-core", "crates/kelp"]
+members = ["crates/kelp-core", "crates/kelp-ui", "crates/kelp"]
 
 [workspace.package]
 version = "0.8.19"
@@ -9,6 +9,7 @@ license = "MIT"
 
 [workspace.dependencies]
 kelp-core = { path = "crates/kelp-core" }
+kelp-ui = { path = "crates/kelp-ui" }
 
 [profile.release]
 lto = "thin"
