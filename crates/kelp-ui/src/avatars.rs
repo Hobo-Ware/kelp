@@ -69,6 +69,8 @@ impl Queue {
     }
 }
 
+/// Loads avatars on background threads and hands out textures once they are ready. Resolution
+/// order: GitHub, then Gravatar; callers draw generated initials while `texture` is `None`.
 pub struct AvatarStore {
     queue: Option<Arc<Queue>>,
     results: Receiver<(String, Option<Image>)>,
@@ -78,6 +80,7 @@ pub struct AvatarStore {
 }
 
 impl AvatarStore {
+    /// A store that never loads anything.
     pub fn offline(ctx: egui::Context) -> Self {
         let (_, results) = mpsc::channel();
         Self {
@@ -89,6 +92,7 @@ impl AvatarStore {
         }
     }
 
+    /// Starts the loader threads. `github` is the repository whose commit authors are looked up.
     pub fn new(ctx: egui::Context, github: Option<GitHubRepo>) -> Self {
         let (result_tx, results) = mpsc::channel();
         let queue = Arc::new(Queue::default());
@@ -125,6 +129,7 @@ impl AvatarStore {
         }
     }
 
+    /// The avatar texture for a commit author, or `None` while it loads or if there is none.
     pub fn texture(&mut self, email: &str, commit: ObjectId) -> Option<TextureId> {
         if email.is_empty() || !self.enabled {
             return None;
@@ -137,6 +142,7 @@ impl AvatarStore {
         self.lookup(email, request)
     }
 
+    /// The avatar texture of a GitHub account.
     pub fn owner_texture(&mut self, owner: &str) -> Option<TextureId> {
         if owner.is_empty() || !self.enabled {
             return None;
@@ -160,6 +166,7 @@ impl AvatarStore {
         }
     }
 
+    /// Turns finished downloads into textures; call once per frame.
     pub fn poll(&mut self) {
         while let Ok((email, image)) = self.results.try_recv() {
             let slot = match image {

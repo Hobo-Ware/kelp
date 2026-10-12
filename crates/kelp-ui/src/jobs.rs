@@ -1,5 +1,7 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 
+/// Runs closures on their own threads and returns their results on the UI thread, waking the UI
+/// when each one finishes.
 pub struct Jobs<T> {
     tx: Sender<(u64, T)>,
     rx: Receiver<(u64, T)>,

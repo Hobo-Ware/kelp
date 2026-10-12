@@ -13,9 +13,12 @@ const LIST_ROW_H: f32 = 30.0;
 const LIST_W: f32 = 260.0;
 const PILL_GAP: f32 = 6.0;
 
+/// What a graph context menu is for.
 pub enum MenuFor<'a> {
+    /// A commit row (or the uncommitted changes row), with the commit title.
     Commit(Selection, &'a str),
     Ref(&'a RefLabel),
+    /// A ref chip dropped on a commit or another chip.
     Drop(&'a DropPlan),
     Worktree(&'a kelp_core::workspace::Worktree),
 }
@@ -39,6 +42,7 @@ pub struct Drag {
     pub from_row: usize,
 }
 
+/// Where a dragged ref chip was dropped: a commit row, and the chip on it if there was one.
 #[derive(Clone, Debug)]
 pub struct DropTarget {
     pub row: usize,
@@ -47,6 +51,7 @@ pub struct DropTarget {
     pub is_head: bool,
 }
 
+/// A ref chip dropped on a target, with the pointer position the menu should open at.
 #[derive(Clone, Debug)]
 pub struct DropPlan {
     pub source: RefLabel,

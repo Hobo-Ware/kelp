@@ -18,6 +18,7 @@ const THREAD_W: f32 = 640.0;
 const RESOLVED_H: f32 = 34.0;
 const COMPOSER_H: f32 = 132.0;
 
+/// Side-by-side or single-column diff.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum DiffLayout {
     #[default]
@@ -25,6 +26,7 @@ pub enum DiffLayout {
     Split,
 }
 
+/// What the body lists: only the changed hunks, or the whole new file.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DiffMode {
     Diff,
@@ -55,6 +57,8 @@ struct Rows {
     total: f32,
 }
 
+/// A button in a hunk header. Buttons are laid out right to left in the order given, and a click
+/// comes back as [`DiffAction::HunkButton`] with the button's index.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HunkButton {
     pub label: String,
@@ -63,18 +67,27 @@ pub struct HunkButton {
     pub width: f32,
 }
 
+/// Everything the body draws in one frame.
 pub struct DiffInput<'a> {
     pub diff: &'a FileDiff,
+    /// Review threads of the host, for any file; the body shows those whose path matches the
+    /// diff's.
     pub threads: &'a [Thread],
+    /// Name used on comments written in the composer.
     pub author: &'a str,
     pub mode: DiffMode,
+    /// Draw without an inner vertical scroll area, so several bodies can share one scroll.
     pub stacked: bool,
     pub hunk_buttons: &'a [HunkButton],
+    /// When set, changed lines can be selected by clicking their line numbers, and this is the
+    /// tooltip. Read the result with [`DiffBody::selection`].
     pub line_select_hint: Option<&'a str>,
 }
 
+/// An edit the user made in the body. The body never changes the host's threads itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiffAction {
+    /// A new thread; the host adds the file path and commit when it stores it.
     AddThread {
         anchor: Anchor,
         comment: Comment,
@@ -130,6 +143,7 @@ impl Prepared {
     }
 }
 
+/// A diff view and the state it keeps between frames (layout, scroll, drafts, selection).
 pub struct DiffBody {
     data: Prepared,
     layout: DiffLayout,
@@ -144,6 +158,7 @@ pub struct DiffBody {
 }
 
 impl DiffBody {
+    /// Prepares the body for `diff`.
     pub fn new(diff: &FileDiff) -> Self {
         Self {
             data: Prepared::of(diff),
@@ -159,6 +174,8 @@ impl DiffBody {
         }
     }
 
+    /// Switches to a fresh `diff` of the same file, keeping drafts, layout and scroll. The line
+    /// selection survives only if the lines are unchanged.
     pub fn reload(&mut self, diff: &FileDiff) {
         let fresh = Prepared::of(diff);
         if !same_lines(&self.data.lines, &fresh.lines) {
@@ -177,6 +194,7 @@ impl DiffBody {
         self.layout = layout;
     }
 
+    /// Whether there is a change to jump to in `mode`.
     pub fn has_changes_to_jump_to(&self, mode: DiffMode) -> bool {
         match mode {
             DiffMode::Diff => !self.data.hunks.is_empty(),
@@ -184,10 +202,12 @@ impl DiffBody {
         }
     }
 
+    /// Scrolls to the next or previous change on the next frame.
     pub fn jump_to_change(&mut self, next: bool) {
         self.jump = Some(if next { Jump::Next } else { Jump::Previous });
     }
 
+    /// Handles Alt+Up and Alt+Down unless a text field has the keyboard.
     pub fn jump_with_keys(&mut self, ui: &Ui) {
         if ui.ctx().egui_wants_keyboard_input() {
             return;
@@ -200,6 +220,7 @@ impl DiffBody {
         }
     }
 
+    /// Indexes of the selected lines, counted across all hunks.
     pub fn selection(&self) -> &BTreeSet<usize> {
         &self.selected_lines
     }
@@ -230,6 +251,8 @@ impl DiffBody {
         self.scroll_y
     }
 
+    /// Draws the diff (or a notice for binary, oversized and submodule changes) and returns what
+    /// the user did.
     pub fn ui(&mut self, ui: &mut Ui, input: DiffInput<'_>) -> Vec<DiffAction> {
         if let Some(text) = &input.diff.new_text {
             crate::fonts::ensure_fallback(ui.ctx(), text);
