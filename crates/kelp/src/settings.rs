@@ -269,8 +269,10 @@ impl Settings {
                 ui.separator();
                 signing.ui(ui, repo);
                 ui.separator();
-                updater.settings_section(ui, &mut self.auto_update, &mut self.check_updates);
-                ui.separator();
+                if updater.is_active() {
+                    updater.settings_section(ui, &mut self.auto_update, &mut self.check_updates);
+                    ui.separator();
+                }
                 whats_new = help_section(ui);
                 if std::env::var("KELP_OPEN_SETTINGS").as_deref() == Ok("help") {
                     ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
