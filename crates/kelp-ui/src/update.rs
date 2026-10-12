@@ -45,6 +45,7 @@ pub struct UpdateConfig {
 /// Checks for new releases in the background and installs them with `brew upgrade`.
 pub struct Updater {
     pub status: Status,
+    active: bool,
     config: UpdateConfig,
     next_check: Instant,
     last_check: Option<Instant>,
@@ -59,6 +60,7 @@ impl Updater {
         let (tx, rx) = mpsc::channel();
         Self {
             status: Status::Idle,
+            active: true,
             config,
             next_check: Instant::now() + FIRST_CHECK_AFTER,
             last_check: None,
@@ -67,6 +69,16 @@ impl Updater {
             rx,
             ctx,
         }
+    }
+
+    /// Turns the updater off for good: no checks, no pill, no settings section. For platforms
+    /// the app has no installer for.
+    pub fn disable(&mut self) {
+        self.active = false;
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active
     }
 
     pub fn current(&self) -> &str {
@@ -78,7 +90,9 @@ impl Updater {
     }
 
     pub fn check_now(&mut self) {
-        self.check(true);
+        if self.active {
+            self.check(true);
+        }
     }
 
     fn check(&mut self, asked: bool) {
@@ -170,6 +184,7 @@ impl Updater {
         let checked_lately = self
             .last_check
             .is_some_and(|at| at.elapsed() < FOCUS_CHECK_GAP);
+        let enabled = enabled && self.active;
         if enabled && (Instant::now() >= self.next_check || (regained_focus && !checked_lately)) {
             self.check(false);
         }
@@ -180,10 +195,13 @@ impl Updater {
     }
 
     pub fn has_news(&self) -> bool {
-        matches!(self.status, Status::Available(_) | Status::Ready(_))
+        self.active && matches!(self.status, Status::Available(_) | Status::Ready(_))
     }
 
     pub fn pill(&mut self, ui: &mut egui::Ui) {
+        if !self.active {
+            return;
+        }
         let (label, action) = match &self.status {
             Status::Available(r) if self.brew_install() => {
                 (format!("Update to {}", r.version), Some(r.clone()))
@@ -223,6 +241,9 @@ impl Updater {
         auto_install: &mut bool,
         enabled: &mut bool,
     ) {
+        if !self.active {
+            return;
+        }
         ui.label(
             RichText::new("Updates")
                 .family(theme::semibold())
@@ -331,6 +352,23 @@ mod tests {
             .unwrap();
         updater.tick(false, false);
         assert_eq!(updater.status, Status::Failed("offline".into()));
+    }
+
+    #[test]
+    fn a_disabled_updater_stays_silent() {
+        let mut updater = updater();
+        updater.disable();
+        updater.status = Status::Available(Release {
+            version: "99.0.0".into(),
+            url: String::new(),
+        });
+        updater.next_check = Instant::now();
+        updater.tick(true, true);
+        updater.check_now();
+        assert!(!updater.is_active());
+        assert!(!updater.has_news());
+        assert!(updater.last_check.is_none());
+        assert!(matches!(updater.status, Status::Available(_)));
     }
 
     #[test]

@@ -263,6 +263,7 @@ impl State {
     pub fn allows(&self, run: Run) -> bool {
         match run {
             Run::App(AppAction::CloseTab) => self.tabs > 0,
+            Run::App(AppAction::CheckUpdates) => crate::updater::SUPPORTED,
             Run::App(AppAction::NextTab | AppAction::PreviousTab) => self.tabs > 1,
             Run::App(_) => true,
             Run::Repo(action) => self.repo && self.allows_repo(action),
