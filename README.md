@@ -37,6 +37,14 @@ cargo run --release -- ~/path/to/repo      # open a repo
 With no path, Kelp reopens the tabs from last time, or the current
 folder if it is a repo.
 
+On Linux it builds from source too (no package yet, no self-update). Install the
+development headers first; on Ubuntu:
+
+```sh
+sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+  libxkbcommon-dev libssl-dev libfontconfig1-dev libfreetype6-dev
+```
+
 ## What it does
 
 - **Graph:** lanes with rounded corners, rows tinted in the branch

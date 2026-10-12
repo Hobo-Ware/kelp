@@ -13,6 +13,30 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-13
+
+- **Linux: builds, passes its tests and runs (draft, unpackaged).** CI has a
+  new `check (ubuntu)` job next to the macOS one (fmt, clippy with
+  `-D warnings`, tests; apt packages for the X11, Wayland, font and TLS
+  headers). Most of the code was already portable (config and cache paths,
+  `xdg-open`, the instance socket), so the work was the gaps the first
+  Ubuntu run showed: the watcher counted inotify read events as changes (git's
+  own `check-ignore` reads made the "ignored files stay quiet" test fail),
+  `raw-window-handle` moved under the macOS target block with its only user,
+  self-update is off where there is no installer (no checks, no pill, no
+  Settings section, no palette entry), "Open files with" runs a command off
+  macOS (`code`, `zed`, or `xdg-open` when empty), and the fallback font comes
+  from `fc-match` for the first uncovered character. kelp-core and kelp-ui
+  build and test on Linux as they are. macOS checked against the same
+  build before the change: 8 screenshots of a fixed demo clone (graph dark and
+  light, settings, settings and palette with a fake update, update pill, unified
+  diff, welcome) are pixel-identical or differ only in the status bar's
+  load-time text and the welcome mascot's blink (a build rendered twice
+  differs in the same spots, 44.6 dB at worst). 503 tests pass (500 before);
+  the Ubuntu job runs 505. Not done: AppImage or .deb packaging, a Linux
+  release workflow, shortcut labels that still say Cmd, "Reveal in Finder"
+  wording, and a pass on a real Wayland and X11 desktop (only CI has run it).
+
 ## 2026-10-12
 
 - **kelp-ui: the graph and diff as a reusable crate.** So other egui apps
