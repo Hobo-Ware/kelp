@@ -4,8 +4,37 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 
-pub const REPO: &str = "Hobo-Ware/kelp";
-pub const CASK: &str = "hobo-ware/tap/kelp";
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Source {
+    pub repo: String,
+    pub cask: String,
+    pub user_agent: String,
+}
+
+impl Source {
+    pub fn new(repo: impl Into<String>, cask: impl Into<String>) -> Self {
+        let cask = cask.into();
+        let user_agent = format!("{}-updater", cask_name(&cask));
+        Self {
+            repo: repo.into(),
+            cask,
+            user_agent,
+        }
+    }
+
+    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.user_agent = user_agent.into();
+        self
+    }
+
+    fn tap(&self) -> Option<&str> {
+        self.cask.rsplit_once('/').map(|(tap, _)| tap)
+    }
+}
+
+fn cask_name(cask: &str) -> &str {
+    cask.rsplit('/').next().unwrap_or(cask)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Release {
@@ -37,15 +66,15 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
     }
 }
 
-pub fn latest_release() -> anyhow::Result<Release> {
+pub fn latest_release(source: &Source) -> anyhow::Result<Release> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(10)))
-        .user_agent("kelp-git-client")
+        .user_agent(source.user_agent.as_str())
         .max_redirects(0)
         .http_status_as_error(false)
         .build()
         .into();
-    let url = format!("https://github.com/{REPO}/releases/latest");
+    let url = format!("https://github.com/{}/releases/latest", source.repo);
     let response = agent.get(&url).call()?;
     let location = response
         .headers()
@@ -90,27 +119,30 @@ fn brew() -> Option<PathBuf> {
         .find(|p| p.exists())
 }
 
-pub fn installed_with_brew() -> bool {
-    ["/opt/homebrew/Caskroom/kelp", "/usr/local/Caskroom/kelp"]
+pub fn installed_with_brew(source: &Source) -> bool {
+    let name = cask_name(&source.cask);
+    ["/opt/homebrew/Caskroom", "/usr/local/Caskroom"]
         .iter()
-        .any(|p| Path::new(p).exists())
+        .any(|root| Path::new(root).join(name).exists())
 }
 
-pub fn brew_upgrade() -> anyhow::Result<()> {
+pub fn brew_upgrade(source: &Source) -> anyhow::Result<()> {
     let brew = brew().context("Homebrew is not installed")?;
-    let tap = Command::new(&brew)
-        .args(["--repository", "hobo-ware/tap"])
-        .output()?;
-    let tap_dir = String::from_utf8_lossy(&tap.stdout).trim().to_string();
-    if tap.status.success() && Path::new(&tap_dir).exists() {
-        let args = ["-C", tap_dir.as_str(), "pull", "--quiet", "--ff-only"];
-        let log = crate::console::start("git", &args, Path::new(&tap_dir));
-        if let Ok(output) = Command::new("git").args(args).output() {
-            log.finish_output(&output);
+    if let Some(tap_name) = source.tap() {
+        let tap = Command::new(&brew)
+            .args(["--repository", tap_name])
+            .output()?;
+        let tap_dir = String::from_utf8_lossy(&tap.stdout).trim().to_string();
+        if tap.status.success() && Path::new(&tap_dir).exists() {
+            let args = ["-C", tap_dir.as_str(), "pull", "--quiet", "--ff-only"];
+            let log = crate::console::start("git", &args, Path::new(&tap_dir));
+            if let Ok(output) = Command::new("git").args(args).output() {
+                log.finish_output(&output);
+            }
         }
     }
     let out = Command::new(&brew)
-        .args(["upgrade", "--cask", CASK])
+        .args(["upgrade", "--cask", source.cask.as_str()])
         .env("HOMEBREW_NO_AUTO_UPDATE", "1")
         .env("HOMEBREW_NO_INSTALL_CLEANUP", "1")
         .output()?;
@@ -133,6 +165,21 @@ pub fn app_bundle() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_source_names_its_tap_and_cask_from_the_cask_path() {
+        let source = Source::new("Hobo-Ware/kelp", "hobo-ware/tap/kelp");
+        assert_eq!(source.tap(), Some("hobo-ware/tap"));
+        assert_eq!(cask_name(&source.cask), "kelp");
+        assert_eq!(source.user_agent, "kelp-updater");
+        assert_eq!(
+            source.with_user_agent("kelp-git-client").user_agent,
+            "kelp-git-client"
+        );
+        let bare = Source::new("o/r", "app");
+        assert_eq!(bare.tap(), None);
+        assert_eq!(cask_name(&bare.cask), "app");
+    }
 
     #[test]
     fn the_release_redirect_names_the_version() {

@@ -166,7 +166,7 @@ impl Settings {
         &mut self,
         ctx: &egui::Context,
         open: &mut bool,
-        updater: &mut crate::updater::Updater,
+        updater: &mut kelp_ui::update::Updater,
         signing: &mut crate::signing_panel::SigningPanel,
         repo: Option<&std::path::Path>,
     ) -> bool {
