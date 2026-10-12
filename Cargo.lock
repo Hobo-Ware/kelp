@@ -3024,6 +3024,7 @@ dependencies = [
 name = "kelp-ui"
 version = "0.8.19"
 dependencies = [
+ "anyhow",
  "egui",
  "gix",
  "kelp-core",
