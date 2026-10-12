@@ -23,8 +23,8 @@ fn installed(app: &str) -> bool {
         .any(|dir| dir.join(format!("{app}.app")).exists())
 }
 
-pub fn open_in_editor(path: &Path, app: Option<&str>) -> std::io::Result<()> {
-    let mut command = if cfg!(target_os = "macos") {
+fn editor_command(path: &Path, app: Option<&str>) -> Command {
+    if cfg!(target_os = "macos") {
         let mut c = Command::new("open");
         if let Some(app) = app {
             c.args(["-a", app]);
@@ -32,10 +32,14 @@ pub fn open_in_editor(path: &Path, app: Option<&str>) -> std::io::Result<()> {
         c.arg(path);
         c
     } else {
-        let mut c = Command::new("xdg-open");
+        let mut c = Command::new(app.unwrap_or("xdg-open"));
         c.arg(path);
         c
-    };
+    }
+}
+
+pub fn open_in_editor(path: &Path, app: Option<&str>) -> std::io::Result<()> {
+    let mut command = editor_command(path, app);
     let status = command.status()?;
     if status.success() {
         Ok(())
@@ -44,5 +48,23 @@ pub fn open_in_editor(path: &Path, app: Option<&str>) -> std::io::Result<()> {
             Some(app) => format!("{app} could not open it"),
             None => "no app is set to open this file".to_string(),
         }))
+    }
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_system_opener_is_the_default() {
+        let command = editor_command(Path::new("/tmp/a.txt"), None);
+        assert_eq!(command.get_program(), "xdg-open");
+    }
+
+    #[test]
+    fn a_chosen_editor_runs_as_a_command() {
+        let command = editor_command(Path::new("/tmp/a.txt"), Some("code"));
+        assert_eq!(command.get_program(), "code");
+        assert_eq!(command.get_args().collect::<Vec<_>>(), ["/tmp/a.txt"]);
     }
 }
