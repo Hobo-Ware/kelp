@@ -3025,7 +3025,10 @@ name = "kelp-ui"
 version = "0.8.19"
 dependencies = [
  "egui",
+ "gix",
  "kelp-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

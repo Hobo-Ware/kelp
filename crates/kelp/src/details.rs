@@ -260,7 +260,7 @@ fn commit_header(ui: &mut Ui, repo: &mut Repo, details: &commit::Details) -> Opt
             }
             pull_line(ui, repo, details.id);
             ui.separator();
-            crate::change_counts::show(ui, crate::change_counts::Counts::of(&details.changes));
+            kelp_ui::graph::counts::show(ui, kelp_ui::graph::counts::Counts::of(&details.changes));
         });
     reveal
 }

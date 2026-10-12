@@ -9,8 +9,9 @@ use kelp_core::workspace::{Stash, Worktree};
 use crate::commands::Command;
 use crate::dialogs::{Dialog, NewWorktree, TextAction, TextDialog};
 use crate::icons::Icon;
-use crate::ref_labels::{self, DropChoice, DropPlan};
-pub use kelp_ui::menu::{context_menu, context_menu_at, heading, menu_width, row, separator};
+use crate::ref_labels::{self, DropChoice};
+use kelp_ui::graph::DropPlan;
+pub use kelp_ui::menu::{context_menu, heading, menu_width, row, separator};
 
 pub struct MenuContext {
     pub current_branch: Option<String>,

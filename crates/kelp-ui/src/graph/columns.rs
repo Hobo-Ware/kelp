@@ -1,9 +1,9 @@
-use eframe::egui::{Align2, CursorIcon, FontId, Painter, Rect, Sense, Stroke, Ui, pos2, vec2};
-use gix::ObjectId;
+use egui::{Align2, CursorIcon, FontId, Painter, Rect, Sense, Stroke, Ui, pos2, vec2};
+use kelp_core::ObjectId;
 use kelp_core::commit::{self, Summary};
 use serde::{Deserialize, Serialize};
 
-use crate::{menus, theme};
+use crate::theme;
 
 const MIN_W: f32 = 56.0;
 const MAX_W: f32 = 420.0;
@@ -165,7 +165,7 @@ pub fn paint_cells(
             ),
         };
         let max_width = (end - start - PAD * 2.0).max(0.0);
-        let galley = kelp_ui::paint::truncated(painter, text, font, color, max_width);
+        let galley = crate::paint::truncated(painter, text, font, color, max_width);
         painter.galley(
             pos2(start + PAD, mid_y - galley.size().y / 2.0),
             galley,
@@ -215,19 +215,19 @@ pub fn header(ui: &mut Ui, rect: Rect, columns: &mut GraphColumns) -> bool {
         }
     }
     let area = ui.interact(rect, ui.id().with("column-header"), Sense::click());
-    crate::menus::context_menu(&area, |ui| changed |= menu(ui, columns));
+    crate::menu::context_menu(&area, |ui| changed |= menu(ui, columns));
     changed
 }
 
 pub fn menu(ui: &mut Ui, columns: &mut GraphColumns) -> bool {
-    crate::menus::menu_width(ui, 180.0);
+    crate::menu::menu_width(ui, 180.0);
     ui.spacing_mut().item_spacing.y = 0.0;
-    menus::heading(ui, "COLUMNS");
+    crate::menu::heading(ui, "COLUMNS");
     let mut changed = false;
     for column in Column::ALL {
         let shown = columns.shows(column);
         let icon = shown.then_some(crate::icons::Icon::Check);
-        if menus::row(ui, icon, column.label(), None, false) {
+        if crate::menu::row(ui, icon, column.label(), None, false) {
             *columns.shown_mut(column) = !shown;
             changed = true;
         }
@@ -237,7 +237,7 @@ pub fn menu(ui: &mut Ui, columns: &mut GraphColumns) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use eframe::egui::{self, Event, PointerButton, Pos2, RawInput, pos2, vec2};
+    use egui::{self, Event, PointerButton, Pos2, RawInput, pos2, vec2};
 
     use super::*;
 
