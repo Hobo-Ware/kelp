@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use notify::{RecursiveMode, Watcher as _};
+use notify::event::{AccessKind, AccessMode};
+use notify::{EventKind, RecursiveMode, Watcher as _};
 
 const SETTLE: Duration = Duration::from_millis(400);
 const MAX_CHECKED_PATHS: usize = 256;
@@ -240,6 +241,11 @@ impl Watcher {
     }
 }
 
+/// inotify reports opens and reads; git's own reads must not count as changes.
+fn is_read_only(kind: &EventKind) -> bool {
+    matches!(kind, EventKind::Access(access) if *access != AccessKind::Close(AccessMode::Write))
+}
+
 fn settle_loop(
     layout: Layout,
     rx: mpsc::Receiver<notify::Result<notify::Event>>,
@@ -253,7 +259,11 @@ fn settle_loop(
         }
         let mut change = Change::default();
         let mut worktree_paths = HashSet::new();
-        for path in events.into_iter().flatten().flat_map(|e| e.paths) {
+        let changed = events
+            .into_iter()
+            .flatten()
+            .filter(|event| !is_read_only(&event.kind));
+        for path in changed.flat_map(|event| event.paths) {
             match layout.classify(&path) {
                 Classified::Git(c) => change.merge(c),
                 Classified::Worktree(rel) => {
@@ -360,6 +370,25 @@ mod tests {
                 "{p}"
             );
         }
+    }
+
+    #[test]
+    fn reads_are_not_changes_but_a_finished_write_is() {
+        assert!(is_read_only(&EventKind::Access(AccessKind::Open(
+            AccessMode::Any
+        ))));
+        assert!(is_read_only(&EventKind::Access(AccessKind::Close(
+            AccessMode::Read
+        ))));
+        assert!(!is_read_only(&EventKind::Access(AccessKind::Close(
+            AccessMode::Write
+        ))));
+        assert!(!is_read_only(&EventKind::Modify(
+            notify::event::ModifyKind::Any
+        )));
+        assert!(!is_read_only(&EventKind::Create(
+            notify::event::CreateKind::Any
+        )));
     }
 
     #[test]
