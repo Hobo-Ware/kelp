@@ -11,6 +11,7 @@ use crate::theme;
 
 pub const AVATAR_R: f32 = 10.0;
 
+/// The fields `commit_tooltip` shows.
 pub struct TooltipCommit<'a> {
     pub title: &'a str,
     pub body: &'a str,
@@ -20,6 +21,7 @@ pub struct TooltipCommit<'a> {
     pub id: ObjectId,
 }
 
+/// Fills a hover tooltip with a commit's title, body preview, author, time and id.
 pub fn commit_tooltip(ui: &mut Ui, commit: &TooltipCommit<'_>, now: i64) {
     ui.set_max_width(420.0);
     ui.spacing_mut().item_spacing.y = 4.0;
@@ -59,6 +61,7 @@ pub fn commit_tooltip(ui: &mut Ui, commit: &TooltipCommit<'_>, now: i64) {
     );
 }
 
+/// Draws a commit author's avatar (or generated initials) on a graph node.
 pub fn paint_avatar(
     painter: &egui::Painter,
     node: Pos2,
@@ -78,6 +81,7 @@ pub fn paint_avatar(
     );
 }
 
+/// Draws the soft ring around a selected avatar.
 pub fn selection_halo(painter: &egui::Painter, center: Pos2, radius: f32, ring: Color32) {
     painter.circle_stroke(
         center,
@@ -87,6 +91,7 @@ pub fn selection_halo(painter: &egui::Painter, center: Pos2, radius: f32, ring: 
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Draws an avatar texture or generated initials in a ring.
 pub fn draw_avatar(
     painter: &egui::Painter,
     center: Pos2,
@@ -121,6 +126,7 @@ pub fn draw_avatar(
     }
 }
 
+/// Lays out one line of text, cut with an ellipsis at `max_width`.
 pub fn truncated(
     painter: &egui::Painter,
     text: String,

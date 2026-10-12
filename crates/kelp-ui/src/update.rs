@@ -31,13 +31,18 @@ enum Message {
     Installed(Release, anyhow::Result<()>),
 }
 
+/// What the updater needs to know about the app it updates.
 #[derive(Debug, Clone)]
 pub struct UpdateConfig {
+    /// The GitHub repository and the Homebrew cask.
     pub source: Source,
+    /// Shown in the updater's texts.
     pub app_name: String,
+    /// The running version, compared with the latest release.
     pub version: String,
 }
 
+/// Checks for new releases in the background and installs them with `brew upgrade`.
 pub struct Updater {
     pub status: Status,
     config: UpdateConfig,
@@ -122,6 +127,7 @@ impl Updater {
         });
     }
 
+    /// Call once per frame; collects results and starts the periodic check when `enabled`.
     pub fn tick(&mut self, enabled: bool, auto_install: bool) {
         while let Ok(message) = self.rx.try_recv() {
             self.status = match message {
