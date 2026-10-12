@@ -5,10 +5,12 @@ use crate::theme;
 pub const MARK_A: &str = "A";
 pub const MARK_B: &str = "B";
 
+/// The commits picked for a comparison, by row.
 #[derive(Clone, Copy, Default)]
 pub struct Marks {
     pub base: Option<usize>,
     pub target: Option<usize>,
+    /// The right-hand side is the working tree, not a commit.
     pub work_tree: bool,
 }
 
