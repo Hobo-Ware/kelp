@@ -1,4 +1,4 @@
-use crate::repo_view::Selection;
+use super::Selection;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Row {

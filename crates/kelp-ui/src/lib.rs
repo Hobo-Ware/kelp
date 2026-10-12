@@ -1,5 +1,6 @@
 pub mod avatars;
 pub mod fonts;
+pub mod graph;
 pub mod icons;
 pub mod jobs;
 pub mod menu;

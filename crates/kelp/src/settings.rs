@@ -4,10 +4,10 @@ use std::time::Duration;
 use eframe::egui::{self, Margin, RichText, Stroke};
 use serde::{Deserialize, Serialize};
 
-use crate::columns::GraphColumns;
 use crate::panels::{self, Panels};
 use crate::recents::Recent;
 use crate::theme;
+use kelp_ui::graph::GraphColumns;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Appearance {
