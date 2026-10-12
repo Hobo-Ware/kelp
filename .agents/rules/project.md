@@ -9,8 +9,11 @@ in `LEDGER.md`.
 ```
 crates/kelp-core/   git + graph logic, no UI (history, graph lanes, diff, status, ops,
                     review comments, avatars, search, update check). Unit + round-trip tests.
-crates/kelp/        the egui app (graph view, sidebar, details, staging, diff/review,
-                    worktrees, dialogs, menus, mascot, updater, settings)
+crates/kelp-ui/     reusable egui widgets so other apps can embed the graph and diff: theme,
+                    fonts, icons, avatar store, job runner, commit graph painter, diff body
+                    with review threads, self-updater. No gix, no Kelp commands.
+crates/kelp/        the egui app (sidebar, details, staging, worktrees, dialogs, menus,
+                    mascot, settings) around kelp-ui, plus the glue that reads the repo for it
 site/               the public page (GitHub Pages, kelp.hoboware.dev)
 packaging/          Info.plist template, reference cask, release docs
 scripts/            bundle-macos.sh, make-icon.sh, make-site-assets.sh

@@ -79,6 +79,7 @@ A Cargo workspace so the git and graph logic can be tested without a UI:
 ```
 crates/
   kelp-core/   git reading, graph lane layout, avatars, comments (no UI)
+  kelp-ui/     egui widgets other apps can embed: graph, diff with review threads, theme
   kelp/        the egui app (binary)
 ```
 
