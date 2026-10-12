@@ -1,16 +1,15 @@
 use std::cell::Cell;
-use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use eframe::egui::{
-    self, Align2, Color32, CursorIcon, FontId, Key, Margin, Modifiers, Rect, RichText, Sense,
-    Stroke, Ui, pos2, vec2,
+    self, Color32, CursorIcon, FontId, Margin, Rect, RichText, Sense, Stroke, Ui, pos2, vec2,
 };
 use gix::ObjectId;
-use kelp_core::diff::{self, Body, FileDiff, Line, LineKind};
+use kelp_core::diff::{self, Body, FileDiff};
 use kelp_core::ops::Op;
-use kelp_core::review::{Anchor, Comment, Review, Side, Thread};
+use kelp_core::review::Review;
+use kelp_ui::diff::{DiffAction, DiffBody, DiffInput, DiffMode, HunkButton};
 
 use crate::avatars::AvatarStore;
 use crate::blame_view::{self, BlameView};
@@ -22,19 +21,13 @@ thread_local! {
     static ASKED_BEFORE_DISCARD: Cell<bool> = const { Cell::new(false) };
 }
 
-const LINE_H: f32 = 22.0;
-const HUNK_H: f32 = 28.0;
+const STAGE_HUNK_W: f32 = 118.0;
 const DISCARD_W: f32 = 76.0;
-const NUM_W: f32 = 46.0;
-const GUTTER_W: f32 = 24.0;
+const STAGE_BUTTON: usize = 0;
 const HEADER_H: f32 = 48.0;
 const TITLE_STATS_W: f32 = 150.0;
 const TITLE_TOO_NARROW: f32 = 120.0;
 const TITLE_ROOMY: f32 = 320.0;
-const THREAD_INDENT: f32 = NUM_W * 2.0 + GUTTER_W + 10.0;
-const THREAD_W: f32 = 640.0;
-const RESOLVED_H: f32 = 34.0;
-const COMPOSER_H: f32 = 132.0;
 const STACKED_PANE_H: f32 = 480.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,51 +47,14 @@ enum Mode {
     Blame,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub enum Layout {
-    #[default]
-    Unified,
-    Split,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Jump {
-    Previous,
-    Next,
-}
-
-#[derive(Clone, Copy)]
-enum Item {
-    Hunk(usize),
-    Line(usize),
-    Split(Option<usize>, Option<usize>),
-    FileLine(usize),
-    Thread(u64),
-    Composer,
-    OutsideHeader,
-}
-
-struct Rows {
-    items: Vec<Item>,
-    heights: Vec<f32>,
-    offsets: Vec<f32>,
-    total: f32,
-}
+pub use kelp_ui::diff::DiffLayout as Layout;
 
 pub struct DiffView {
     pub source: DiffSource,
     pub diff: FileDiff,
     old_path: Option<String>,
-    hunks: Vec<String>,
-    lines: Vec<(usize, Line)>,
-    old_lines: Vec<String>,
-    new_lines: Vec<String>,
+    body: DiffBody,
     mode: Mode,
-    layout: Layout,
-    composer: Option<(Side, u32)>,
-    draft: String,
-    replies: HashMap<u64, String>,
-    expanded: HashMap<u64, bool>,
     pending: Option<Op>,
     header_squeeze: u8,
     lfs_hint: bool,
@@ -106,11 +62,6 @@ pub struct DiffView {
     stacked: bool,
     ask: Option<Dialog>,
     preview: Option<Preview>,
-    file_change_starts: Vec<u32>,
-    selected_lines: BTreeSet<usize>,
-    select_anchor: Option<usize>,
-    scroll_y: f32,
-    jump: Option<Jump>,
     blame_from: Option<(PathBuf, Option<ObjectId>)>,
     blame: Option<BlameView>,
 }
@@ -158,19 +109,6 @@ impl DiffView {
                 diff::build(path, content.as_deref(), content.as_deref())
             }
         };
-        let mut hunks = Vec::new();
-        let mut lines = Vec::new();
-        if let Body::Text(list) = &diff.body {
-            for (h, hunk) in list.iter().enumerate() {
-                hunks.push(hunk.header.clone());
-                lines.extend(hunk.lines.iter().cloned().map(|l| (h, l)));
-            }
-        }
-        let split = |t: &Option<String>| {
-            t.as_deref()
-                .map(|t| t.lines().map(|l| l.replace('\t', "    ")).collect())
-                .unwrap_or_default()
-        };
         let read = |repo_path: &str| -> Option<Vec<u8>> {
             match source {
                 DiffSource::Commit(id) | DiffSource::File(id) => {
@@ -187,7 +125,6 @@ impl DiffView {
             .preview
             .as_ref()
             .map(|sides| Preview::new(sides, path, &read));
-        let file_change_starts = change_starts(&lines);
         let has_lines = diff.new_text.as_deref().is_some_and(|t| !t.is_empty());
         let blame_from = match (source, workdir) {
             (DiffSource::Commit(id) | DiffSource::File(id), _) if has_lines => Some((
@@ -210,17 +147,9 @@ impl DiffView {
         Ok(Self {
             source,
             old_path: old_path.map(str::to_string),
-            old_lines: split(&diff.old_text),
-            new_lines: split(&diff.new_text),
+            body: DiffBody::new(&diff),
             diff,
-            hunks,
-            lines,
             mode,
-            layout: Layout::Unified,
-            composer: None,
-            draft: String::new(),
-            replies: HashMap::new(),
-            expanded: HashMap::new(),
             pending: None,
             header_squeeze: 0,
             embedded: false,
@@ -228,11 +157,6 @@ impl DiffView {
             lfs_hint,
             ask: None,
             preview,
-            file_change_starts,
-            selected_lines: BTreeSet::new(),
-            select_anchor: None,
-            scroll_y: 0.0,
-            jump: None,
             blame_from,
             blame: None,
         })
@@ -263,25 +187,17 @@ impl DiffView {
         )?;
         let kept = std::mem::replace(self, fresh);
         self.mode = kept.mode;
-        self.layout = kept.layout;
-        self.composer = kept.composer;
-        self.draft = kept.draft;
-        self.replies = kept.replies;
-        self.expanded = kept.expanded;
+        self.body = kept.body;
+        self.body.reload(&self.diff);
         self.header_squeeze = kept.header_squeeze;
         self.lfs_hint = kept.lfs_hint;
         self.embedded = kept.embedded;
         self.stacked = kept.stacked;
-        self.scroll_y = kept.scroll_y;
         self.blame = kept.blame;
         if self.is_working()
             && let Some(blame) = &mut self.blame
         {
             blame.restart();
-        }
-        if same_lines(&kept.lines, &self.lines) {
-            self.selected_lines = kept.selected_lines;
-            self.select_anchor = kept.select_anchor;
         }
         if let (Some(old), Some(sides)) = (kept.preview, &self.diff.preview)
             && old.same_content(sides)
@@ -314,22 +230,88 @@ impl DiffView {
             return false;
         }
         match self.mode {
-            Mode::Diff => !self.hunks.is_empty(),
-            Mode::File => !self.file_change_starts.is_empty(),
+            Mode::Diff => self.body.has_changes_to_jump_to(DiffMode::Diff),
+            Mode::File => self.body.has_changes_to_jump_to(DiffMode::File),
             Mode::Preview | Mode::Blame => false,
         }
     }
 
+    fn hunk_buttons(&self) -> Vec<HunkButton> {
+        let Some(label) = self.hunk_action() else {
+            return Vec::new();
+        };
+        let mut buttons = vec![HunkButton {
+            label: label.to_string(),
+            hint: None,
+            danger: false,
+            width: STAGE_HUNK_W,
+        }];
+        if self.can_discard() {
+            buttons.push(HunkButton {
+                label: "Discard".to_string(),
+                hint: Some("Undo this hunk in the file. Shift-click skips the question.".into()),
+                danger: true,
+                width: DISCARD_W,
+            });
+        }
+        buttons
+    }
+
+    fn line_select_hint(&self) -> Option<&'static str> {
+        self.lines_selectable().then(|| {
+            if self.is_staged() {
+                "Select to unstage (Shift-click for a range)"
+            } else {
+                "Select to stage (Shift-click for a range)"
+            }
+        })
+    }
+
+    fn apply(&mut self, actions: Vec<DiffAction>, review: &mut Review) -> bool {
+        let mut changed = false;
+        for action in actions {
+            match action {
+                DiffAction::AddThread { anchor, comment } => {
+                    review.add(self.path(), self.commit(), anchor, comment);
+                    changed = true;
+                }
+                DiffAction::Reply { thread, comment } => {
+                    review.reply(thread, comment);
+                    changed = true;
+                }
+                DiffAction::SetResolved { thread, resolved } => {
+                    review.set_resolved(thread, resolved);
+                    changed = true;
+                }
+                DiffAction::DeleteThread(thread) => {
+                    review.delete(thread);
+                    changed = true;
+                }
+                DiffAction::HunkButton {
+                    hunk,
+                    button: STAGE_BUTTON,
+                    ..
+                } => {
+                    if let Some(patch) = diff::hunk_patch(&self.diff, hunk) {
+                        let reverse = self.source == DiffSource::Staged;
+                        self.pending = Some(Op::ApplyToIndex { patch, reverse });
+                    }
+                }
+                DiffAction::HunkButton { hunk, shift, .. } => self.discard_hunk(hunk, shift),
+            }
+        }
+        changed
+    }
+
     fn stage_selected_lines(&mut self) {
         let staged = self.source == DiffSource::Staged;
-        if let Some(patch) = diff::lines_patch(&self.diff, &self.selected_lines, staged) {
+        if let Some(patch) = diff::lines_patch(&self.diff, self.body.selection(), staged) {
             self.pending = Some(Op::ApplyToIndex {
                 patch,
                 reverse: staged,
             });
         }
-        self.selected_lines.clear();
-        self.select_anchor = None;
+        self.body.clear_selection();
     }
 
     fn can_discard(&self) -> bool {
@@ -337,13 +319,12 @@ impl DiffView {
     }
 
     fn discard_selected_lines(&mut self, skip_confirm: bool) {
-        let count = self.selected_lines.len();
-        if let Some(patch) = diff::discard_lines_patch(&self.diff, &self.selected_lines) {
+        let count = self.body.selection().len();
+        if let Some(patch) = diff::discard_lines_patch(&self.diff, self.body.selection()) {
             let what = format!("{count} line{}", if count == 1 { "" } else { "s" });
             self.discard(patch, &what, skip_confirm);
         }
-        self.selected_lines.clear();
-        self.select_anchor = None;
+        self.body.clear_selection();
     }
 
     fn discard_hunk(&mut self, hunk: usize, skip_confirm: bool) {
@@ -370,28 +351,12 @@ impl DiffView {
         });
     }
 
-    fn toggle_line(&mut self, index: usize, extend: bool) {
-        match self.select_anchor.filter(|_| extend) {
-            Some(anchor) => {
-                let (from, to) = (anchor.min(index), anchor.max(index));
-                let changed = (from..=to).filter(|&i| self.lines[i].1.kind != LineKind::Context);
-                self.selected_lines.extend(changed);
-            }
-            None => {
-                if !self.selected_lines.remove(&index) {
-                    self.selected_lines.insert(index);
-                }
-            }
-        }
-        self.select_anchor = Some(index);
-    }
-
     pub fn layout(&self) -> Layout {
-        self.layout
+        self.body.layout()
     }
 
     pub fn jump_to_change(&mut self, next: bool) {
-        self.jump = Some(if next { Jump::Next } else { Jump::Previous });
+        self.body.jump_to_change(next);
     }
 
     pub fn embedded(mut self) -> Self {
@@ -406,7 +371,7 @@ impl DiffView {
     }
 
     pub fn set_layout(&mut self, layout: Layout) {
-        self.layout = layout;
+        self.body.set_layout(layout);
     }
 
     fn commit(&self) -> Option<String> {
@@ -453,16 +418,8 @@ impl DiffView {
         author: &str,
         avatars: &mut AvatarStore,
     ) -> Event {
-        if let Some(text) = &self.diff.new_text {
-            crate::fonts::ensure_fallback(ui.ctx(), text);
-        }
-        if !self.stacked && !ui.ctx().egui_wants_keyboard_input() {
-            if ui.input_mut(|i| i.consume_key(Modifiers::ALT, Key::ArrowUp)) {
-                self.jump = Some(Jump::Previous);
-            }
-            if ui.input_mut(|i| i.consume_key(Modifiers::ALT, Key::ArrowDown)) {
-                self.jump = Some(Jump::Next);
-            }
+        if !self.stacked {
+            self.body.jump_with_keys(ui);
         }
         let mut event = self.header(ui, review);
         self.lfs_strip(ui);
@@ -502,28 +459,32 @@ impl DiffView {
             }
             return event;
         }
-        match &self.diff.body {
-            Body::Submodule(change) => submodule_card(ui, change),
-            Body::Binary => notice(ui, "Binary file, no text to show."),
-            Body::TooLarge => notice(ui, "This file is too large to show here."),
-            Body::Text(_) if self.mode == Mode::Diff && self.lines.is_empty() => {
-                notice(ui, "No changes in this file.")
+        let hunk_buttons = self.hunk_buttons();
+        let line_select_hint = self.line_select_hint();
+        let actions = self.body.ui(
+            ui,
+            DiffInput {
+                diff: &self.diff,
+                threads: &review.threads,
+                author,
+                mode: match self.mode {
+                    Mode::File => DiffMode::File,
+                    _ => DiffMode::Diff,
+                },
+                stacked: self.stacked,
+                hunk_buttons: &hunk_buttons,
+                line_select_hint,
+            },
+        );
+        if matches!(self.diff.body, Body::Text(_)) {
+            if self.apply(actions, review) {
+                event = Event::Changed;
             }
-            Body::Text(_) => {
-                let changed = if self.stacked {
-                    self.flowing_body(ui, review, author)
-                } else {
-                    self.body(ui, review, author)
-                };
-                if changed {
-                    event = Event::Changed;
-                }
-                if let Some(op) = self.pending.take() {
-                    event = Event::Run(op);
-                }
-                if let Some(dialog) = self.ask.take() {
-                    event = Event::Ask(dialog);
-                }
+            if let Some(op) = self.pending.take() {
+                event = Event::Run(op);
+            }
+            if let Some(dialog) = self.ask.take() {
+                event = Event::Ask(dialog);
             }
         }
         event
@@ -568,11 +529,13 @@ impl DiffView {
                                 && self.header_squeeze < 2
                                 && matches!(self.diff.body, Body::Text(_))
                             {
+                                let mut layout = self.body.layout();
                                 widgets::segmented(
                                     ui,
-                                    &mut self.layout,
+                                    &mut layout,
                                     &[(Layout::Split, "Split"), (Layout::Unified, "Unified")],
                                 );
+                                self.body.set_layout(layout);
                             }
                             let mut modes = Vec::new();
                             if self.preview.is_some() {
@@ -593,15 +556,15 @@ impl DiffView {
                             if self.jump_targets_exist() && self.header_squeeze < 1 {
                                 ui.add_space(4.0);
                                 if arrow_button(ui, false, "Next change (⌥↓)") {
-                                    self.jump = Some(Jump::Next);
+                                    self.body.jump_to_change(true);
                                 }
                                 if arrow_button(ui, true, "Previous change (⌥↑)") {
-                                    self.jump = Some(Jump::Previous);
+                                    self.body.jump_to_change(false);
                                 }
                             }
-                            if self.lines_selectable() && !self.selected_lines.is_empty() {
+                            if self.lines_selectable() && !self.body.selection().is_empty() {
                                 ui.add_space(4.0);
-                                let count = self.selected_lines.len();
+                                let count = self.body.selection().len();
                                 let verb = if self.is_staged() { "Unstage" } else { "Stage" };
                                 let label = format!(
                                     "{verb} {count} line{}",
@@ -644,8 +607,7 @@ impl DiffView {
                                 let clear =
                                     RichText::new("Clear").size(12.0).color(theme::text_muted());
                                 if crate::widgets::text_button(ui, clear).clicked() {
-                                    self.selected_lines.clear();
-                                    self.select_anchor = None;
+                                    self.body.clear_selection();
                                 }
                             }
                         },
@@ -746,871 +708,6 @@ impl DiffView {
         );
         event
     }
-
-    fn items(&self, review: &Review) -> Vec<Item> {
-        let threads: Vec<&Thread> = review.for_path(self.path()).collect();
-        let mut placed: HashMap<(Side, u32), Vec<u64>> = HashMap::new();
-        let mut outside = Vec::new();
-        let old: Vec<&str> = self.old_lines.iter().map(String::as_str).collect();
-        let new: Vec<&str> = self.new_lines.iter().map(String::as_str).collect();
-        for thread in &threads {
-            let text = if thread.anchor.side == Side::Old {
-                &old
-            } else {
-                &new
-            };
-            match thread.anchor.locate(text) {
-                Some(i) => placed
-                    .entry((thread.anchor.side, i as u32 + 1))
-                    .or_default()
-                    .push(thread.id),
-                None => outside.push(thread.id),
-            }
-        }
-        let mut items = Vec::new();
-        let attach = |items: &mut Vec<Item>, key: (Side, u32), shown: &mut Vec<(Side, u32)>| {
-            if let Some(ids) = placed.get(&key) {
-                items.extend(ids.iter().map(|id| Item::Thread(*id)));
-            }
-            if self.composer == Some(key) {
-                items.push(Item::Composer);
-            }
-            shown.push(key);
-        };
-        let mut shown = Vec::new();
-        match self.mode {
-            Mode::Preview | Mode::Blame => {}
-            Mode::File => {
-                for i in 0..self.new_lines.len() {
-                    items.push(Item::FileLine(i));
-                    attach(&mut items, (Side::New, i as u32 + 1), &mut shown);
-                }
-            }
-            Mode::Diff => {
-                let mut current_hunk = usize::MAX;
-                let mut i = 0;
-                while i < self.lines.len() {
-                    let (hunk, line) = &self.lines[i];
-                    if *hunk != current_hunk {
-                        current_hunk = *hunk;
-                        items.push(Item::Hunk(*hunk));
-                    }
-                    match self.layout {
-                        Layout::Unified => {
-                            items.push(Item::Line(i));
-                            if let Some(key) = key_of(line) {
-                                attach(&mut items, key, &mut shown);
-                            }
-                            i += 1;
-                        }
-                        Layout::Split => {
-                            let block_end = |from: usize, kind: LineKind| {
-                                let mut j = from;
-                                while j < self.lines.len()
-                                    && self.lines[j].1.kind == kind
-                                    && self.lines[j].0 == *hunk
-                                {
-                                    j += 1;
-                                }
-                                j
-                            };
-                            if line.kind == LineKind::Context {
-                                items.push(Item::Split(Some(i), Some(i)));
-                                if let Some(key) = key_of(line) {
-                                    attach(&mut items, key, &mut shown);
-                                }
-                                i += 1;
-                                continue;
-                            }
-                            let removed_end = block_end(i, LineKind::Removed);
-                            let added_end = block_end(removed_end, LineKind::Added);
-                            let removed: Vec<usize> = (i..removed_end).collect();
-                            let added: Vec<usize> = (removed_end..added_end).collect();
-                            for k in 0..removed.len().max(added.len()) {
-                                let (l, r) = (removed.get(k).copied(), added.get(k).copied());
-                                items.push(Item::Split(l, r));
-                                for side in [l, r].into_iter().flatten() {
-                                    if let Some(key) = key_of(&self.lines[side].1) {
-                                        attach(&mut items, key, &mut shown);
-                                    }
-                                }
-                            }
-                            i = added_end.max(i + 1);
-                        }
-                    }
-                }
-            }
-        }
-        let hidden: Vec<u64> = placed
-            .iter()
-            .filter(|(key, _)| !shown.contains(key))
-            .flat_map(|(_, ids)| ids.iter().copied())
-            .chain(outside)
-            .collect();
-        if !hidden.is_empty() {
-            let mut top = vec![Item::OutsideHeader];
-            top.extend(hidden.into_iter().map(Item::Thread));
-            top.extend(items);
-            items = top;
-        }
-        items
-    }
-
-    fn height(&self, ui: &Ui, item: &Item, review: &Review) -> f32 {
-        match item {
-            Item::Hunk(_) | Item::OutsideHeader => HUNK_H,
-            Item::Line(_) | Item::Split(..) | Item::FileLine(_) => LINE_H,
-            Item::Composer => COMPOSER_H,
-            Item::Thread(id) => {
-                let Some(thread) = review.threads.iter().find(|t| t.id == *id) else {
-                    return 0.0;
-                };
-                if thread.resolved && !self.expanded.get(id).copied().unwrap_or(false) {
-                    return RESOLVED_H;
-                }
-                let body_w = THREAD_W - 64.0;
-                let comments: f32 = thread
-                    .comments
-                    .iter()
-                    .map(|c| {
-                        let g = ui.painter().layout(
-                            c.body.clone(),
-                            FontId::proportional(13.0),
-                            theme::text(),
-                            body_w,
-                        );
-                        26.0 + g.size().y + 14.0
-                    })
-                    .sum();
-                20.0 + comments + 92.0
-            }
-        }
-    }
-
-    fn body(&mut self, ui: &mut Ui, review: &mut Review, author: &str) -> bool {
-        let rows = self.rows(ui, review);
-        let mut scroll = egui::ScrollArea::both().auto_shrink(false);
-        if let Some(jump) = self.jump.take()
-            && let Some(target) = self.jump_target(&rows.items, &rows.offsets, jump)
-        {
-            scroll = scroll.vertical_scroll_offset(target);
-        }
-        let mut changed = false;
-        scroll.show_viewport(ui, |ui, viewport| {
-            self.scroll_y = viewport.min.y;
-            let width = ui.available_width().max(self.min_width());
-            let (full, _) = ui.allocate_exact_size(vec2(width, rows.total), Sense::hover());
-            changed = self.draw_rows(ui, &rows, full.min, width, viewport, review, author);
-        });
-        changed
-    }
-
-    fn flowing_body(&mut self, ui: &mut Ui, review: &mut Review, author: &str) -> bool {
-        self.jump = None;
-        let rows = self.rows(ui, review);
-        let mut changed = false;
-        egui::ScrollArea::horizontal()
-            .auto_shrink([false, true])
-            .show_viewport(ui, |ui, viewport| {
-                let width = ui.available_width().max(self.min_width());
-                let (full, _) = ui.allocate_exact_size(vec2(width, rows.total), Sense::hover());
-                let clip = ui.clip_rect();
-                let visible = Rect::from_min_max(
-                    pos2(viewport.min.x, clip.top() - full.top()),
-                    pos2(viewport.max.x, clip.bottom() - full.top()),
-                );
-                changed = self.draw_rows(ui, &rows, full.min, width, visible, review, author);
-            });
-        changed
-    }
-
-    fn min_width(&self) -> f32 {
-        if self.layout == Layout::Split && self.mode == Mode::Diff {
-            900.0
-        } else {
-            1100.0
-        }
-    }
-
-    fn rows(&self, ui: &Ui, review: &Review) -> Rows {
-        let items = self.items(review);
-        let heights: Vec<f32> = items.iter().map(|i| self.height(ui, i, review)).collect();
-        let mut offsets = Vec::with_capacity(items.len() + 1);
-        let mut y = 0.0;
-        for h in &heights {
-            offsets.push(y);
-            y += h;
-        }
-        Rows {
-            items,
-            heights,
-            offsets,
-            total: y,
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn draw_rows(
-        &mut self,
-        ui: &mut Ui,
-        rows: &Rows,
-        origin: egui::Pos2,
-        width: f32,
-        viewport: Rect,
-        review: &mut Review,
-        author: &str,
-    ) -> bool {
-        let Rows {
-            items,
-            heights,
-            offsets,
-            ..
-        } = rows;
-        let mut changed = false;
-        let font = FontId::monospace(12.5);
-        let first = offsets.partition_point(|o| *o + LINE_H * 4.0 < viewport.min.y);
-        for (k, item) in items.iter().enumerate().skip(first) {
-            let top = offsets[k];
-            if top > viewport.max.y {
-                break;
-            }
-            let rect = Rect::from_min_size(origin + vec2(0.0, top), vec2(width, heights[k]));
-            match *item {
-                Item::Hunk(h) => {
-                    ui.painter().rect_filled(rect, 0.0, theme::hunk_bg());
-                    ui.painter().text(
-                        pos2(rect.left() + 16.0, rect.center().y),
-                        Align2::LEFT_CENTER,
-                        &self.hunks[h],
-                        font.clone(),
-                        theme::hunk_text(),
-                    );
-                    if let Some(label) = self.hunk_action() {
-                        let visible_right = rect.left() + viewport.max.x - viewport.min.x;
-                        let button_rect = Rect::from_min_size(
-                            pos2(visible_right.min(rect.right()) - 130.0, rect.top() + 3.0),
-                            vec2(118.0, rect.height() - 6.0),
-                        );
-                        let button = egui::Button::new(RichText::new(label).size(12.0))
-                            .corner_radius(5)
-                            .fill(theme::tone(Color32::from_rgb(0x24, 0x2c, 0x3a)));
-                        if ui.put(button_rect, button).clicked()
-                            && let Some(patch) = diff::hunk_patch(&self.diff, h)
-                        {
-                            let reverse = self.source == DiffSource::Staged;
-                            self.pending = Some(Op::ApplyToIndex { patch, reverse });
-                        }
-                        if self.can_discard() {
-                            let discard_rect = Rect::from_min_size(
-                                button_rect.min - vec2(DISCARD_W + 8.0, 0.0),
-                                vec2(DISCARD_W, button_rect.height()),
-                            );
-                            let discard = egui::Button::new(
-                                RichText::new("Discard").size(12.0).color(theme::deleted()),
-                            )
-                            .corner_radius(5)
-                            .fill(theme::with_alpha(theme::deleted(), 0x1c));
-                            let response = ui.put(discard_rect, discard).on_hover_text(
-                                "Undo this hunk in the file. Shift-click skips the question.",
-                            );
-                            if response.clicked() {
-                                let shift = ui.input(|i| i.modifiers.shift);
-                                self.discard_hunk(h, shift);
-                            }
-                        }
-                    }
-                }
-                Item::OutsideHeader => {
-                    ui.painter().rect_filled(
-                        rect,
-                        0.0,
-                        theme::tone(Color32::from_rgb(0x1f, 0x23, 0x2b)),
-                    );
-                    ui.painter().text(
-                        pos2(rect.left() + 16.0, rect.center().y),
-                        Align2::LEFT_CENTER,
-                        "Comments on lines not shown here",
-                        FontId::proportional(12.0),
-                        theme::text_muted(),
-                    );
-                }
-                Item::Line(i) => self.unified_line(ui, rect, i, &font),
-                Item::Split(l, r) => {
-                    let half = rect.width() / 2.0;
-                    let left = Rect::from_min_size(rect.min, vec2(half, rect.height()));
-                    let right =
-                        Rect::from_min_size(rect.min + vec2(half, 0.0), vec2(half, rect.height()));
-                    self.split_side(ui, left, l, Side::Old, &font);
-                    self.split_side(ui, right, r, Side::New, &font);
-                    ui.painter().vline(
-                        right.left(),
-                        rect.y_range(),
-                        Stroke::new(1.0, theme::border()),
-                    );
-                }
-                Item::FileLine(i) => {
-                    let text = self.new_lines[i].clone();
-                    let number = i as u32 + 1;
-                    self.code_row(
-                        ui,
-                        rect,
-                        Row {
-                            numbers: Numbers::One(Some(number)),
-                            mark: "",
-                            text: &text,
-                            emphasis: &[],
-                            bg: Color32::TRANSPARENT,
-                            mark_color: theme::text_faint(),
-                            text_color: theme::text_body(),
-                            side: Side::New,
-                            selectable: None,
-                        },
-                        &font,
-                    );
-                }
-                Item::Thread(id) => {
-                    if self.thread(ui, rect, id, review, author) {
-                        changed = true;
-                    }
-                }
-                Item::Composer => {
-                    if self.composer_ui(ui, rect, review, author) {
-                        changed = true;
-                    }
-                }
-            }
-        }
-        changed
-    }
-
-    fn jump_target(&self, items: &[Item], offsets: &[f32], jump: Jump) -> Option<f32> {
-        let targets = items.iter().zip(offsets).filter_map(|(item, &top)| {
-            let is_start = match *item {
-                Item::Hunk(_) => true,
-                Item::FileLine(i) => self.file_change_starts.contains(&(i as u32 + 1)),
-                _ => false,
-            };
-            is_start.then_some((top - LINE_H * 2.0).max(0.0))
-        });
-        let here = self.scroll_y;
-        match jump {
-            Jump::Next => targets.into_iter().find(|&t| t > here + 1.0),
-            Jump::Previous => targets.into_iter().rfind(|&t| t < here - 1.0),
-        }
-    }
-
-    fn unified_line(&mut self, ui: &mut Ui, rect: Rect, index: usize, font: &FontId) {
-        let line = self.lines[index].1.clone();
-        let (bg, mark, mark_color) = style(line.kind);
-        let side = if line.kind == LineKind::Removed {
-            Side::Old
-        } else {
-            Side::New
-        };
-        let row = Row {
-            numbers: Numbers::Both(line.old, line.new),
-            mark,
-            text: &line.text,
-            emphasis: &line.emphasis,
-            bg,
-            mark_color,
-            text_color: text_color(line.kind),
-            side,
-            selectable: self.selectable(index),
-        };
-        self.code_row(ui, rect, row, font);
-    }
-
-    fn split_side(
-        &mut self,
-        ui: &mut Ui,
-        rect: Rect,
-        index: Option<usize>,
-        side: Side,
-        font: &FontId,
-    ) {
-        let Some(index) = index else {
-            ui.painter()
-                .rect_filled(rect, 0.0, theme::tone(Color32::from_rgb(0x18, 0x1b, 0x21)));
-            return;
-        };
-        let line = self.lines[index].1.clone();
-        let (bg, mark, mark_color) = style(line.kind);
-        let number = if side == Side::Old {
-            line.old
-        } else {
-            line.new
-        };
-        let row = Row {
-            numbers: Numbers::One(number),
-            mark,
-            text: &line.text,
-            emphasis: &line.emphasis,
-            bg,
-            mark_color,
-            text_color: text_color(line.kind),
-            side,
-            selectable: self.selectable(index),
-        };
-        self.code_row(ui, rect, row, font);
-    }
-
-    fn selectable(&self, index: usize) -> Option<usize> {
-        (self.lines_selectable() && self.lines[index].1.kind != LineKind::Context).then_some(index)
-    }
-
-    fn code_row(&mut self, ui: &mut Ui, rect: Rect, row: Row, font: &FontId) {
-        let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, row.bg);
-        let mid = rect.center().y;
-        let num = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
-        let numbers_w = match row.numbers {
-            Numbers::Both(..) => NUM_W * 2.0,
-            Numbers::One(_) => NUM_W,
-        };
-        if let Some(index) = row.selectable {
-            let numbers_rect = Rect::from_min_size(rect.min, vec2(numbers_w, rect.height()));
-            let response = ui
-                .interact(
-                    numbers_rect,
-                    ui.id().with(("select-line", index, rect.left() as i32)),
-                    Sense::click(),
-                )
-                .on_hover_cursor(CursorIcon::PointingHand);
-            if self.selected_lines.contains(&index) {
-                painter.rect_filled(numbers_rect, 0.0, theme::with_alpha(theme::accent(), 0x38));
-                painter.rect_filled(
-                    Rect::from_min_size(rect.min, vec2(3.0, rect.height())),
-                    0.0,
-                    theme::accent(),
-                );
-            } else if response.hovered() {
-                painter.rect_filled(numbers_rect, 0.0, theme::overlay(0x0c));
-            }
-            let hint = if self.is_staged() {
-                "Select to unstage (Shift-click for a range)"
-            } else {
-                "Select to stage (Shift-click for a range)"
-            };
-            if response.on_hover_text(hint).clicked() {
-                let extend = ui.input(|i| i.modifiers.shift);
-                self.toggle_line(index, extend);
-            }
-        }
-        let line_no = match row.numbers {
-            Numbers::Both(old, new) => {
-                painter.text(
-                    pos2(rect.left() + NUM_W - 8.0, mid),
-                    Align2::RIGHT_CENTER,
-                    num(old),
-                    font.clone(),
-                    theme::line_number(),
-                );
-                painter.text(
-                    pos2(rect.left() + NUM_W * 2.0 - 8.0, mid),
-                    Align2::RIGHT_CENTER,
-                    num(new),
-                    font.clone(),
-                    theme::line_number(),
-                );
-                if row.side == Side::Old { old } else { new }
-            }
-            Numbers::One(n) => {
-                painter.text(
-                    pos2(rect.left() + NUM_W - 8.0, mid),
-                    Align2::RIGHT_CENTER,
-                    num(n),
-                    font.clone(),
-                    theme::line_number(),
-                );
-                n
-            }
-        };
-        let side = row.side;
-        let gutter = Rect::from_min_size(
-            pos2(rect.left() + numbers_w, rect.top()),
-            vec2(GUTTER_W, rect.height()),
-        );
-        if let Some(line_no) = line_no
-            && ui.rect_contains_pointer(rect)
-        {
-            let button = Rect::from_center_size(gutter.center(), vec2(18.0, 18.0));
-            let response = ui.interact(
-                button,
-                ui.id()
-                    .with(("comment", side as u8, line_no, rect.left() as i32)),
-                Sense::click(),
-            );
-            painter.rect_filled(
-                button,
-                4.0,
-                if response.hovered() {
-                    theme::text_strong()
-                } else {
-                    theme::accent()
-                },
-            );
-            painter.text(
-                button.center(),
-                Align2::CENTER_CENTER,
-                "+",
-                FontId::proportional(14.0),
-                theme::on_accent(),
-            );
-            if response.on_hover_text("Add a comment").clicked() {
-                self.composer = Some((side, line_no));
-                self.draft.clear();
-            }
-        }
-        painter.text(
-            pos2(gutter.right() + 4.0, mid),
-            Align2::LEFT_CENTER,
-            row.mark,
-            font.clone(),
-            row.mark_color,
-        );
-        let galley = painter.layout_no_wrap(row.text.to_string(), font.clone(), row.text_color);
-        let origin = pos2(gutter.right() + 20.0, mid - galley.size().y / 2.0);
-        let emphasis_fill = if row.bg == theme::removed_bg() {
-            theme::removed_emphasis()
-        } else {
-            theme::added_emphasis()
-        };
-        for &(start, end) in row.emphasis {
-            let x = |byte: usize| {
-                let chars = row.text.get(..byte).map_or(0, |t| t.chars().count());
-                galley
-                    .pos_from_cursor(egui::text::CCursor::new(chars))
-                    .min
-                    .x
-            };
-            let span = Rect::from_x_y_ranges(
-                origin.x + x(start)..=origin.x + x(end),
-                rect.top() + 2.0..=rect.bottom() - 2.0,
-            );
-            painter.rect_filled(span, 3.0, emphasis_fill);
-        }
-        painter.galley(origin, galley, row.text_color);
-    }
-
-    fn thread(
-        &mut self,
-        ui: &mut Ui,
-        rect: Rect,
-        id: u64,
-        review: &mut Review,
-        author: &str,
-    ) -> bool {
-        let Some(thread) = review.threads.iter().find(|t| t.id == id).cloned() else {
-            return false;
-        };
-        let mut changed = false;
-        let expanded = self.expanded.get(&id).copied().unwrap_or(false);
-        let card = Rect::from_min_size(
-            pos2(rect.left() + THREAD_INDENT, rect.top() + 6.0),
-            vec2(THREAD_W, rect.height() - 12.0),
-        );
-        if thread.resolved && !expanded {
-            let chip = Rect::from_min_size(card.min, vec2(220.0, 24.0));
-            let response = ui.interact(chip, ui.id().with(("resolved", id)), Sense::click());
-            ui.painter().rect(
-                chip,
-                12.0,
-                theme::thread(),
-                Stroke::new(1.0, theme::tone(Color32::from_rgb(0x2c, 0x34, 0x42))),
-                egui::StrokeKind::Inside,
-            );
-            let label = format!(
-                "✔ {} resolved comment{} · line {}",
-                thread.comments.len(),
-                if thread.comments.len() == 1 { "" } else { "s" },
-                thread.anchor.line_hint
-            );
-            ui.painter().text(
-                pos2(chip.left() + 12.0, chip.center().y),
-                Align2::LEFT_CENTER,
-                label,
-                FontId::proportional(12.0),
-                theme::text_muted(),
-            );
-            if response.on_hover_text("Show").clicked() {
-                self.expanded.insert(id, true);
-            }
-            return false;
-        }
-        ui.painter().rect(
-            card,
-            8.0,
-            theme::thread(),
-            Stroke::new(1.0, theme::tone(Color32::from_rgb(0x33, 0x40, 0x55))),
-            egui::StrokeKind::Inside,
-        );
-        let mut y = card.top() + 12.0;
-        for comment in &thread.comments {
-            let avatar = pos2(card.left() + 26.0, y + 12.0);
-            let (fill, ink) = theme::generated_avatar(&comment.author);
-            ui.painter().circle(
-                avatar,
-                13.0,
-                fill,
-                Stroke::new(1.5, theme::with_alpha(ink, 0x66)),
-            );
-            ui.painter().text(
-                avatar,
-                Align2::CENTER_CENTER,
-                kelp_core::avatar::initials(&comment.author),
-                FontId::new(10.0, theme::semibold()),
-                ink,
-            );
-            let header = ui.painter().text(
-                pos2(card.left() + 50.0, y + 4.0),
-                Align2::LEFT_TOP,
-                &comment.author,
-                FontId::proportional(13.0),
-                theme::text_strong(),
-            );
-            let when = kelp_core::commit::relative_time(comment.time, now());
-            ui.painter().text(
-                pos2(header.right() + 8.0, y + 5.0),
-                Align2::LEFT_TOP,
-                when,
-                FontId::proportional(12.0),
-                theme::text_faint(),
-            );
-            let body = ui.painter().layout(
-                comment.body.clone(),
-                FontId::proportional(13.0),
-                theme::text_control(),
-                THREAD_W - 64.0,
-            );
-            let body_h = body.size().y;
-            ui.painter().galley(
-                pos2(card.left() + 50.0, y + 24.0),
-                body,
-                theme::text_control(),
-            );
-            y += 26.0 + body_h + 14.0;
-        }
-        let area = Rect::from_min_max(
-            pos2(card.left() + 14.0, y),
-            pos2(card.right() - 14.0, card.bottom() - 10.0),
-        );
-        let mut child = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(area)
-                .layout(egui::Layout::top_down(egui::Align::Min)),
-        );
-        child.spacing_mut().item_spacing.y = 8.0;
-        let draft = self.replies.entry(id).or_default();
-        child.add(
-            egui::TextEdit::multiline(draft)
-                .hint_text("Reply…  (⌘ Enter to send)")
-                .desired_rows(1)
-                .desired_width(f32::INFINITY),
-        );
-        let send_shortcut = child.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter))
-            && !draft.trim().is_empty();
-        child.horizontal(|ui| {
-            ui.label(
-                RichText::new("Saved in this repo only · not pushed")
-                    .size(11.0)
-                    .color(theme::text_faint()),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let can_send = !self.replies.get(&id).is_some_and(|d| d.trim().is_empty());
-                let reply = egui::Button::new(
-                    RichText::new("Reply")
-                        .family(theme::semibold())
-                        .color(theme::on_accent()),
-                )
-                .fill(theme::accent())
-                .corner_radius(5);
-                if (ui.add_enabled(can_send, reply).clicked() || send_shortcut) && can_send {
-                    let body = self.replies.remove(&id).unwrap_or_default();
-                    review.reply(
-                        id,
-                        Comment {
-                            author: author.to_string(),
-                            time: now(),
-                            body: body.trim().to_string(),
-                        },
-                    );
-                    changed = true;
-                }
-                let resolve_label = if thread.resolved { "Reopen" } else { "Resolve" };
-                if ui
-                    .add(egui::Button::new(resolve_label).corner_radius(5))
-                    .clicked()
-                {
-                    review.set_resolved(id, !thread.resolved);
-                    self.expanded.remove(&id);
-                    changed = true;
-                }
-                if crate::widgets::text_button(ui, RichText::new("Delete").color(theme::deleted()))
-                    .clicked()
-                {
-                    review.delete(id);
-                    changed = true;
-                }
-            });
-        });
-        changed
-    }
-
-    fn composer_ui(&mut self, ui: &mut Ui, rect: Rect, review: &mut Review, author: &str) -> bool {
-        let Some((side, line_no)) = self.composer else {
-            return false;
-        };
-        let card = Rect::from_min_size(
-            pos2(rect.left() + THREAD_INDENT, rect.top() + 6.0),
-            vec2(THREAD_W, rect.height() - 12.0),
-        );
-        ui.painter().rect(
-            card,
-            8.0,
-            theme::thread(),
-            Stroke::new(1.0, theme::with_alpha(theme::accent(), 0x99)),
-            egui::StrokeKind::Inside,
-        );
-        let area = card.shrink(12.0);
-        let mut child = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(area)
-                .layout(egui::Layout::top_down(egui::Align::Min)),
-        );
-        child.spacing_mut().item_spacing.y = 8.0;
-        child.label(
-            RichText::new(format!("Comment on line {line_no}"))
-                .size(12.0)
-                .color(theme::text_muted()),
-        );
-        let edit = child.add(
-            egui::TextEdit::multiline(&mut self.draft)
-                .hint_text("Write a comment…  (⌘ Enter to save)")
-                .desired_rows(2)
-                .desired_width(f32::INFINITY),
-        );
-        if !edit.has_focus() && child.memory(|m| m.focused().is_none()) {
-            edit.request_focus();
-        }
-        let save_shortcut = child.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
-        let cancel_shortcut = child.input(|i| i.key_pressed(egui::Key::Escape));
-        let mut changed = false;
-        let mut close = cancel_shortcut;
-        child.horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let enabled = !self.draft.trim().is_empty();
-                let save = egui::Button::new(
-                    RichText::new("Comment")
-                        .family(theme::semibold())
-                        .color(theme::on_accent()),
-                )
-                .fill(theme::accent())
-                .corner_radius(5);
-                let clicked = ui.add_enabled(enabled, save).clicked();
-                if enabled && (clicked || save_shortcut) {
-                    let lines: Vec<&str> = if side == Side::Old {
-                        &self.old_lines
-                    } else {
-                        &self.new_lines
-                    }
-                    .iter()
-                    .map(String::as_str)
-                    .collect();
-                    let index = (line_no as usize)
-                        .saturating_sub(1)
-                        .min(lines.len().saturating_sub(1));
-                    if !lines.is_empty() {
-                        let anchor = Anchor::at(&lines, index, side);
-                        let comment = Comment {
-                            author: author.to_string(),
-                            time: now(),
-                            body: self.draft.trim().to_string(),
-                        };
-                        review.add(self.path(), self.commit(), anchor, comment);
-                        changed = true;
-                    }
-                    close = true;
-                }
-                if ui
-                    .add(egui::Button::new("Cancel").corner_radius(5))
-                    .clicked()
-                {
-                    close = true;
-                }
-            });
-        });
-        if close {
-            self.composer = None;
-            self.draft.clear();
-        }
-        changed
-    }
-}
-
-struct Row<'a> {
-    numbers: Numbers,
-    mark: &'static str,
-    text: &'a str,
-    emphasis: &'a [(usize, usize)],
-    bg: Color32,
-    mark_color: Color32,
-    text_color: Color32,
-    side: Side,
-    selectable: Option<usize>,
-}
-
-#[derive(Clone, Copy)]
-enum Numbers {
-    Both(Option<u32>, Option<u32>),
-    One(Option<u32>),
-}
-
-fn key_of(line: &Line) -> Option<(Side, u32)> {
-    match line.kind {
-        LineKind::Removed => line.old.map(|n| (Side::Old, n)),
-        _ => line.new.map(|n| (Side::New, n)),
-    }
-}
-
-fn text_color(kind: LineKind) -> Color32 {
-    if kind == LineKind::Context {
-        theme::text_body()
-    } else {
-        theme::text()
-    }
-}
-
-fn change_starts(lines: &[(usize, Line)]) -> Vec<u32> {
-    let mut starts = Vec::new();
-    let mut last_new = 0;
-    let mut in_change = false;
-    for (_, line) in lines {
-        match line.kind {
-            LineKind::Context => in_change = false,
-            _ if in_change => {}
-            LineKind::Added => {
-                in_change = true;
-                starts.extend(line.new);
-            }
-            LineKind::Removed => {
-                in_change = true;
-                starts.push(last_new + 1);
-            }
-        }
-        if let Some(n) = line.new {
-            last_new = n;
-        }
-    }
-    starts.dedup();
-    starts
-}
-
-fn same_lines(a: &[(usize, Line)], b: &[(usize, Line)]) -> bool {
-    a.len() == b.len()
-        && a.iter().zip(b).all(|((_, x), (_, y))| {
-            x.kind == y.kind && x.raw == y.raw && x.old == y.old && x.new == y.new
-        })
 }
 
 fn arrow_button(ui: &mut Ui, up: bool, hint: &str) -> bool {
@@ -1635,14 +732,6 @@ fn arrow_button(ui: &mut Ui, up: bool, hint: &str) -> bool {
     ui.painter()
         .line_segment([c + vec2(0.0, dy), c + vec2(4.5, -dy)], stroke);
     response.clicked()
-}
-
-fn style(kind: LineKind) -> (Color32, &'static str, Color32) {
-    match kind {
-        LineKind::Added => (theme::added_bg(), "+", theme::added()),
-        LineKind::Removed => (theme::removed_bg(), "-", theme::deleted()),
-        LineKind::Context => (Color32::TRANSPARENT, "", theme::text_faint()),
-    }
 }
 
 fn next_squeeze(level: u8, title_w: f32) -> u8 {
@@ -1696,47 +785,6 @@ fn human_bytes(bytes: u64) -> String {
     }
 }
 
-fn submodule_card(ui: &mut Ui, change: &kelp_core::submodules::Change) {
-    let side = |id: Option<ObjectId>, title: &Option<String>| -> String {
-        match (id, title) {
-            (None, _) => "none".to_string(),
-            (Some(id), Some(title)) => format!("{} {title}", id.to_hex_with_len(7)),
-            (Some(id), None) => format!("{} (not checked out here)", id.to_hex_with_len(7)),
-        }
-    };
-    egui::Frame::new()
-        .inner_margin(Margin::symmetric(24, 20))
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 8.0;
-            ui.label(
-                RichText::new(format!("Submodule {}", change.path))
-                    .size(14.0)
-                    .family(theme::semibold())
-                    .color(theme::text_strong()),
-            );
-            ui.label(
-                RichText::new(format!("- {}", side(change.old, &change.old_title)))
-                    .monospace()
-                    .color(theme::deleted()),
-            );
-            ui.label(
-                RichText::new(format!("+ {}", side(change.new, &change.new_title)))
-                    .monospace()
-                    .color(theme::added()),
-            );
-        });
-}
-
-fn notice(ui: &mut Ui, text: &str) {
-    ui.centered_and_justified(|ui| ui.label(RichText::new(text).color(theme::text_muted())));
-}
-
-fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1758,7 +806,9 @@ mod tests {
 
     use crate::dialogs::Dialog;
 
-    use super::{DiffSource, DiffView, HEADER_H, HUNK_H, LINE_H};
+    use kelp_ui::diff::{HUNK_H, LINE_H};
+
+    use super::{DiffSource, DiffView, HEADER_H};
 
     struct Scratch(PathBuf);
 
@@ -1827,7 +877,7 @@ mod tests {
         let mut view = DiffView::load(&git, Some(&repo.0), DiffSource::Unstaged, "f.txt").unwrap();
         assert!(view.can_discard());
 
-        view.selected_lines.insert(2);
+        view.body.toggle_line(2, false);
         view.discard_selected_lines(false);
         let Some(Dialog::Confirm {
             op, danger: true, ..
@@ -1881,15 +931,18 @@ mod tests {
         frame(&ctx, &mut view, vec![], Modifiers::NONE);
 
         click(&ctx, &mut view, line_center(2), Modifiers::NONE);
-        assert_eq!(view.selected_lines.iter().copied().collect::<Vec<_>>(), [2]);
+        assert_eq!(
+            view.body.selection().iter().copied().collect::<Vec<_>>(),
+            [2]
+        );
         click(&ctx, &mut view, line_center(3), Modifiers::SHIFT);
         assert_eq!(
-            view.selected_lines.iter().copied().collect::<Vec<_>>(),
+            view.body.selection().iter().copied().collect::<Vec<_>>(),
             [2, 3]
         );
         click(&ctx, &mut view, line_center(0), Modifiers::NONE);
         assert_eq!(
-            view.selected_lines.len(),
+            view.body.selection().len(),
             2,
             "context lines are not selectable"
         );
@@ -1900,7 +953,7 @@ mod tests {
         };
         op.run(&repo.0).unwrap();
         assert_eq!(run(&repo.0, &["show", ":f.txt"]).unwrap(), "a\ny\nz\nb\n");
-        assert!(view.selected_lines.is_empty());
+        assert_eq!(view.body.selection().len(), 0);
     }
 
     #[test]
@@ -1925,7 +978,7 @@ mod tests {
             modifiers: Modifiers::ALT,
         };
         frame(&ctx, &mut view, vec![], Modifiers::NONE);
-        assert_eq!(view.scroll_y, 0.0);
+        assert_eq!(view.body.scroll_y(), 0.0);
         frame(
             &ctx,
             &mut view,
@@ -1934,7 +987,7 @@ mod tests {
         );
         frame(&ctx, &mut view, vec![], Modifiers::NONE);
         assert!(
-            view.scroll_y > 0.0,
+            view.body.scroll_y() > 0.0,
             "Alt+Down did not move to the second hunk"
         );
         frame(
@@ -1944,6 +997,6 @@ mod tests {
             Modifiers::ALT,
         );
         frame(&ctx, &mut view, vec![], Modifiers::NONE);
-        assert_eq!(view.scroll_y, 0.0);
+        assert_eq!(view.body.scroll_y(), 0.0);
     }
 }

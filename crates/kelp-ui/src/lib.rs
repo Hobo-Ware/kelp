@@ -1,4 +1,5 @@
 pub mod avatars;
+pub mod diff;
 pub mod fonts;
 pub mod graph;
 pub mod icons;
