@@ -15,6 +15,7 @@ use kelp_core::view::ViewFilter;
 use kelp_core::watch::{self, Watcher};
 use kelp_core::workspace::{self, Stash, Worktree};
 use kelp_core::{git_cli, status};
+use kelp_ui::graph::{GraphAction, GraphInput, GraphView, MenuFor, OtherWip, Wip};
 
 use crate::avatars::AvatarStore;
 use crate::commands::Command;
@@ -26,14 +27,13 @@ use crate::diff_view::{self, DiffSource, DiffView};
 use crate::file_history_view::{self, FileHistoryView};
 use crate::filter_bar::FilterBar;
 use crate::focus_areas::{self, Area};
-use crate::graph_view::{self, GraphView};
+use crate::graph_glue;
 use crate::icons::{self, Icon};
 use crate::jobs::Jobs;
 use crate::menus::{self, MenuContext};
 use crate::multi_diff_view::MultiDiff;
 use crate::panels::{Panels, Side};
 use crate::rebase_view::{self, HeadReach, RebaseView};
-use crate::ref_labels::MenuFor;
 use crate::settings::Settings;
 use crate::stash_view::{self, StashView};
 use crate::{details, sidebar, theme, worktrees_view};
@@ -46,11 +46,7 @@ mod undo_actions;
 
 pub use file_picks::{FilePicks, PickHow};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Selection {
-    Wip,
-    Commit(usize),
-}
+pub use kelp_ui::graph::Selection;
 
 pub enum JobOutput {
     CommitHints {
@@ -201,6 +197,7 @@ pub struct Repo {
     pub co_author_people: Option<Vec<kelp_core::commit_message::Person>>,
     pub workspace: WorkspaceInfo,
     pub graph: GraphView,
+    remote_owners: Option<Vec<(String, String)>>,
     pub center: Center,
     pub jobs: Jobs<JobOutput>,
     pub toast: Option<Toast>,
@@ -230,7 +227,7 @@ pub struct Repo {
     center_mid_x: Option<f32>,
     pub view: ViewFilter,
     pub sidebar: sidebar::State,
-    pub columns_changed: Option<crate::columns::GraphColumns>,
+    pub columns_changed: Option<kelp_ui::graph::GraphColumns>,
     pub panels_changed: Option<Panels>,
     panels: Panels,
     pub editor: String,
@@ -309,6 +306,7 @@ impl Repo {
             co_author_people: None,
             workspace: WorkspaceInfo::default(),
             graph: GraphView::new(),
+            remote_owners: None,
             center: Center::Graph,
             jobs: Jobs::new(ctx.clone()),
             toast: None,
@@ -556,6 +554,11 @@ impl Repo {
             .file_name()
             .map(|n| n.to_string_lossy().trim_end_matches(".git").to_string())
             .unwrap_or_else(|| self.dir.display().to_string())
+    }
+
+    fn clear_graph_cache(&mut self) {
+        self.graph.clear_cache();
+        self.remote_owners = None;
     }
 
     pub fn head_row(&self) -> Option<usize> {
@@ -1422,7 +1425,7 @@ impl Repo {
                     if let Some(github) = &self.github {
                         self.pulls = kelp_core::pulls::Pulls::new(github, list);
                         self.history.refs.attach_pulls(&self.pulls);
-                        self.graph.clear_cache();
+                        self.clear_graph_cache();
                     }
                 }
                 JobOutput::AutoFetch(Ok(_)) => {
@@ -1568,7 +1571,7 @@ impl Repo {
         };
         self.history = history;
         self.history.refs.attach_pulls(&self.pulls);
-        self.graph.clear_cache();
+        self.clear_graph_cache();
         self.filter.history_changed();
         let keep_wip = self.selected == Some(Selection::Wip);
         let picks = std::mem::take(&mut self.picks);
@@ -1865,6 +1868,7 @@ impl Repo {
             history,
             selected,
             graph,
+            remote_owners,
             bench,
             avatars,
             wip: changes,
@@ -1875,18 +1879,18 @@ impl Repo {
             checks,
             ..
         } = self;
-        let wip = (!changes.is_empty()).then(|| graph_view::Wip {
+        let wip = (!changes.is_empty()).then(|| Wip {
             head_row: head_row.unwrap_or(0),
             changes,
         });
-        let other_wips: Vec<graph_view::OtherWip> = workspace
+        let other_wips: Vec<OtherWip> = workspace
             .worktrees
             .iter()
             .filter(|w| !w.current)
             .filter_map(|w| {
                 let changes = w.changes.filter(|&n| n > 0)?;
                 let id = gix::ObjectId::from_hex(w.tree.head.as_bytes()).ok()?;
-                Some(graph_view::OtherWip {
+                Some(OtherWip {
                     head_row: history.row(&id)?,
                     tree: &w.tree,
                     changes,
@@ -1897,9 +1901,15 @@ impl Repo {
             graph.scroll_to = Some(Selection::Commit(bench.next_row(history.len())));
         }
         let started = Instant::now();
-        let input = graph_view::GraphInput {
-            repo: git,
+        let dev_preview = graph_glue::DevPreview::from_env();
+        let owners: &[(String, String)] =
+            remote_owners.get_or_insert_with(|| graph_glue::github_owners(git));
+        let mut summary = |row: usize| graph_glue::load_summary(git, history, row);
+        let input = GraphInput {
             history,
+            summary: &mut summary,
+            remote_owners: owners,
+            preview: dev_preview.preview(),
             selected: selected.filter(|_| compare_marks.base.is_none() && !compare_marks.work_tree),
             head_row,
             wip,
@@ -1930,8 +1940,17 @@ impl Repo {
         if let Some(bench) = bench {
             bench.record(ui.ctx(), started.elapsed());
         }
+        if let Some(id) = graph.focus_id {
+            focus_areas::offer(ui.ctx(), Area::Graph, id, true);
+        }
         if let Some(columns) = graph.columns_changed.take() {
             *columns_changed = Some(columns);
+        }
+        if let Some(command) = action
+            .as_ref()
+            .and_then(|a| graph_glue::command_for(a, |row| history.id(row)))
+        {
+            commands.push(command);
         }
         let visible: Vec<gix::ObjectId> = graph
             .visible_commits
@@ -1943,15 +1962,14 @@ impl Repo {
         }
         self.request_checks(ui.ctx(), &visible);
         match action {
-            Some(graph_view::Action::Select(selection)) => {
+            Some(GraphAction::Select(selection)) => {
                 if self.compare.is_some() || self.compare_pick.is_some() {
                     self.stop_compare();
                 }
                 self.select(selection);
             }
-            Some(graph_view::Action::Compare(row)) => self.compare_with_row(ui.ctx(), row),
-            Some(graph_view::Action::Command(command)) => commands.push(command),
-            None => {}
+            Some(GraphAction::Compare(row)) => self.compare_with_row(ui.ctx(), row),
+            Some(_) | None => {}
         }
     }
 

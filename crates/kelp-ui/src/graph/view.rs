@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::f32::consts::PI;
 
-use eframe::egui::{
+use egui::{
     self, Align2, Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Sense, Shape, Stroke, Ui,
     pos2,
     text::{LayoutJob, TextFormat, TextWrapping},
@@ -12,16 +12,16 @@ use kelp_core::graph::{Edge, EdgeKind};
 use kelp_core::history::History;
 use kelp_core::refs::{RefKind, RefLabel};
 use kelp_core::workspace::Worktree;
-use kelp_ui::paint::{AVATAR_R, TooltipCommit, commit_tooltip, paint_avatar, selection_halo};
 
+use super::columns::{self, GraphColumns};
+use super::counts::{self as change_counts, Counts};
+use super::hover::{HoverPath, Label, VisiblePath};
+use super::labels::{self as ref_labels, DropPlan, DropTarget, LabelEvent, MenuFor};
+use super::marks::{self, Marks};
+use super::rows::{Row, RowMap, WipLink};
+use super::{GraphAction, Selection};
 use crate::avatars::AvatarStore;
-use crate::change_counts::{self, Counts};
-use crate::columns::GraphColumns;
-use crate::commands::Command;
-use crate::graph_hover::{HoverPath, Label, VisiblePath};
-use crate::graph_rows::{Row, RowMap, WipLink};
-use crate::ref_labels::{self, DropPlan, DropTarget, LabelEvent, MenuFor};
-use crate::repo_view::Selection;
+use crate::paint::{AVATAR_R, TooltipCommit, commit_tooltip, paint_avatar, selection_halo};
 use crate::theme;
 
 pub const ROW_H: f32 = 30.0;
@@ -53,13 +53,14 @@ pub struct GraphView {
     pub filter_clicked: bool,
     pub visible_commits: Vec<usize>,
     pub focus_id: Option<egui::Id>,
-    remote_owners: Option<Vec<(String, String)>>,
     stack: Option<(usize, Rect)>,
 }
 
 pub struct GraphInput<'a> {
-    pub repo: &'a gix::Repository,
     pub history: &'a History,
+    pub summary: &'a mut dyn FnMut(usize) -> Summary,
+    pub remote_owners: &'a [(String, String)],
+    pub preview: Preview<'a>,
     pub selected: Option<Selection>,
     pub head_row: Option<usize>,
     pub wip: Option<Wip<'a>>,
@@ -67,10 +68,10 @@ pub struct GraphInput<'a> {
     pub descriptions: bool,
     pub other_wips: &'a [OtherWip<'a>],
     pub columns: GraphColumns,
-    pub compare: crate::compare_view::Marks,
+    pub compare: Marks,
     pub picking: bool,
     pub filter_active: bool,
-    pub checks: &'a HashMap<gix::ObjectId, kelp_core::checks::Status>,
+    pub checks: &'a HashMap<kelp_core::ObjectId, kelp_core::checks::Status>,
 }
 
 #[derive(Clone, Copy)]
@@ -94,10 +95,12 @@ pub struct OtherWip<'a> {
     pub changes: usize,
 }
 
-pub enum Action {
-    Select(Selection),
-    Compare(usize),
-    Command(Command),
+#[derive(Clone, Copy, Default)]
+pub struct Preview<'a> {
+    pub hover_row: Option<usize>,
+    pub open_ref_list: Option<&'a str>,
+    pub open_drop: Option<&'a str>,
+    pub open_commit_menu: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -105,6 +108,12 @@ enum OnPath {
     NoHover,
     Yes,
     No,
+}
+
+impl Default for GraphView {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GraphView {
@@ -122,14 +131,12 @@ impl GraphView {
             filter_clicked: false,
             visible_commits: Vec::new(),
             focus_id: None,
-            remote_owners: None,
             stack: None,
         }
     }
 
     pub fn clear_cache(&mut self) {
         self.summaries.clear();
-        self.remote_owners = None;
     }
 
     pub fn ui(
@@ -138,10 +145,12 @@ impl GraphView {
         input: GraphInput<'_>,
         avatars: &mut AvatarStore,
         mut menu: impl FnMut(&mut Ui, MenuFor<'_>),
-    ) -> Option<Action> {
+    ) -> Option<GraphAction> {
         let GraphInput {
-            repo,
             history,
+            summary: load_summary,
+            remote_owners,
+            preview,
             selected,
             head_row,
             wip,
@@ -167,9 +176,7 @@ impl GraphView {
         };
         let content_w = history.layout.lane_count() as f32 * LANE_W + gutter + GRAPH_PAD * 2.0;
         let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
-        let badges: ref_labels::RemoteBadges = self
-            .remote_owners
-            .get_or_insert_with(|| github_owners(repo))
+        let badges: ref_labels::RemoteBadges = remote_owners
             .iter()
             .filter_map(|(remote, owner)| Some((remote.clone(), avatars.owner_texture(owner)?)))
             .collect();
@@ -212,6 +219,7 @@ impl GraphView {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
+        self.focus_id = None;
         let mut action = None;
         let mut scroll = egui::ScrollArea::vertical().auto_shrink(false);
         if let Some(selection) = self.scroll_to.take() {
@@ -225,8 +233,8 @@ impl GraphView {
         let context = &mut self.context;
         let drag = &mut self.drag;
         let drop = &mut self.drop;
-        let open_refs = std::env::var("KELP_OPEN_REFS").ok();
-        let open_drop = std::env::var("KELP_OPEN_DROP").ok();
+        let open_refs = preview.open_ref_list;
+        let open_drop = preview.open_drop;
         let hover = &mut self.hover;
         let visible_commits = &mut self.visible_commits;
         visible_commits.clear();
@@ -236,7 +244,7 @@ impl GraphView {
             for display in rows.clone() {
                 if let Row::Commit(row) = map.resolve(display) {
                     summaries.entry(row).or_insert_with(|| {
-                        let summary = load_summary(repo, history, row);
+                        let summary = load_summary(row);
                         crate::fonts::ensure_fallback(ui.ctx(), &summary.title);
                         crate::fonts::ensure_fallback(ui.ctx(), &summary.author);
                         summary
@@ -247,7 +255,6 @@ impl GraphView {
             let (rect, response) = ui.allocate_exact_size(size, Sense::click());
             *focus_id = Some(response.id);
             crate::widgets::describe(&response, egui::WidgetType::Other, "commit graph");
-            crate::focus_areas::offer(ui.ctx(), crate::focus_areas::Area::Graph, response.id, true);
             if response.has_focus() {
                 ui.memory_mut(|m| {
                     m.set_focus_lock_filter(
@@ -276,7 +283,7 @@ impl GraphView {
                 let display = rows.start + ((y - rect.top()) / ROW_H) as usize;
                 map.resolve(display.min(map.total().saturating_sub(1)))
             };
-            let hovered_row = forced_hover_row().or_else(|| {
+            let hovered_row = preview.hover_row.or_else(|| {
                 response
                     .hover_pos()
                     .filter(|_| !response.context_menu_opened())
@@ -389,11 +396,7 @@ impl GraphView {
                         );
                         if compare.work_tree {
                             let spot = pos2(geo.msg_left() - MARK_INSET, geo.mid());
-                            crate::compare_view::paint_mark(
-                                &painter,
-                                spot,
-                                crate::compare_view::MARK_B,
-                            );
+                            marks::paint_mark(&painter, spot, marks::MARK_B);
                         }
                     }
                     (Row::OtherWip(i), _) => {
@@ -444,7 +447,6 @@ impl GraphView {
                         }
                         let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
                         let force_open = open_refs
-                            .as_deref()
                             .is_some_and(|rev| history.id(row).to_string().starts_with(rev));
                         let lane = theme::lane(history.layout.node_color(row));
                         if expanded == Some(row) {
@@ -462,7 +464,7 @@ impl GraphView {
                         }
                         if let Some(mark) = compare.mark(row) {
                             let spot = pos2(geo.msg_left() - MARK_INSET, geo.mid());
-                            crate::compare_view::paint_mark(&painter, spot, mark);
+                            marks::paint_mark(&painter, spot, mark);
                         }
                         if expanded != Some(row) {
                             let events = ref_labels::interact(
@@ -532,8 +534,11 @@ impl GraphView {
             };
             for (row, event) in label_events {
                 match event {
-                    LabelEvent::Select => action = Some(Action::Select(Selection::Commit(row))),
-                    LabelEvent::Command(command) => action = Some(Action::Command(command)),
+                    LabelEvent::Select => {
+                        action = Some(GraphAction::Select(Selection::Commit(row)))
+                    }
+                    LabelEvent::Activate(label) => action = Some(GraphAction::ActivateRef(label)),
+                    LabelEvent::OpenUrl(url) => action = Some(GraphAction::OpenUrl(url)),
                     LabelEvent::DragStart(label) => {
                         *drag = Some(ref_labels::Drag {
                             label,
@@ -582,7 +587,7 @@ impl GraphView {
                     *drag = None;
                 }
             }
-            if let Some(spec) = open_drop.as_deref()
+            if let Some(spec) = open_drop
                 && drop.is_none()
                 && let Some((source, rev)) = spec.split_once('@')
                 && let Some((_, _, source_label)) =
@@ -615,12 +620,12 @@ impl GraphView {
             if let Some((_, path)) =
                 clicked_at.and_then(|pos| open_buttons.iter().find(|(r, _)| r.contains(pos)))
             {
-                action = Some(Action::Command(Command::OpenWorktree(path.clone())));
+                action = Some(GraphAction::OpenWorktree(path.clone()));
             } else if let Some((_, row)) = clicked_at
                 .filter(|_| response.clicked())
                 .and_then(|pos| check_dots.iter().find(|(r, _)| r.contains(pos)))
             {
-                action = Some(Action::Command(Command::OpenChecks(history.id(*row))));
+                action = Some(GraphAction::OpenChecks(*row));
             } else if (response.clicked() || response.secondary_clicked())
                 && let Some(pos) = response.interact_pointer_pos()
             {
@@ -628,10 +633,10 @@ impl GraphView {
                 let comparing =
                     response.clicked() && (picking || ui.input(|i| i.modifiers.command));
                 match (row, comparing) {
-                    (Row::Commit(commit), true) => action = Some(Action::Compare(commit)),
+                    (Row::Commit(commit), true) => action = Some(GraphAction::Compare(commit)),
                     _ => {
                         if let Some(selection) = row.selection() {
-                            action = Some(Action::Select(selection));
+                            action = Some(GraphAction::Select(selection));
                         }
                     }
                 }
@@ -642,9 +647,7 @@ impl GraphView {
                 && let Some(pos) = response.interact_pointer_pos()
                 && let Row::OtherWip(i) = row_at(pos.y)
             {
-                action = Some(Action::Command(Command::OpenWorktree(
-                    other_wips[i].tree.path.clone(),
-                )));
+                action = Some(GraphAction::OpenWorktree(other_wips[i].tree.path.clone()));
             }
             if keyboard_menu && let Some(selection) = selected {
                 *context = Some(match selection {
@@ -669,7 +672,7 @@ impl GraphView {
                 selected_top.unwrap_or(rect.top()) + ROW_H,
             );
             if let Some(row) = *context {
-                crate::menus::context_menu_at(&response, menu_anchor, |ui| match row {
+                crate::menu::context_menu_at(&response, menu_anchor, |ui| match row {
                     Row::Commit(commit) => {
                         let title = summaries
                             .get(&commit)
@@ -714,7 +717,7 @@ impl GraphView {
                     )
                 });
             }
-            if std::env::var("KELP_OPEN_MENU").as_deref() == Ok("commit")
+            if preview.open_commit_menu
                 && let Some(selection) = selected
             {
                 let top = rect.top() + (map.display_of(selection) - rows.start) as f32 * ROW_H;
@@ -813,7 +816,7 @@ impl GraphView {
         response.on_hover_text(
             "Drag to resize the graph. Double-click to reset. Scroll sideways to see more lanes.",
         );
-        let changed = crate::columns::header(ui, rect, columns);
+        let changed = columns::header(ui, rect, columns);
         if filter_button(ui, &painter, rect, filter_active) {
             self.filter_clicked = true;
         }
@@ -868,16 +871,6 @@ fn row_label(row: Row, history: &History, summaries: &HashMap<usize, Summary>, n
     }
 }
 
-fn load_summary(repo: &gix::Repository, history: &History, row: usize) -> Summary {
-    commit::summary(repo, history.id(row)).unwrap_or_else(|_| Summary {
-        title: history.id(row).to_hex_with_len(7).to_string(),
-        body_preview: String::new(),
-        author: String::new(),
-        email: String::new(),
-        time: 0,
-    })
-}
-
 struct RowGeo {
     left: f32,
     right: f32,
@@ -908,7 +901,7 @@ impl RowGeo {
         self.left + self.msg_x
     }
     fn message_right(&self) -> f32 {
-        crate::columns::message_right(self.right, &self.columns)
+        columns::message_right(self.right, &self.columns)
     }
     fn graph_clip(&self, painter: &egui::Painter) -> egui::Painter {
         let clip = Rect::from_x_y_ranges(
@@ -933,22 +926,6 @@ struct RowPaint<'a> {
     checks: Option<&'a kelp_core::checks::Status>,
     lit: Option<&'a [bool]>,
     badges: &'a ref_labels::RemoteBadges,
-}
-
-fn github_owners(repo: &gix::Repository) -> Vec<(String, String)> {
-    repo.remote_names()
-        .iter()
-        .filter_map(|name| {
-            let name = name.to_string();
-            let remote = repo.find_remote(name.as_str()).ok()?;
-            let url = remote
-                .url(gix::remote::Direction::Fetch)?
-                .to_bstring()
-                .to_string();
-            let github = kelp_core::avatar::GitHubRepo::from_remote_url(&url)?;
-            Some((name, github.owner))
-        })
-        .collect()
 }
 
 const FADED_OPACITY: f32 = 0.35;
@@ -1417,10 +1394,6 @@ fn paint_open_button(painter: &egui::Painter, rect: Rect, hot: bool) {
     );
 }
 
-fn forced_hover_row() -> Option<usize> {
-    std::env::var("KELP_HOVER_ROW").ok()?.parse().ok()
-}
-
 fn trace_hover(history: &History, row: usize) -> HoverPath {
     HoverPath::toward_tip(
         row,
@@ -1507,7 +1480,7 @@ fn drop_menu_id() -> egui::Id {
 fn paint_message(
     painter: &egui::Painter,
     geo: &RowGeo,
-    id: gix::ObjectId,
+    id: kelp_core::ObjectId,
     summary: &Summary,
     style: MessageStyle,
     now: i64,
@@ -1518,7 +1491,7 @@ fn paint_message(
         checks,
     } = style;
     let right = geo.message_right();
-    crate::columns::paint_cells(
+    columns::paint_cells(
         painter,
         &geo.columns,
         geo.right,
@@ -1596,13 +1569,13 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
-    use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, vec2};
+    use egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, vec2};
     use kelp_core::commit::FileChange;
     use kelp_core::history::History;
 
-    use super::{Action, GraphInput, GraphView, HEADER_H, ROW_H, Wip};
+    use super::{GraphAction, GraphInput, GraphView, HEADER_H, Preview, ROW_H, Wip};
     use crate::avatars::AvatarStore;
-    use crate::repo_view::Selection;
+    use crate::graph::Selection;
 
     fn scratch_repo(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("kelp-graph-{name}-{}", std::process::id()));
@@ -1636,7 +1609,7 @@ mod tests {
         history: History,
         avatars: AvatarStore,
         selected: Option<Selection>,
-        action: Option<Action>,
+        action: Option<GraphAction>,
         wip: Vec<FileChange>,
     }
 
@@ -1697,10 +1670,14 @@ mod tests {
                 wip,
             } = self;
             let no_checks = std::collections::HashMap::new();
+            let mut summary =
+                |row: usize| kelp_core::commit::summary(repo, history.id(row)).unwrap();
             ctx.run_ui(input, |ui| {
                 let graph = GraphInput {
-                    repo,
                     history,
+                    summary: &mut summary,
+                    remote_owners: &[],
+                    preview: Preview::default(),
                     selected: *selected,
                     head_row: Some(0),
                     wip: (!wip.is_empty()).then_some(Wip {
@@ -1749,16 +1726,16 @@ mod tests {
         h.selected = Some(Selection::Commit(0));
         h.frame(vec![]);
         h.click(row_center(2), Modifiers::COMMAND);
-        assert!(matches!(h.action.take(), Some(Action::Compare(2))));
+        assert!(matches!(h.action.take(), Some(GraphAction::Compare(2))));
         h.click(row_center(1), Modifiers::NONE);
         assert!(matches!(
             h.action.take(),
-            Some(Action::Select(Selection::Commit(1)))
+            Some(GraphAction::Select(Selection::Commit(1)))
         ));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    fn double_click_label(h: &mut Harness, name: &str) -> Option<Action> {
+    fn double_click_label(h: &mut Harness, name: &str) -> Option<String> {
         let index = h
             .history
             .refs
@@ -1790,15 +1767,15 @@ mod tests {
             vec![press(false)],
         ] {
             h.frame(events);
-            if let Some(Action::Command(command)) = h.action.take() {
-                picked = Some(Action::Command(command));
+            if let Some(GraphAction::ActivateRef(label)) = h.action.take() {
+                picked = Some(label.name);
             }
         }
         picked
     }
 
     #[test]
-    fn double_clicking_a_stacked_label_checks_out_that_label() {
+    fn double_clicking_a_stacked_label_activates_that_label() {
         let (mut h, dir) = Harness::new("stack-double-click");
         let ok = Command::new("git")
             .current_dir(&dir)
@@ -1812,32 +1789,13 @@ mod tests {
         h.history = history;
         h.frame(vec![]);
         h.frame(vec![]);
-        let action = double_click_label(&mut h, "feat/zzz");
-        assert!(
-            matches!(
-                &action,
-                Some(Action::Command(crate::commands::Command::Run(kelp_core::ops::Op::Switch(b)))) if b == "feat/zzz"
-            ),
-            "{:?}",
-            action.map(|a| match a {
-                Action::Command(crate::commands::Command::Run(op)) => format!("{op:?}"),
-                _ => "other".into(),
-            })
-        );
+        let picked = double_click_label(&mut h, "feat/zzz");
+        assert_eq!(picked.as_deref(), Some("feat/zzz"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    fn switch_target(action: Option<Action>) -> Option<String> {
-        match action {
-            Some(Action::Command(crate::commands::Command::Run(kelp_core::ops::Op::Switch(b)))) => {
-                Some(b)
-            }
-            _ => None,
-        }
-    }
-
     #[test]
-    fn the_second_label_on_a_shared_commit_checks_out_itself() {
+    fn the_second_label_on_a_shared_commit_activates_itself() {
         let (mut h, dir) = Harness::new("stack-shared");
         for args in [
             &["branch", "feat/zzz"][..],
@@ -1857,7 +1815,7 @@ mod tests {
         h.history = history;
         h.frame(vec![]);
         h.frame(vec![]);
-        let picked = switch_target(double_click_label(&mut h, "main"));
+        let picked = double_click_label(&mut h, "main");
         assert_eq!(picked.as_deref(), Some("main"));
         let _ = std::fs::remove_dir_all(&dir);
     }

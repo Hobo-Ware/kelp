@@ -7,11 +7,10 @@ use kelp_core::commit::ChangeKind;
 use kelp_core::compare::{RangeChange, Side};
 use kelp_core::history::History;
 
+use kelp_ui::graph::{MARK_A, MARK_B, Marks, paint_mark};
+
 use crate::details::FileRow;
 use crate::{theme, widgets};
-
-pub const MARK_A: &str = "A";
-pub const MARK_B: &str = "B";
 
 enum Files {
     Loading(Receiver<Result<Vec<RangeChange>, String>>),
@@ -32,25 +31,6 @@ pub enum Event {
     Close,
     Swap,
     Open(RangeChange),
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct Marks {
-    pub base: Option<usize>,
-    pub target: Option<usize>,
-    pub work_tree: bool,
-}
-
-impl Marks {
-    pub fn mark(&self, row: usize) -> Option<&'static str> {
-        if self.base == Some(row) {
-            Some(MARK_A)
-        } else if self.target == Some(row) {
-            Some(MARK_B)
-        } else {
-            None
-        }
-    }
 }
 
 impl CompareView {
@@ -205,22 +185,6 @@ impl CompareView {
             });
         event
     }
-}
-
-pub fn paint_mark(painter: &egui::Painter, center: egui::Pos2, mark: &str) {
-    painter.circle_filled(center, 7.0, theme::with_alpha(theme::accent(), 0x40));
-    painter.circle_stroke(
-        center,
-        7.0,
-        egui::Stroke::new(1.0, theme::with_alpha(theme::accent(), 0xc0)),
-    );
-    painter.text(
-        center,
-        egui::Align2::CENTER_CENTER,
-        mark,
-        FontId::new(9.5, theme::semibold()),
-        theme::accent(),
-    );
 }
 
 fn end_line(ui: &mut Ui, mark: &str, hash: &str, title: &str) {
