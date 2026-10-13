@@ -79,10 +79,14 @@ fn main() -> eframe::Result {
     if let Some(position) = placement.position {
         viewport = viewport.with_position(position);
     }
-    let options = eframe::NativeOptions {
-        viewport,
+    let background = settings::is_dev_run() || std::env::var_os("KELP_BACKGROUND").is_some();
+    let mut options = eframe::NativeOptions {
+        viewport: viewport.with_active(!background),
         ..Default::default()
     };
+    if background {
+        options.event_loop_builder = Some(Box::new(open_without_taking_focus));
+    }
     eframe::run_native(
         "Kelp",
         options,
@@ -93,6 +97,20 @@ fn main() -> eframe::Result {
             Ok(Box::new(app::KelpApp::open(cc.egui_ctx.clone(), paths)))
         }),
     )
+}
+
+/// Screenshot, bench and background runs must not pull keyboard focus away from the window the
+/// developer is typing in: no Dock icon and no activation on launch.
+fn open_without_taking_focus(builder: &mut winit::event_loop::EventLoopBuilder<eframe::UserEvent>) {
+    #[cfg(target_os = "macos")]
+    {
+        use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+        builder
+            .with_activation_policy(ActivationPolicy::Accessory)
+            .with_activate_ignoring_other_apps(false);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = builder;
 }
 
 fn dock_icon() -> egui::IconData {
