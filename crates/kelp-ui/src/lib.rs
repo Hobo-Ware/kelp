@@ -9,8 +9,13 @@
 //!
 //! - [`theme`]: the palette (`p()`, `apply`, `sync`, `set_dark`) and color helpers (`lane`,
 //!   `with_alpha`, `tone`, `semibold`). Call `theme::apply` once, then `theme::sync` each frame.
-//! - [`fonts`]: `install` registers the bundled fonts and the `semibold` family the widgets draw
-//!   with. Call it once at startup.
+//! - [`fonts`]: `install` replaces the context's fonts with the bundled ones and the `semibold`
+//!   family the widgets draw with; call it once at startup. A host with its own fonts calls
+//!   `extend(&mut FontDefinitions)` instead, which adds the bundled fonts and `semibold` and keeps
+//!   the host's families and their order. `extend_fallback(&mut FontDefinitions, text)` adds the
+//!   system fallback font for scripts the bundled fonts lack, to the host's definitions, and the
+//!   widgets' own fallback (`ensure_fallback`) adds to the context's current fonts rather than
+//!   replacing them.
 //! - [`avatars::AvatarStore`]: background avatar loading, handed to the graph.
 //! - [`jobs::Jobs`]: a small background job runner that wakes the UI when a job finishes.
 //! - [`graph`]: [`graph::GraphView`] draws the commit graph from a `kelp_core::history::History`
