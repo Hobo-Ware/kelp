@@ -23,7 +23,9 @@
 //! - [`diff`]: [`diff::DiffBody`] draws a `kelp_core::diff::FileDiff` (unified or split, word
 //!   highlights, jumping between changes, review thread cards and the comment composer) and
 //!   returns [`diff::DiffAction`]s. Threads are passed in as `kelp_core::review::Thread` values,
-//!   so the host decides where they are stored.
+//!   so the host decides where they are stored. Thread cards and the composer are at most 640
+//!   points wide and narrow with the pane. [`diff::DiffTexts`] (`DiffInput::texts`) holds the
+//!   host-specific wording: where comments are saved and the shortcut hints; `Default` is Kelp's.
 //! - [`paint`]: small drawing helpers (`draw_avatar`, `paint_avatar`, `selection_halo`,
 //!   `commit_tooltip`, `truncated`).
 //! - [`update`]: [`update::Updater`] checks GitHub releases and upgrades a Homebrew cask. The
