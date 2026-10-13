@@ -906,9 +906,12 @@ fn commit_box(ui: &mut Ui, repo: &mut Repo) {
                 (false, false)
             };
             let hint = if staged == 0 && !repo.amend {
-                "Stage changes first"
+                "Stage changes first".to_owned()
             } else {
-                "Commit (⌘ Enter)"
+                format!(
+                    "Commit ({})",
+                    kelp_ui::widgets::chord_label(cfg!(target_os = "macos"), "⌘ Enter")
+                )
             };
             let mut push = false;
             let mut clicked = false;
@@ -922,7 +925,11 @@ fn commit_box(ui: &mut Ui, repo: &mut Repo) {
                 )
                 .on_hover_text("More commit options");
                 egui::Popup::menu(&more).show(|ui| {
-                    if ui.button("Commit and push (⌘ Shift Enter)").clicked() {
+                    let push_label = format!(
+                        "Commit and push ({})",
+                        kelp_ui::widgets::chord_label(cfg!(target_os = "macos"), "⌘ Shift Enter")
+                    );
+                    if ui.button(push_label).clicked() {
                         push = true;
                         ui.close();
                     }

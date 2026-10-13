@@ -812,7 +812,8 @@ pub fn tab(ui: &mut Ui, name: &str, has_others: bool) -> Option<TabAction> {
         action = Some(TabAction::CopyPath);
     }
     separator(ui);
-    if row(ui, None, "Close", Some("⌘W"), false) {
+    let close_hint = kelp_ui::widgets::chord_label(cfg!(target_os = "macos"), "⌘W");
+    if row(ui, None, "Close", Some(&close_hint), false) {
         action = Some(TabAction::Close);
     }
     if has_others && row(ui, None, "Close other tabs", None, false) {

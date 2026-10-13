@@ -585,7 +585,11 @@ impl KelpApp {
                                     });
                                 });
                             ui.add_space(4.0);
-                            if new_tab_button(ui).on_hover_text("New tab (⌘T)").clicked() {
+                            let new_tab_hint = format!(
+                                "New tab ({})",
+                                kelp_ui::widgets::chord_label(cfg!(target_os = "macos"), "⌘T")
+                            );
+                            if new_tab_button(ui).on_hover_text(new_tab_hint).clicked() {
                                 new_tab = true;
                             }
                         });
