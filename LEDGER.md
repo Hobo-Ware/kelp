@@ -15,6 +15,27 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-10-13
 
+- **kelp-ui: easier to embed in another egui app.** So host apps can embed
+  kelp-ui with their own fonts and layouts, three changes, none visible in
+  Kelp. `fonts::extend(&mut FontDefinitions)` adds the bundled fonts and the
+  `semibold` family to a host's definitions and keeps its families and their
+  order; `install` now builds on it. `fonts::extend_fallback` adds the system
+  fallback font to the host's definitions, and `ensure_fallback` (called by
+  the graph and diff) now adds to the context's current fonts instead of
+  replacing them. Review thread cards and the composer were a fixed 640 pt
+  and clipped in narrow panes; the width is now min(pane minus indent and
+  margin, 640), floored at 240 (pure helper, tested at narrow and wide
+  sizes). The hint texts in the thread reply box and the composer ("Saved in
+  this repo only", the shortcut placeholders) come from `diff::DiffTexts` in
+  `DiffInput::texts`, whose `Default` is Kelp's wording (tested against the
+  old strings). Listed in kelp-ui's `lib.rs`. Verified by tests only: 511
+  pass (503 before), clippy and fmt clean. Before-renders of a fixed demo
+  clone exist (a build rendered twice differs at 58.9 dB at worst, the status
+  bar's load-time text), but no after-render was taken, so the pixel-identical
+  check is not done; at the default window the diff pane is about 820 pt, so
+  the card stays 640 pt.
+
+
 - **Linux: builds, passes its tests and runs (draft, unpackaged).** CI has a
   new `check (ubuntu)` job next to the macOS one (fmt, clippy with
   `-D warnings`, tests; apt packages for the X11, Wayland, font and TLS
