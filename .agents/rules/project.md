@@ -31,6 +31,8 @@ cargo fmt --all --check
 cargo bench -p kelp-core --bench layout
 ./scripts/bundle-macos.sh                        # target/Kelp.app
 KELP_SCREENSHOT=/tmp/x.png cargo run -p kelp -- <repo>   # render, save PNG, quit
+Screenshot and bench runs open in the background (no Dock icon, never take keyboard focus from the
+developer's window); `KELP_BACKGROUND=1` does the same for any other dev run.
 KELP_BENCH_SCROLL=1 cargo run --release -p kelp -- <repo> # graph frame times
 ```
 
