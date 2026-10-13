@@ -9,7 +9,7 @@ use gix::ObjectId;
 use kelp_core::diff::{self, Body, FileDiff};
 use kelp_core::ops::Op;
 use kelp_core::review::Review;
-use kelp_ui::diff::{DiffAction, DiffBody, DiffInput, DiffMode, HunkButton};
+use kelp_ui::diff::{DiffAction, DiffBody, DiffInput, DiffMode, DiffTexts, HunkButton};
 
 use crate::avatars::AvatarStore;
 use crate::blame_view::{self, BlameView};
@@ -474,6 +474,7 @@ impl DiffView {
                 stacked: self.stacked,
                 hunk_buttons: &hunk_buttons,
                 line_select_hint,
+                texts: &DiffTexts::default(),
             },
         );
         if matches!(self.diff.body, Body::Text(_)) {
