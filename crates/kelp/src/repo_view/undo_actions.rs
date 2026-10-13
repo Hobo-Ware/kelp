@@ -59,7 +59,11 @@ impl Repo {
 
     pub fn undo_hint(&self) -> String {
         let mut hint = match self.undo.next_undo() {
-            Some(record) => format!("Undo {} (⌘ Z)", lowercase_first(&record.label)),
+            Some(record) => format!(
+                "Undo {} ({})",
+                lowercase_first(&record.label),
+                kelp_ui::widgets::chord_label(cfg!(target_os = "macos"), "⌘ Z")
+            ),
             None => "Nothing to undo".into(),
         };
         if let Some((label, reason)) = &self.undo.last_skipped {
@@ -67,8 +71,9 @@ impl Repo {
         }
         if let Some(record) = self.undo.next_redo() {
             hint.push_str(&format!(
-                "\nRedo {} (⌘ Shift Z)",
-                lowercase_first(&record.label)
+                "\nRedo {} ({})",
+                lowercase_first(&record.label),
+                kelp_ui::widgets::chord_label(cfg!(target_os = "macos"), "⌘ Shift Z")
             ));
         }
         hint

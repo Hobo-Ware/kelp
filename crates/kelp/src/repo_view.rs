@@ -2625,7 +2625,10 @@ fn console_button(ui: &egui::Ui, rect: egui::Rect) -> bool {
     let response = ui
         .interact(rect, egui::Id::new("open-console"), Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text("Git console (⌘⌥L)");
+        .on_hover_text(format!(
+            "Git console ({})",
+            kelp_ui::widgets::chord_label(cfg!(target_os = "macos"), "⌘⌥L")
+        ));
     let painter = ui.painter();
     if response.hovered() {
         painter.rect_filled(rect, 4.0, theme::overlay(0x10));
@@ -2645,10 +2648,21 @@ fn console_button(ui: &egui::Ui, rect: egui::Rect) -> bool {
 }
 
 fn panel_toggle(ui: &egui::Ui, rect: egui::Rect, side: Side, open: bool) -> bool {
+    let mac = cfg!(target_os = "macos");
     let (hint, id, label) = match side {
-        Side::Sidebar => ("Toggle the sidebar (⌘⌥S)", "toggle-sidebar", "sidebar"),
+        Side::Sidebar => (
+            format!(
+                "Toggle the sidebar ({})",
+                kelp_ui::widgets::chord_label(mac, "⌘⌥S")
+            ),
+            "toggle-sidebar",
+            "sidebar",
+        ),
         Side::Details => (
-            "Toggle the details panel (⌘⌥D)",
+            format!(
+                "Toggle the details panel ({})",
+                kelp_ui::widgets::chord_label(mac, "⌘⌥D")
+            ),
             "toggle-details",
             "details panel",
         ),

@@ -106,8 +106,14 @@ impl Default for DiffTexts {
     fn default() -> Self {
         Self {
             saved_hint: Cow::Borrowed("Saved in this repo only · not pushed"),
-            reply_hint: Cow::Borrowed("Reply…  (⌘ Enter to send)"),
-            comment_hint: Cow::Borrowed("Write a comment…  (⌘ Enter to save)"),
+            reply_hint: Cow::Owned(format!(
+                "Reply…  ({} to send)",
+                crate::widgets::chord_label(cfg!(target_os = "macos"), "⌘ Enter")
+            )),
+            comment_hint: Cow::Owned(format!(
+                "Write a comment…  ({} to save)",
+                crate::widgets::chord_label(cfg!(target_os = "macos"), "⌘ Enter")
+            )),
         }
     }
 }
@@ -1647,7 +1653,18 @@ mod tests {
     fn the_default_texts_are_the_wording_kelp_always_used() {
         let texts = DiffTexts::default();
         assert_eq!(texts.saved_hint, "Saved in this repo only · not pushed");
-        assert_eq!(texts.reply_hint, "Reply…  (⌘ Enter to send)");
-        assert_eq!(texts.comment_hint, "Write a comment…  (⌘ Enter to save)");
+        let (reply, comment) = if cfg!(target_os = "macos") {
+            (
+                "Reply…  (⌘ Enter to send)",
+                "Write a comment…  (⌘ Enter to save)",
+            )
+        } else {
+            (
+                "Reply…  (Ctrl+Enter to send)",
+                "Write a comment…  (Ctrl+Enter to save)",
+            )
+        };
+        assert_eq!(texts.reply_hint, reply);
+        assert_eq!(texts.comment_hint, comment);
     }
 }

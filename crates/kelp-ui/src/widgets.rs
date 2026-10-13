@@ -219,11 +219,38 @@ pub fn enter_pressed(response: &egui::Response) -> bool {
     response.has_focus() && response.ctx.input(|i| i.key_pressed(egui::Key::Enter))
 }
 
+/// `chord` is written with the macOS glyphs (`⌘ Shift Z`); off macOS the command key reads `Ctrl`
+/// and the option key reads `Alt`, because egui's `command` modifier is Ctrl there.
+pub fn chord_label(mac: bool, chord: &str) -> String {
+    if mac {
+        chord.to_owned()
+    } else {
+        chord
+            .replace("⌘ ", "⌘")
+            .replace('⌘', "Ctrl+")
+            .replace('⌥', "Alt+")
+            .replace(' ', "+")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use egui::{self, Event, PointerButton, Pos2, RawInput, Rect, pos2, vec2};
 
-    use super::segmented;
+    use super::{chord_label, segmented};
+
+    #[test]
+    fn chord_label_follows_the_platform() {
+        assert_eq!(chord_label(true, "⌘ Enter"), "⌘ Enter");
+        assert_eq!(chord_label(true, "⌘ Shift Z"), "⌘ Shift Z");
+        assert_eq!(chord_label(true, "⌘⌥L"), "⌘⌥L");
+        assert_eq!(chord_label(true, "⌘T"), "⌘T");
+        assert_eq!(chord_label(false, "⌘ Enter"), "Ctrl+Enter");
+        assert_eq!(chord_label(false, "⌘ Shift Enter"), "Ctrl+Shift+Enter");
+        assert_eq!(chord_label(false, "⌘ Z"), "Ctrl+Z");
+        assert_eq!(chord_label(false, "⌘⌥S"), "Ctrl+Alt+S");
+        assert_eq!(chord_label(false, "⌘T"), "Ctrl+T");
+    }
 
     #[derive(Clone, Copy, PartialEq, Debug)]
     enum Pick {
