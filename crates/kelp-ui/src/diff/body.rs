@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 
 use egui::{
@@ -15,6 +16,8 @@ const NUM_W: f32 = 46.0;
 const GUTTER_W: f32 = 24.0;
 const THREAD_INDENT: f32 = NUM_W * 2.0 + GUTTER_W + 10.0;
 const THREAD_W: f32 = 640.0;
+const THREAD_MIN_W: f32 = 240.0;
+const THREAD_MARGIN: f32 = 16.0;
 const RESOLVED_H: f32 = 34.0;
 const COMPOSER_H: f32 = 132.0;
 
@@ -51,6 +54,7 @@ enum Item {
 }
 
 struct Rows {
+    card_w: f32,
     items: Vec<Item>,
     heights: Vec<f32>,
     offsets: Vec<f32>,
@@ -82,6 +86,36 @@ pub struct DiffInput<'a> {
     /// When set, changed lines can be selected by clicking their line numbers, and this is the
     /// tooltip. Read the result with [`DiffBody::selection`].
     pub line_select_hint: Option<&'a str>,
+    /// Host-specific wording of the thread cards and the composer.
+    pub texts: &'a DiffTexts,
+}
+
+/// Text the body shows that depends on the host: where comments are stored and which shortcuts
+/// send them. The default is Kelp's wording.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffTexts {
+    /// Under a thread's reply box, saying where comments live.
+    pub saved_hint: Cow<'static, str>,
+    /// Placeholder of a thread's reply box.
+    pub reply_hint: Cow<'static, str>,
+    /// Placeholder of the new comment box.
+    pub comment_hint: Cow<'static, str>,
+}
+
+impl Default for DiffTexts {
+    fn default() -> Self {
+        Self {
+            saved_hint: Cow::Borrowed("Saved in this repo only · not pushed"),
+            reply_hint: Cow::Borrowed("Reply…  (⌘ Enter to send)"),
+            comment_hint: Cow::Borrowed("Write a comment…  (⌘ Enter to save)"),
+        }
+    }
+}
+
+/// The width of a thread card or composer in a pane `available` points wide: 640 when there is
+/// room, narrower when the pane is, never below a readable minimum.
+fn thread_card_width(available: f32) -> f32 {
+    (available - THREAD_INDENT - THREAD_MARGIN).clamp(THREAD_MIN_W, THREAD_W)
 }
 
 /// An edit the user made in the body. The body never changes the host's threads itself.
@@ -388,7 +422,7 @@ impl DiffBody {
         items
     }
 
-    fn height(&self, ui: &Ui, item: &Item, input: &DiffInput<'_>) -> f32 {
+    fn height(&self, ui: &Ui, item: &Item, card_w: f32, input: &DiffInput<'_>) -> f32 {
         match item {
             Item::Hunk(_) | Item::OutsideHeader => HUNK_H,
             Item::Line(_) | Item::Split(..) | Item::FileLine(_) => LINE_H,
@@ -404,7 +438,7 @@ impl DiffBody {
                 if thread.resolved && !self.expanded.get(id).copied().unwrap_or(false) {
                     return RESOLVED_H;
                 }
-                let body_w = THREAD_W - 64.0;
+                let body_w = card_w - 64.0;
                 let comments: f32 = thread
                     .comments
                     .iter()
@@ -466,7 +500,11 @@ impl DiffBody {
 
     fn rows(&self, ui: &Ui, input: &DiffInput<'_>) -> Rows {
         let items = self.items(input);
-        let heights: Vec<f32> = items.iter().map(|i| self.height(ui, i, input)).collect();
+        let card_w = thread_card_width(ui.available_width());
+        let heights: Vec<f32> = items
+            .iter()
+            .map(|i| self.height(ui, i, card_w, input))
+            .collect();
         let mut offsets = Vec::with_capacity(items.len() + 1);
         let mut y = 0.0;
         for h in &heights {
@@ -474,6 +512,7 @@ impl DiffBody {
             y += h;
         }
         Rows {
+            card_w,
             items,
             heights,
             offsets,
@@ -493,11 +532,13 @@ impl DiffBody {
         actions: &mut Vec<DiffAction>,
     ) {
         let Rows {
+            card_w,
             items,
             heights,
             offsets,
             ..
         } = rows;
+        let card_w = *card_w;
         let font = FontId::monospace(12.5);
         let first = offsets.partition_point(|o| *o + LINE_H * 4.0 < viewport.min.y);
         for (k, item) in items.iter().enumerate().skip(first) {
@@ -596,8 +637,8 @@ impl DiffBody {
                         input,
                     );
                 }
-                Item::Thread(id) => self.thread(ui, rect, id, input, actions),
-                Item::Composer => self.composer_ui(ui, rect, input, actions),
+                Item::Thread(id) => self.thread(ui, rect, card_w, id, input, actions),
+                Item::Composer => self.composer_ui(ui, rect, card_w, input, actions),
             }
         }
     }
@@ -828,6 +869,7 @@ impl DiffBody {
         &mut self,
         ui: &mut Ui,
         rect: Rect,
+        card_w: f32,
         id: u64,
         input: &DiffInput<'_>,
         actions: &mut Vec<DiffAction>,
@@ -842,7 +884,7 @@ impl DiffBody {
         let expanded = self.expanded.get(&id).copied().unwrap_or(false);
         let card = Rect::from_min_size(
             pos2(rect.left() + THREAD_INDENT, rect.top() + 6.0),
-            vec2(THREAD_W, rect.height() - 12.0),
+            vec2(card_w, rect.height() - 12.0),
         );
         if thread.resolved && !expanded {
             let chip = Rect::from_min_size(card.min, vec2(220.0, 24.0));
@@ -915,7 +957,7 @@ impl DiffBody {
                 comment.body.clone(),
                 FontId::proportional(13.0),
                 theme::text_control(),
-                THREAD_W - 64.0,
+                card_w - 64.0,
             );
             let body_h = body.size().y;
             ui.painter().galley(
@@ -938,7 +980,7 @@ impl DiffBody {
         let draft = self.replies.entry(id).or_default();
         child.add(
             egui::TextEdit::multiline(draft)
-                .hint_text("Reply…  (⌘ Enter to send)")
+                .hint_text(input.texts.reply_hint.as_ref())
                 .desired_rows(1)
                 .desired_width(f32::INFINITY),
         );
@@ -946,7 +988,7 @@ impl DiffBody {
             && !draft.trim().is_empty();
         child.horizontal(|ui| {
             ui.label(
-                RichText::new("Saved in this repo only · not pushed")
+                RichText::new(input.texts.saved_hint.as_ref())
                     .size(11.0)
                     .color(theme::text_faint()),
             );
@@ -994,6 +1036,7 @@ impl DiffBody {
         &mut self,
         ui: &mut Ui,
         rect: Rect,
+        card_w: f32,
         input: &DiffInput<'_>,
         actions: &mut Vec<DiffAction>,
     ) {
@@ -1002,7 +1045,7 @@ impl DiffBody {
         };
         let card = Rect::from_min_size(
             pos2(rect.left() + THREAD_INDENT, rect.top() + 6.0),
-            vec2(THREAD_W, rect.height() - 12.0),
+            vec2(card_w, rect.height() - 12.0),
         );
         ui.painter().rect(
             card,
@@ -1025,7 +1068,7 @@ impl DiffBody {
         );
         let edit = child.add(
             egui::TextEdit::multiline(&mut self.draft)
-                .hint_text("Write a comment…  (⌘ Enter to save)")
+                .hint_text(input.texts.comment_hint.as_ref())
                 .desired_rows(2)
                 .desired_width(f32::INFINITY),
         );
@@ -1233,6 +1276,7 @@ mod tests {
         mode: DiffMode,
         hint: Option<&'static str>,
         buttons: Vec<HunkButton>,
+        texts: DiffTexts,
     }
 
     impl Harness {
@@ -1248,6 +1292,7 @@ mod tests {
                 mode: DiffMode::Diff,
                 hint: None,
                 buttons: Vec::new(),
+                texts: DiffTexts::default(),
             }
         }
 
@@ -1267,6 +1312,7 @@ mod tests {
                 mode,
                 hint,
                 buttons,
+                texts,
             } = self;
             let _ = ctx.run_ui(input, |ui| {
                 actions = body.ui(
@@ -1279,6 +1325,7 @@ mod tests {
                         stacked: false,
                         hunk_buttons: buttons,
                         line_select_hint: *hint,
+                        texts,
                     },
                 );
             });
@@ -1339,6 +1386,7 @@ mod tests {
             stacked: false,
             hunk_buttons: &h.buttons,
             line_select_hint: h.hint,
+            texts: &h.texts,
         }
     }
 
@@ -1547,5 +1595,59 @@ mod tests {
         h.frame(vec![], Modifiers::NONE);
         h.frame(vec![], Modifiers::NONE);
         assert_eq!(h.body.scroll_y(), 0.0);
+    }
+
+    #[test]
+    fn the_thread_card_is_640_wide_when_there_is_room_and_shrinks_with_the_pane() {
+        assert_eq!(thread_card_width(1200.0), THREAD_W);
+        assert_eq!(
+            thread_card_width(THREAD_W + THREAD_INDENT + THREAD_MARGIN),
+            THREAD_W
+        );
+        assert_eq!(
+            thread_card_width(500.0),
+            500.0 - THREAD_INDENT - THREAD_MARGIN
+        );
+        assert_eq!(thread_card_width(120.0), THREAD_MIN_W);
+    }
+
+    fn card_in(width: f32, h: &Harness) -> (f32, f32) {
+        let mut seen = (0.0, 0.0);
+        let raw = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(width, 400.0))),
+            ..Default::default()
+        };
+        let _ = h.ctx.run_ui(raw, |ui| {
+            let rows = h.body.rows(ui, &input(h));
+            let thread = rows
+                .items
+                .iter()
+                .position(|i| matches!(i, Item::Thread(_)))
+                .expect("a thread row");
+            seen = (rows.card_w, rows.heights[thread]);
+        });
+        seen
+    }
+
+    #[test]
+    fn narrow_panes_get_a_narrower_card_whose_comments_wrap_taller() {
+        let mut h = Harness::new();
+        let lines: Vec<&str> = vec!["a", "x", "y", "z", "b"];
+        let mut long = thread(1, Anchor::at(&lines, 1, Side::New), false);
+        long.comments[0].body = "word ".repeat(60);
+        h.threads = vec![long];
+        let (wide_w, wide_h) = card_in(1200.0, &h);
+        let (narrow_w, narrow_h) = card_in(420.0, &h);
+        assert_eq!(wide_w, THREAD_W);
+        assert!(narrow_w < 300.0, "card is {narrow_w} wide in a 420 pane");
+        assert!(narrow_h > wide_h);
+    }
+
+    #[test]
+    fn the_default_texts_are_the_wording_kelp_always_used() {
+        let texts = DiffTexts::default();
+        assert_eq!(texts.saved_hint, "Saved in this repo only · not pushed");
+        assert_eq!(texts.reply_hint, "Reply…  (⌘ Enter to send)");
+        assert_eq!(texts.comment_hint, "Write a comment…  (⌘ Enter to save)");
     }
 }
