@@ -2,6 +2,10 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.21 - 2026-10-14
+
+- The date filter goes by when a commit was committed, the same date the graph shows, so an amended or rebased commit shows up under "last day".
+
 ## v0.8.20 - 2026-10-14
 
 - Right-click a branch, remote branch or tag label in the graph to reset the current branch to it (Soft, Mixed or Hard). Hard asks first, the same as from a commit's menu. Thanks @tysonkerridge.

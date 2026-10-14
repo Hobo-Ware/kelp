@@ -2983,7 +2983,7 @@ dependencies = [
 
 [[package]]
 name = "kelp"
-version = "0.8.20"
+version = "0.8.21"
 dependencies = [
  "anyhow",
  "eframe",
@@ -3006,7 +3006,7 @@ dependencies = [
 
 [[package]]
 name = "kelp-core"
-version = "0.8.20"
+version = "0.8.21"
 dependencies = [
  "anyhow",
  "criterion",
@@ -3023,7 +3023,7 @@ dependencies = [
 
 [[package]]
 name = "kelp-ui"
-version = "0.8.20"
+version = "0.8.21"
 dependencies = [
  "anyhow",
  "egui",
