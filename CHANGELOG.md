@@ -2,6 +2,13 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.20 - 2026-10-14
+
+- Right-click a branch, remote branch or tag label in the graph to reset the current branch to it (Soft, Mixed or Hard). Hard asks first, the same as from a commit's menu. Thanks @tysonkerridge.
+- Hovering any branch or tag label shows its full name, not just remote ones. Thanks @tysonkerridge.
+- A commit's relative time now uses when it was committed, so an amended or rebased commit reads as recent. The details pane also shows when it was first authored if that differs. Thanks @tysonkerridge.
+- Kelp builds and runs on Linux from source (no package or self-update yet). Shortcut labels there show Ctrl instead of ⌘.
+
 ## v0.8.19 - 2026-10-06
 
 - Fixed a crash when opening a repository that has files but no commits yet, which is the state right after `git init` or "New repository". Kelp now shows your uncommitted files and lets you make the first commit, and an empty repository shows a short hint instead of a blank graph.

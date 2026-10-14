@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.19 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.20 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -15,6 +15,10 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-10-14
 
+- **v0.8.20.** Merged tysonkerridge's #9 (committer date), #10 (full-name
+  label tooltips) and #16 (reset from a label menu) after review; #16
+  rebased onto #9 and #10, 514 tests pass. Ships the Linux build and the
+  kelp-ui split since v0.8.19.
 - **Reset from a graph label's menu.** Right-clicking a branch, remote branch
   or tag label in the BRANCH / TAG column now ends with the same "Reset <current
   branch> to here" section as the commit menu (Soft, Mixed, Hard with its
