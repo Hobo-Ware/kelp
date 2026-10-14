@@ -103,7 +103,7 @@ pub fn matching_rows(
         }
         let keep = repo.find_commit(*id).ok().and_then(|commit| {
             let author = commit.author().ok()?;
-            let time = author.time().ok()?.seconds;
+            let time = commit.committer().ok()?.time().ok()?.seconds;
             Some(filter.keeps(
                 &author.name.to_string(),
                 &author.email.to_string(),

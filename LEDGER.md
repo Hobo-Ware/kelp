@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.20 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.21 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -15,6 +15,10 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-10-14
 
+- **Date filter uses the committer date** (`filter::matching_rows`), matching
+  the graph since #9, so an amended commit passes "last day". Author
+  name/email filters stay on the author. Test in `commit_dates_roundtrip`
+  fails without the fix. 515 tests pass.
 - **v0.8.20.** Merged tysonkerridge's #9 (committer date), #10 (full-name
   label tooltips) and #16 (reset from a label menu) after review; #16
   rebased onto #9 and #10, 514 tests pass. Ships the Linux build and the
