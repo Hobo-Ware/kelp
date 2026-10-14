@@ -433,6 +433,17 @@ pub fn commit(
         compare(id, None)
     });
     separator(ui);
+    reset_items(ui, ctx, id, out);
+    separator(ui);
+    item(ui, Icon::Copy, "Copy commit hash", out, || {
+        Command::Copy(id.to_string())
+    });
+    item(ui, Icon::Copy, "Copy message", out, || {
+        Command::Copy(title.to_string())
+    });
+}
+
+pub fn reset_items(ui: &mut Ui, ctx: &MenuContext, id: &str, out: &mut Vec<Command>) {
     heading(
         ui,
         &format!(
@@ -455,13 +466,12 @@ pub fn commit(
     danger(ui, Icon::Reset, "Hard: discard changes…", out, || {
         Command::ResetHard(id.to_string())
     });
+}
+
+pub fn graph_label(ui: &mut Ui, label: &RefLabel, ctx: &MenuContext, out: &mut Vec<Command>) {
+    branch(ui, label, ctx, out);
     separator(ui);
-    item(ui, Icon::Copy, "Copy commit hash", out, || {
-        Command::Copy(id.to_string())
-    });
-    item(ui, Icon::Copy, "Copy message", out, || {
-        Command::Copy(title.to_string())
-    });
+    reset_items(ui, ctx, &label.target.to_string(), out);
 }
 
 pub fn drop(ui: &mut Ui, plan: &DropPlan, ctx: &MenuContext, out: &mut Vec<Command>) {
