@@ -1932,7 +1932,7 @@ impl Repo {
                 menus::commit(ui, &id, parents, title, &menu_ctx, can_rebase, commands)
             }
             MenuFor::Ref(label) => {
-                menus::branch(ui, label, &menu_ctx, commands);
+                menus::graph_label(ui, label, &menu_ctx, commands);
                 menus::view_items(ui, label, filtering, commands);
             }
             MenuFor::Drop(plan) => menus::drop(ui, plan, &menu_ctx, commands),

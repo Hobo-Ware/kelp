@@ -16,7 +16,7 @@ use kelp_core::workspace::Worktree;
 use super::columns::{self, GraphColumns};
 use super::counts::{self as change_counts, Counts};
 use super::hover::{HoverPath, Label, VisiblePath};
-use super::labels::{self as ref_labels, DropPlan, DropTarget, LabelEvent, MenuFor};
+use super::labels::{self as ref_labels, DropPlan, DropTarget, Forced, LabelEvent, MenuFor};
 use super::marks::{self, Marks};
 use super::rows::{Row, RowMap, WipLink};
 use super::{GraphAction, Selection};
@@ -132,6 +132,8 @@ pub struct Preview<'a> {
     pub open_drop: Option<&'a str>,
     /// Open the context menu of the selected row.
     pub open_commit_menu: bool,
+    /// Name of the ref label whose context menu opens.
+    pub open_label_menu: Option<&'a str>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -268,6 +270,7 @@ impl GraphView {
         let drop = &mut self.drop;
         let open_refs = preview.open_ref_list;
         let open_drop = preview.open_drop;
+        let open_label_menu = preview.open_label_menu;
         let hover = &mut self.hover;
         let visible_commits = &mut self.visible_commits;
         visible_commits.clear();
@@ -501,7 +504,16 @@ impl GraphView {
                         }
                         if expanded != Some(row) {
                             let events = ref_labels::interact(
-                                ui, row, &labels, &placed, lane, force_open, &mut menu,
+                                ui,
+                                row,
+                                &labels,
+                                &placed,
+                                lane,
+                                Forced {
+                                    list: force_open,
+                                    menu: open_label_menu,
+                                },
+                                &mut menu,
                             );
                             label_events.extend(events.into_iter().map(|e| (row, e)));
                         }
@@ -538,8 +550,15 @@ impl GraphView {
                     .fold(Rect::NOTHING, |area, spot| area.union(spot.rect))
                     .expand(4.0);
                 *stack = Some((row, area));
-                let events =
-                    ref_labels::interact(ui, row, &labels, &placed, lane, false, &mut menu);
+                let events = ref_labels::interact(
+                    ui,
+                    row,
+                    &labels,
+                    &placed,
+                    lane,
+                    Forced::default(),
+                    &mut menu,
+                );
                 label_events.extend(events.into_iter().map(|e| (row, e)));
             }
             let commit_at = |pos: Pos2| -> Option<usize> {

@@ -15,6 +15,18 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-10-14
 
+- **Reset from a graph label's menu.** Right-clicking a branch, remote branch
+  or tag label in the BRANCH / TAG column now ends with the same "Reset <current
+  branch> to here" section as the commit menu (Soft, Mixed, Hard with its
+  confirm), aimed at the commit the label points at. `RefLabel.target` is
+  already the peeled commit, so an annotated tag resets to its commit, not the
+  tag object (tested in `ref_target_roundtrip`). The entries live in one
+  `menus::reset_items` that the commit menu and the new `menus::graph_label`
+  both call; the sidebar and worktree branch menus are unchanged. New dev
+  switch `KELP_OPEN_LABEL_MENU=<ref>` opens a label's menu for screenshots.
+  Verified with a screenshot of the tag menu on a fictional repo; no per-frame
+  work added (one string compare per label, no env reads). Graph benchmark not
+  re-run (no drawing change). fmt and clippy clean, 513 tests pass.
 - **Relative time uses the commit date.** `commit::Summary.time` is now
   the committer date (graph rows, columns, tooltip, worktrees page), so
   an amended or rebased commit reads as recent. The rebase list and file

@@ -36,6 +36,7 @@ pub struct DevPreview {
     open_ref_list: Option<String>,
     open_drop: Option<String>,
     open_commit_menu: bool,
+    open_label_menu: Option<String>,
 }
 
 impl DevPreview {
@@ -47,6 +48,7 @@ impl DevPreview {
             open_ref_list: std::env::var("KELP_OPEN_REFS").ok(),
             open_drop: std::env::var("KELP_OPEN_DROP").ok(),
             open_commit_menu: std::env::var("KELP_OPEN_MENU").as_deref() == Ok("commit"),
+            open_label_menu: std::env::var("KELP_OPEN_LABEL_MENU").ok(),
         }
     }
 
@@ -56,6 +58,7 @@ impl DevPreview {
             open_ref_list: self.open_ref_list.as_deref(),
             open_drop: self.open_drop.as_deref(),
             open_commit_menu: self.open_commit_menu,
+            open_label_menu: self.open_label_menu.as_deref(),
         }
     }
 }

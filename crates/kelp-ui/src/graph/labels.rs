@@ -301,13 +301,19 @@ pub fn paint_ghost(ctx: &egui::Context, label: &RefLabel, at: Pos2, lane: Color3
     );
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct Forced<'a> {
+    pub list: bool,
+    pub menu: Option<&'a str>,
+}
+
 pub fn interact(
     ui: &Ui,
     row: usize,
     labels: &[&RefLabel],
     placed: &[Placed],
     lane: Color32,
-    force_list_open: bool,
+    forced: Forced<'_>,
     menu: &mut dyn FnMut(&mut Ui, MenuFor<'_>),
 ) -> Vec<LabelEvent> {
     let mut events = Vec::new();
@@ -334,7 +340,14 @@ pub fn interact(
                 if response.drag_stopped() {
                     events.push(LabelEvent::DragStop);
                 }
-                crate::menu::context_menu(&response, |ui| menu(ui, MenuFor::Ref(label)));
+                if forced.menu == Some(label.name.as_str()) {
+                    egui::Popup::context_menu(&response)
+                        .open(true)
+                        .at_position(response.rect.left_bottom())
+                        .show(|ui| menu(ui, MenuFor::Ref(label)));
+                } else {
+                    crate::menu::context_menu(&response, |ui| menu(ui, MenuFor::Ref(label)));
+                }
             }
             Slot::Pull(i) => {
                 let Some(pull) = &labels[i].pull else {
@@ -355,7 +368,7 @@ pub fn interact(
                     .on_hover_cursor(CursorIcon::PointingHand)
                     .on_hover_text(names.join("\n"));
                 let mut popup = egui::Popup::menu(&response);
-                if force_list_open {
+                if forced.list {
                     popup = popup.open(true);
                 }
                 popup.show(|ui| ref_list(ui, labels, lane, menu));
@@ -545,7 +558,15 @@ mod tests {
             let mut seen = Vec::new();
             let _ = self.ctx.run_ui(input, |ui| {
                 let lane = theme::accent();
-                for event in interact(ui, 0, &labels, &placed, lane, false, &mut |_, _| {}) {
+                for event in interact(
+                    ui,
+                    0,
+                    &labels,
+                    &placed,
+                    lane,
+                    Forced::default(),
+                    &mut |_, _| {},
+                ) {
                     seen.push(match event {
                         LabelEvent::Select => "select",
                         LabelEvent::Activate(_) => "activate",
