@@ -13,6 +13,19 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-15
+
+- **kelp-ui API: `GraphStyle` and a row gap** (not user-visible in Kelp). `GraphInput`
+  gets `style: GraphStyle` (`Default` is today's look; `GraphStyle::embedded(accent)` is a
+  flat list for a host's side panel) and `expanded: Option<(usize, f32)>`, a gap under a
+  commit row that pushes the rows below it down, keeps lanes running through it and
+  scrolls whole into view with `scroll_to`. `GraphView::expanded_rect` and `viewport_rect`
+  tell the host where to paint its card. Row positions come from `graph::flow::Flow`.
+  Default look checked pixel-identical (PSNR 120 on the graph area, offline screenshot of
+  this repo before and after). Dev switches `KELP_EMBEDDED_LOOK=1` and
+  `KELP_EMBEDDED_GAP=<row>:<height>` draw the new look in the app. Graph benchmark not
+  re-run. fmt and clippy clean; kelp-ui tests 75 -> 97.
+
 ## 2026-10-14
 
 - **Date filter uses the committer date** (`filter::matching_rows`), matching
