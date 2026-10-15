@@ -15,10 +15,12 @@ use kelp_core::workspace::Worktree;
 
 use super::columns::{self, GraphColumns};
 use super::counts::{self as change_counts, Counts};
+use super::flow::Flow;
 use super::hover::{HoverPath, Label, VisiblePath};
 use super::labels::{self as ref_labels, DropPlan, DropTarget, Forced, LabelEvent, MenuFor};
 use super::marks::{self, Marks};
 use super::rows::{Row, RowMap, WipLink};
+use super::style::{GraphStyle, RefPlacement};
 use super::{GraphAction, Selection};
 use crate::avatars::AvatarStore;
 use crate::paint::{AVATAR_R, TooltipCommit, commit_tooltip, paint_avatar, selection_halo};
@@ -26,14 +28,10 @@ use crate::theme;
 
 /// Height of one graph row, in points.
 pub const ROW_H: f32 = 30.0;
-const LANE_W: f32 = 24.0;
-const ARC_R: f32 = ROW_H / 2.0;
-const LINE_W: f32 = 2.25;
-const LABELS_W: f32 = 170.0;
+pub(super) const LABELS_W: f32 = 170.0;
 const LABELS_END: f32 = 158.0;
-const GRAPH_PAD: f32 = 16.0;
 const MIN_GRAPH_W: f32 = 80.0;
-const DEFAULT_MAX_LANES: f32 = 14.0;
+const DEFAULT_MAX_LANES: u16 = 14;
 const HEADER_H: f32 = 28.0;
 const MARK_INSET: f32 = 12.0;
 const HOVER_LINE_W: f32 = 3.5;
@@ -61,6 +59,12 @@ pub struct GraphView {
     pub visible_commits: Vec<usize>,
     /// The id of the keyboard focus target, set while the graph is drawn.
     pub focus_id: Option<egui::Id>,
+    /// Where the gap asked for with `GraphInput::expanded` is on screen, whole even when it is
+    /// partly scrolled out of view. `None` when there is no gap or it is out of view. The host
+    /// paints its card here, clipped to `viewport_rect`.
+    pub expanded_rect: Option<Rect>,
+    /// The visible part of the graph in the last frame.
+    pub viewport_rect: Rect,
     stack: Option<(usize, Rect)>,
 }
 
@@ -96,6 +100,11 @@ pub struct GraphInput<'a> {
     pub filter_active: bool,
     /// CI state per commit; commits found here get a status dot.
     pub checks: &'a HashMap<kelp_core::ObjectId, kelp_core::checks::Status>,
+    /// The look of the graph. `GraphStyle::default()` is the Kelp app's.
+    pub style: GraphStyle,
+    /// Opens a gap of the given height under a commit row, pushing every row below it down. Lanes
+    /// run through the gap; `GraphView::expanded_rect` says where it is, for the host to fill.
+    pub expanded: Option<(usize, f32)>,
 }
 
 #[derive(Clone, Copy)]
@@ -164,6 +173,8 @@ impl GraphView {
             filter_clicked: false,
             visible_commits: Vec::new(),
             focus_id: None,
+            expanded_rect: None,
+            viewport_rect: Rect::NOTHING,
             stack: None,
         }
     }
@@ -197,6 +208,8 @@ impl GraphView {
             picking,
             filter_active,
             checks,
+            style,
+            expanded: gap_input,
         } = input;
         let other_heads: Vec<usize> = other_wips.iter().map(|w| w.head_row).collect();
         let map = RowMap::new(
@@ -204,29 +217,38 @@ impl GraphView {
             wip.as_ref().map(|w| w.head_row),
             &other_heads,
         );
+        let row_h = style.row_h;
+        let lane_w = style.lane_w();
+        let labels_w = style.labels_w();
         let gutter = if map.pinned_head().is_some() {
-            LANE_W
+            lane_w
         } else {
             0.0
         };
-        let content_w = history.layout.lane_count() as f32 * LANE_W + gutter + GRAPH_PAD * 2.0;
-        let auto_w = content_w.clamp(120.0, DEFAULT_MAX_LANES * LANE_W + GRAPH_PAD * 2.0);
+        let content_w = style.content_w(history.layout.lane_count(), gutter);
+        let (min_auto_w, min_graph_w) = match style.refs {
+            RefPlacement::Column => (120.0, MIN_GRAPH_W),
+            RefPlacement::Inline => (0.0, 0.0),
+        };
+        let auto_w = content_w.clamp(min_auto_w, style.content_w(DEFAULT_MAX_LANES, 0.0));
         let badges: ref_labels::RemoteBadges = remote_owners
             .iter()
             .filter_map(|(remote, owner)| Some((remote.clone(), avatars.owner_texture(owner)?)))
             .collect();
-        let max_w = (ui.available_width() * 0.6).max(MIN_GRAPH_W);
-        let graph_w = self.graph_w.unwrap_or(auto_w).clamp(MIN_GRAPH_W, max_w);
+        let max_w = (ui.available_width() * 0.6).max(min_graph_w);
+        let graph_w = self.graph_w.unwrap_or(auto_w).clamp(min_graph_w, max_w);
         self.lane_offset = self.lane_offset.clamp(0.0, (content_w - graph_w).max(0.0));
-        let msg_x = LABELS_W + graph_w;
-        if self.header(
-            ui,
-            msg_x,
-            auto_w,
-            content_w > graph_w,
-            &mut columns,
-            filter_active,
-        ) {
+        let msg_x = labels_w + graph_w;
+        if style.header
+            && self.header(
+                ui,
+                msg_x,
+                auto_w,
+                content_w > graph_w,
+                &mut columns,
+                filter_active,
+            )
+        {
             self.columns_changed = Some(columns);
         }
 
@@ -256,10 +278,16 @@ impl GraphView {
             .map_or(0, |d| d.as_secs() as i64);
         self.focus_id = None;
         let mut action = None;
+        let flow = Flow::new(
+            row_h,
+            map.total(),
+            gap_input
+                .filter(|&(row, _)| row < history.len())
+                .map(|(row, height)| (map.display(Row::Commit(row)), height)),
+        );
         let mut scroll = egui::ScrollArea::vertical().auto_shrink(false);
         if let Some(selection) = self.scroll_to.take() {
-            let visible = ui.available_height();
-            let target = (map.display_of(selection) as f32 * ROW_H - visible / 3.0).max(0.0);
+            let target = flow.scroll_target(map.display_of(selection), ui.available_height());
             scroll = scroll.vertical_scroll_offset(target);
         }
         ui.spacing_mut().item_spacing.y = 0.0;
@@ -276,7 +304,9 @@ impl GraphView {
         visible_commits.clear();
         let focus_id = &mut self.focus_id;
         let stack = &mut self.stack;
-        scroll.show_rows(ui, ROW_H, map.total(), |ui, rows| {
+        let expanded_rect = &mut self.expanded_rect;
+        *expanded_rect = None;
+        let mut draw = |ui: &mut Ui, rows: std::ops::Range<usize>| {
             for display in rows.clone() {
                 if let Row::Commit(row) = map.resolve(display) {
                     summaries.entry(row).or_insert_with(|| {
@@ -287,7 +317,8 @@ impl GraphView {
                     });
                 }
             }
-            let size = vec2(ui.available_width(), ROW_H * rows.len() as f32);
+            let base = flow.top(rows.start);
+            let size = vec2(ui.available_width(), flow.top(rows.end) - base);
             let (rect, response) = ui.allocate_exact_size(size, Sense::click());
             *focus_id = Some(response.id);
             crate::widgets::describe(&response, egui::WidgetType::Other, "commit graph");
@@ -305,10 +336,10 @@ impl GraphView {
             }
             let keyboard_menu = response.has_focus()
                 && ui.input(|i| i.modifiers.shift_only() && i.key_pressed(egui::Key::F10));
-            let selected_top = selected
-                .map(|s| rect.top() + (map.display_of(s) as f32 - rows.start as f32) * ROW_H);
+            let y_of = |display: usize| rect.top() + flow.top(display) - base;
+            let selected_top = selected.map(|s| y_of(map.display_of(s)));
             let graph_area =
-                Rect::from_x_y_ranges(rect.left() + LABELS_W..=rect.left() + msg_x, rect.y_range());
+                Rect::from_x_y_ranges(rect.left() + labels_w..=rect.left() + msg_x, rect.y_range());
             if ui.rect_contains_pointer(graph_area) {
                 let dx = ui.input(|i| i.smooth_scroll_delta.x);
                 if dx != 0.0 {
@@ -316,15 +347,15 @@ impl GraphView {
                 }
             }
             let row_at = |y: f32| {
-                let display = rows.start + ((y - rect.top()) / ROW_H) as usize;
-                map.resolve(display.min(map.total().saturating_sub(1)))
+                flow.row_at(y - rect.top() + base)
+                    .map(|display| map.resolve(display))
             };
             let hovered_row = preview.hover_row.or_else(|| {
                 response
                     .hover_pos()
                     .filter(|_| !response.context_menu_opened())
                     .and_then(|pos| match row_at(pos.y) {
-                        Row::Commit(row) => Some(row),
+                        Some(Row::Commit(row)) => Some(row),
                         _ => None,
                     })
             });
@@ -338,7 +369,7 @@ impl GraphView {
             let pointer = ui.ctx().pointer_hover_pos().filter(|p| rect.contains(*p));
             let stacked = |row: usize| history.refs.at_row(row).nth(1).is_some();
             let under_pointer = pointer.and_then(|p| match row_at(p.y) {
-                Row::Commit(row) => Some(row),
+                Some(Row::Commit(row)) => Some(row),
                 _ => None,
             });
             let expanded = stack
@@ -366,18 +397,20 @@ impl GraphView {
             let mut check_dots: Vec<(Rect, usize)> = Vec::new();
             let mut halos = Vec::new();
             let tint = WipTint {
+                style,
                 lit,
                 path: visible_path.as_ref(),
             };
-            for (i, display) in rows.clone().enumerate() {
+            for display in rows.clone() {
                 let geo = RowGeo {
                     left: rect.left(),
                     right: rect.right(),
-                    top: rect.top() + i as f32 * ROW_H,
+                    top: y_of(display),
                     msg_x,
                     lane_offset: *lane_offset,
                     gutter,
                     columns,
+                    style,
                 };
                 let row_kind = map.resolve(display);
                 let compared = match row_kind {
@@ -403,6 +436,7 @@ impl GraphView {
                 if let Row::Commit(row) = row_kind
                     && hover.as_ref().is_some_and(|(h, _)| *h == row)
                     && !is_selected
+                    && style.row_bands
                 {
                     let band =
                         Rect::from_x_y_ranges(geo.msg_left()..=geo.right, geo.top..=geo.bottom());
@@ -451,7 +485,7 @@ impl GraphView {
                     }
                     (Row::Commit(row), _) => {
                         let avatar = avatars.texture(&summaries[&row].email, history.id(row));
-                        let style = RowStyle {
+                        let row_style = RowStyle {
                             selected: is_selected,
                             own_wip_above: map.has_own_wip_above(row),
                             other_wip_above: map.has_other_wip_above(row),
@@ -467,7 +501,7 @@ impl GraphView {
                                 row,
                                 summary: &summaries[&row],
                                 avatar,
-                                style,
+                                style: row_style,
                                 path: visible_path.as_ref(),
                                 on_path: on_path(row),
                                 checks: checks.get(&history.id(row)),
@@ -484,7 +518,7 @@ impl GraphView {
                         let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
                         let force_open = open_refs
                             .is_some_and(|rev| history.id(row).to_string().starts_with(rev));
-                        let lane = theme::lane(history.layout.node_color(row));
+                        let lane = style.lane(history.layout.node_color(row));
                         if expanded == Some(row) {
                             expanded_geo = Some((row, geo.top, lane));
                         }
@@ -524,6 +558,27 @@ impl GraphView {
                     paint_wip_link(&painter, &geo, history, tint, head, map.wip_link(display));
                 }
             }
+            if let Some((after, span)) = flow.gap()
+                && rows.contains(&after)
+            {
+                let start = rect.top() + span.start - base;
+                let end = rect.top() + span.end - base;
+                *expanded_rect = Some(Rect::from_x_y_ranges(rect.x_range(), start..=end));
+                if let Row::Commit(row) = map.resolve(after) {
+                    let geo = RowGeo {
+                        left: rect.left(),
+                        right: rect.right(),
+                        top: start,
+                        msg_x,
+                        lane_offset: *lane_offset,
+                        gutter,
+                        columns,
+                        style,
+                    };
+                    let link = map.pinned_head().map(|head| (head, map.wip_link(after)));
+                    paint_gap(&painter, &geo, end, history, tint, row, link);
+                }
+            }
             for (center, lane, graph_x) in halos {
                 let clip = Rect::from_x_y_ranges(graph_x, rect.y_range());
                 selection_halo(&painter.with_clip_rect(clip), center, AVATAR_R, lane);
@@ -535,7 +590,7 @@ impl GraphView {
                     &painter,
                     rect.left() + LABELS_END,
                     rect.left() + 8.0,
-                    top + ROW_H / 2.0,
+                    top + row_h / 2.0,
                     &labels,
                     &badges,
                     lane,
@@ -565,9 +620,8 @@ impl GraphView {
                 if !rect.contains(pos) {
                     return None;
                 }
-                let display = rows.start + ((pos.y - rect.top()) / ROW_H) as usize;
-                match map.resolve(display.min(map.total().saturating_sub(1))) {
-                    Row::Commit(row) => Some(row),
+                match row_at(pos.y) {
+                    Some(Row::Commit(row)) => Some(row),
                     _ => None,
                 }
             };
@@ -618,10 +672,10 @@ impl GraphView {
                     if let Some(target) = commit_at(pos) {
                         let display = map.display(Row::Commit(target));
                         if rows.contains(&display) {
-                            let top = rect.top() + (display - rows.start) as f32 * ROW_H;
+                            let top = y_of(display);
                             let row_rect = Rect::from_x_y_ranges(
                                 rect.left() + 2.0..=rect.right() - 2.0,
-                                top + 1.0..=top + ROW_H - 1.0,
+                                top + 1.0..=top + row_h - 1.0,
                             );
                             painter.rect_stroke(
                                 row_rect,
@@ -631,7 +685,7 @@ impl GraphView {
                             );
                         }
                     }
-                    let lane = theme::lane(history.layout.node_color(dragged.from_row));
+                    let lane = style.lane(history.layout.node_color(dragged.from_row));
                     ref_labels::paint_ghost(ui.ctx(), &dragged.label, pos, lane);
                     ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
                 }
@@ -649,7 +703,7 @@ impl GraphView {
                     _ => None,
                 })
             {
-                let top = rect.top() + (map.display(Row::Commit(row)) - rows.start) as f32 * ROW_H;
+                let top = y_of(map.display(Row::Commit(row)));
                 let label = label_hits
                     .iter()
                     .find(|(_, hit_row, l)| *hit_row == row && l.name != source)
@@ -662,7 +716,7 @@ impl GraphView {
                         label,
                         is_head: head_row == Some(row),
                     },
-                    pos: pos2(rect.left() + msg_x + 60.0, top + ROW_H),
+                    pos: pos2(rect.left() + msg_x + 60.0, top + row_h),
                 });
                 egui::Popup::open_id(ui.ctx(), drop_menu_id());
             }
@@ -680,8 +734,8 @@ impl GraphView {
                 action = Some(GraphAction::OpenChecks(*row));
             } else if (response.clicked() || response.secondary_clicked())
                 && let Some(pos) = response.interact_pointer_pos()
+                && let Some(row) = row_at(pos.y)
             {
-                let row = row_at(pos.y);
                 let comparing =
                     response.clicked() && (picking || ui.input(|i| i.modifiers.command));
                 match (row, comparing) {
@@ -697,7 +751,7 @@ impl GraphView {
                 }
             } else if response.double_clicked()
                 && let Some(pos) = response.interact_pointer_pos()
-                && let Row::OtherWip(i) = row_at(pos.y)
+                && let Some(Row::OtherWip(i)) = row_at(pos.y)
             {
                 action = Some(GraphAction::OpenWorktree(other_wips[i].tree.path.clone()));
             }
@@ -711,7 +765,7 @@ impl GraphView {
                 && crate::widgets::keyboard_mode(ui.ctx())
                 && let Some(top) = selected_top
             {
-                let row_rect = egui::Rect::from_x_y_ranges(rect.x_range(), top..=top + ROW_H);
+                let row_rect = egui::Rect::from_x_y_ranges(rect.x_range(), top..=top + row_h);
                 ui.painter().rect_stroke(
                     row_rect.shrink(1.0),
                     0.0,
@@ -721,7 +775,7 @@ impl GraphView {
             }
             let menu_anchor = egui::pos2(
                 rect.left() + msg_x + 120.0,
-                selected_top.unwrap_or(rect.top()) + ROW_H,
+                selected_top.unwrap_or(rect.top()) + row_h,
             );
             if let Some(row) = *context {
                 crate::menu::context_menu_at(&response, menu_anchor, |ui| match row {
@@ -772,17 +826,32 @@ impl GraphView {
             if preview.open_commit_menu
                 && let Some(selection) = selected
             {
-                let top = rect.top() + (map.display_of(selection) - rows.start) as f32 * ROW_H;
+                let top = y_of(map.display_of(selection));
                 let title = match selection {
                     Selection::Commit(row) => summaries[&row].title.clone(),
                     Selection::Wip => String::new(),
                 };
                 egui::Popup::context_menu(&response)
                     .open(true)
-                    .at_position(egui::pos2(rect.left() + msg_x + 120.0, top + ROW_H))
+                    .at_position(egui::pos2(rect.left() + msg_x + 120.0, top + row_h))
                     .show(|ui| menu(ui, MenuFor::Commit(selection, &title)));
             }
+        };
+        let shown = scroll.show_viewport(ui, |ui, viewport| {
+            ui.set_height(flow.height());
+            let rows = flow.visible(viewport.min.y..viewport.max.y);
+            let top = ui.max_rect().top();
+            let area = Rect::from_x_y_ranges(
+                ui.max_rect().x_range(),
+                top + flow.top(rows.start)..=top + flow.top(rows.end),
+            );
+            ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
+                ui.skip_ahead_auto_ids(rows.start);
+                draw(ui, rows)
+            })
+            .inner
         });
+        self.viewport_rect = shown.inner_rect;
         if let Some(plan) = self.drop.as_ref() {
             let id = drop_menu_id();
             egui::Popup::new(
@@ -931,23 +1000,30 @@ struct RowGeo {
     lane_offset: f32,
     gutter: f32,
     columns: GraphColumns,
+    style: GraphStyle,
 }
 
 impl RowGeo {
     fn lane_x(&self, lane: u16) -> f32 {
-        self.wip_x() + self.gutter + lane as f32 * LANE_W
+        self.wip_x() + self.gutter + lane as f32 * self.style.lane_w()
     }
     fn wip_x(&self) -> f32 {
-        self.left + LABELS_W + GRAPH_PAD - self.lane_offset
+        self.left + self.style.labels_w() + self.style.graph_lead - self.lane_offset
+    }
+    fn row_h(&self) -> f32 {
+        self.style.row_h
+    }
+    fn arc_r(&self) -> f32 {
+        self.style.arc_r()
     }
     fn mid(&self) -> f32 {
-        self.top + ROW_H / 2.0
+        self.top + self.row_h() / 2.0
     }
     fn bottom(&self) -> f32 {
-        self.top + ROW_H
+        self.top + self.row_h()
     }
     fn graph_left(&self) -> f32 {
-        self.left + LABELS_W
+        self.left + self.style.labels_w()
     }
     fn msg_left(&self) -> f32 {
         self.left + self.msg_x
@@ -964,7 +1040,7 @@ impl RowGeo {
     }
     fn lane_visible(&self, lane: u16) -> bool {
         let x = self.lane_x(lane);
-        x > self.graph_left() - LANE_W && x < self.msg_left() + LANE_W
+        x > self.graph_left() - self.style.lane_w() && x < self.msg_left() + self.style.lane_w()
     }
 }
 
@@ -986,8 +1062,8 @@ fn is_faded(lit: Option<&[bool]>, row: usize) -> bool {
     lit.is_some_and(|l| !l.get(row).copied().unwrap_or(true))
 }
 
-fn edge_color(lit: Option<&[bool]>, edge: &Edge) -> Color32 {
-    let color = theme::lane(edge.color);
+fn edge_color(style: &GraphStyle, lit: Option<&[bool]>, edge: &Edge) -> Color32 {
+    let color = style.lane(edge.color).gamma_multiply(style.line_alpha());
     if is_faded(lit, edge.from as usize) {
         color.gamma_multiply(FADED_OPACITY)
     } else {
@@ -1027,7 +1103,7 @@ fn paint_row(
     }
     let layout = &history.layout;
     let node_lane = layout.node_lane(row);
-    let color = theme::lane(layout.node_color(row));
+    let color = geo.style.lane(layout.node_color(row));
     let node = pos2(geo.lane_x(node_lane), geo.mid());
     let graph = geo.graph_clip(painter);
     let mut graph_soft = graph.clone();
@@ -1075,12 +1151,16 @@ fn paint_row(
     }
     if other_wip_above {
         let x = geo.lane_x(side_lane(history, row));
-        let corner = pos2(x - ARC_R, geo.top);
-        let mut points = quarter_arc(corner, pos2(x, geo.top), pos2(x - ARC_R, geo.mid()));
+        let arc_r = geo.arc_r();
+        let corner = pos2(x - arc_r, geo.top);
+        let mut points = quarter_arc(corner, pos2(x, geo.top), pos2(x - arc_r, geo.mid()), arc_r);
         points.push(pos2(node.x + AVATAR_R + 1.0, geo.mid()));
         graph.extend(Shape::dashed_line(
             &points,
-            Stroke::new(LINE_W, theme::text_faint().gamma_multiply(wip_link_dim)),
+            Stroke::new(
+                geo.style.line_w(),
+                theme::text_faint().gamma_multiply(wip_link_dim),
+            ),
             4.0,
             3.0,
         ));
@@ -1089,7 +1169,13 @@ fn paint_row(
         if edge.kind == EdgeKind::Pass && !geo.lane_visible(edge.lane) {
             continue;
         }
-        let stroke = hover_stroke(path, row, edge, edge_color(lit, edge));
+        let stroke = hover_stroke(
+            &geo.style,
+            path,
+            row,
+            edge,
+            edge_color(&geo.style, lit, edge),
+        );
         let x = geo.lane_x(edge.lane);
         match edge.kind {
             EdgeKind::Pass => {
@@ -1103,20 +1189,27 @@ fn paint_row(
             }
             EdgeKind::JoinIn => {
                 let dir = (node.x - x).signum();
-                let corner = pos2(x + dir * ARC_R, geo.top);
-                let mut points =
-                    quarter_arc(corner, pos2(x, geo.top), pos2(x + dir * ARC_R, geo.mid()));
+                let arc_r = geo.arc_r();
+                let corner = pos2(x + dir * arc_r, geo.top);
+                let mut points = quarter_arc(
+                    corner,
+                    pos2(x, geo.top),
+                    pos2(x + dir * arc_r, geo.mid()),
+                    arc_r,
+                );
                 points.push(node);
                 graph.add(Shape::line(points, stroke));
             }
             EdgeKind::MergeOut => {
                 let dir = (x - node.x).signum();
-                let corner = pos2(x - dir * ARC_R, geo.bottom());
+                let arc_r = geo.arc_r();
+                let corner = pos2(x - dir * arc_r, geo.bottom());
                 let mut points = vec![node];
                 points.extend(quarter_arc(
                     corner,
-                    pos2(x - dir * ARC_R, geo.mid()),
+                    pos2(x - dir * arc_r, geo.mid()),
                     pos2(x, geo.bottom()),
+                    arc_r,
                 ));
                 graph.add(Shape::line(points, stroke));
             }
@@ -1213,6 +1306,7 @@ struct WipLabel {
 
 #[derive(Clone, Copy)]
 struct WipTint<'a> {
+    style: GraphStyle,
     lit: Option<&'a [bool]>,
     path: Option<&'a VisiblePath<'a>>,
 }
@@ -1231,11 +1325,17 @@ impl WipTint<'_> {
     }
 }
 
-fn hover_stroke(path: Option<&VisiblePath<'_>>, row: usize, edge: &Edge, color: Color32) -> Stroke {
+fn hover_stroke(
+    style: &GraphStyle,
+    path: Option<&VisiblePath<'_>>,
+    row: usize,
+    edge: &Edge,
+    color: Color32,
+) -> Stroke {
     match path.map(|p| p.carries(row, edge)) {
-        None => Stroke::new(LINE_W, color),
+        None => Stroke::new(style.line_w(), color),
         Some(true) => Stroke::new(HOVER_LINE_W, color),
-        Some(false) => Stroke::new(LINE_W, color.gamma_multiply(OFF_PATH_OPACITY)),
+        Some(false) => Stroke::new(style.line_w(), color.gamma_multiply(OFF_PATH_OPACITY)),
     }
 }
 
@@ -1256,7 +1356,7 @@ fn paint_wip_row(
     } else {
         layout.node_lane(head_row)
     };
-    let head_color = theme::lane(if unborn {
+    let head_color = geo.style.lane(if unborn {
         0
     } else {
         layout.node_color(head_row)
@@ -1299,7 +1399,13 @@ fn paint_wip_row(
         let from_above = matches!(edge.kind, EdgeKind::Pass | EdgeKind::Top | EdgeKind::JoinIn);
         if from_above && geo.lane_visible(edge.lane) {
             let x = geo.lane_x(edge.lane);
-            let stroke = hover_stroke(tint.path, head_row, &edge, edge_color(tint.lit, &edge));
+            let stroke = hover_stroke(
+                &geo.style,
+                tint.path,
+                head_row,
+                &edge,
+                edge_color(&geo.style, tint.lit, &edge),
+            );
             graph.line_segment([pos2(x, geo.top), pos2(x, geo.bottom())], stroke);
         }
     }
@@ -1383,6 +1489,47 @@ fn side_lane(history: &History, head_row: usize) -> u16 {
         .unwrap_or(layout.node_lane(head_row) + 1)
 }
 
+fn wip_link_color(history: &History, tint: WipTint<'_>, head: usize) -> Color32 {
+    tint.style
+        .lane(history.layout.node_color(head))
+        .gamma_multiply(tint.dim(head))
+}
+
+fn paint_gap(
+    painter: &egui::Painter,
+    geo: &RowGeo,
+    bottom: f32,
+    history: &History,
+    tint: WipTint<'_>,
+    row: usize,
+    link: Option<(usize, WipLink)>,
+) {
+    let clip = Rect::from_x_y_ranges(geo.graph_left()..=geo.msg_left(), geo.top..=bottom);
+    let graph = painter.with_clip_rect(clip.intersect(painter.clip_rect()));
+    for edge in history.layout.edges(row) {
+        let down = matches!(
+            edge.kind,
+            EdgeKind::Pass | EdgeKind::Bottom | EdgeKind::MergeOut
+        );
+        if down && geo.lane_visible(edge.lane) {
+            let x = geo.lane_x(edge.lane);
+            let stroke = hover_stroke(
+                &geo.style,
+                tint.path,
+                row,
+                &edge,
+                edge_color(&geo.style, tint.lit, &edge),
+            );
+            graph.line_segment([pos2(x, geo.top), pos2(x, bottom)], stroke);
+        }
+    }
+    if let Some((head, WipLink::Pass)) = link {
+        let x = geo.wip_x();
+        let color = wip_link_color(history, tint, head);
+        dashed(&graph, pos2(x, geo.top), pos2(x, bottom), color);
+    }
+}
+
 fn paint_wip_link(
     painter: &egui::Painter,
     geo: &RowGeo,
@@ -1391,7 +1538,7 @@ fn paint_wip_link(
     head: usize,
     link: WipLink,
 ) {
-    let color = theme::lane(history.layout.node_color(head)).gamma_multiply(tint.dim(head));
+    let color = wip_link_color(history, tint, head);
     let graph = geo.graph_clip(painter);
     let x = geo.wip_x();
     match link {
@@ -1420,7 +1567,7 @@ fn paint_plus(painter: &egui::Painter, center: Pos2, half: f32, color: Color32) 
 fn open_button_rect(geo: &RowGeo) -> Rect {
     Rect::from_min_size(
         pos2(geo.right - OPEN_BUTTON_W - 14.0, geo.top + 5.0),
-        vec2(OPEN_BUTTON_W, ROW_H - 10.0),
+        vec2(OPEN_BUTTON_W, geo.row_h() - 10.0),
     )
 }
 
@@ -1473,7 +1620,7 @@ fn dashed(painter: &egui::Painter, from: Pos2, to: Pos2, color: Color32) {
     ));
 }
 
-fn quarter_arc(center: Pos2, from: Pos2, to: Pos2) -> Vec<Pos2> {
+fn quarter_arc(center: Pos2, from: Pos2, to: Pos2, radius: f32) -> Vec<Pos2> {
     let a0 = (from - center).angle();
     let mut delta = (to - center).angle() - a0;
     if delta > PI {
@@ -1485,7 +1632,7 @@ fn quarter_arc(center: Pos2, from: Pos2, to: Pos2) -> Vec<Pos2> {
     (0..=STEPS)
         .map(|i| {
             let a = a0 + delta * i as f32 / STEPS as f32;
-            center + vec2(a.cos(), a.sin()) * ARC_R
+            center + vec2(a.cos(), a.sin()) * radius
         })
         .collect()
 }
@@ -1572,7 +1719,7 @@ fn paint_message(
     let dot = checks.map(|state| {
         let center = pos2(right - 14.0 - time_w - CHECK_DOT_ROOM / 2.0, geo.mid());
         painter.circle_filled(center, CHECK_DOT_R, check_color(state));
-        Rect::from_center_size(center, vec2(CHECK_DOT_ROOM, ROW_H))
+        Rect::from_center_size(center, vec2(CHECK_DOT_ROOM, geo.row_h()))
     });
     let time_w = time_w + if dot.is_some() { CHECK_DOT_ROOM } else { 0.0 };
 
@@ -1625,11 +1772,15 @@ mod tests {
     use kelp_core::commit::FileChange;
     use kelp_core::history::History;
 
-    use super::{GraphAction, GraphInput, GraphView, HEADER_H, Preview, ROW_H, Wip};
+    use super::{GraphAction, GraphInput, GraphStyle, GraphView, HEADER_H, Preview, ROW_H, Wip};
     use crate::avatars::AvatarStore;
     use crate::graph::Selection;
 
     fn scratch_repo(name: &str) -> PathBuf {
+        scratch_repo_of(name, 3)
+    }
+
+    fn scratch_repo_of(name: &str, commits: usize) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("kelp-graph-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1646,7 +1797,7 @@ mod tests {
         run(&["init", "-q", "-b", "main"]);
         run(&["config", "user.email", "t@example.com"]);
         run(&["config", "user.name", "T"]);
-        for n in 0..3 {
+        for n in 0..commits {
             std::fs::write(dir.join("a.txt"), n.to_string()).unwrap();
             run(&["add", "."]);
             run(&["commit", "-q", "-m", &format!("commit {n}")]);
@@ -1663,6 +1814,9 @@ mod tests {
         selected: Option<Selection>,
         action: Option<GraphAction>,
         wip: Vec<FileChange>,
+        style: GraphStyle,
+        expanded: Option<(usize, f32)>,
+        size: egui::Vec2,
     }
 
     impl Harness {
@@ -1700,13 +1854,16 @@ mod tests {
                 selected: None,
                 action: None,
                 wip: Vec::new(),
+                style: GraphStyle::default(),
+                expanded: None,
+                size: vec2(900.0, 400.0),
             };
             (harness, dir)
         }
 
         fn frame_with(&mut self, events: Vec<Event>, modifiers: Modifiers) -> egui::FullOutput {
             let input = RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 400.0))),
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, self.size)),
                 events,
                 modifiers,
                 ..Default::default()
@@ -1720,6 +1877,9 @@ mod tests {
                 selected,
                 action,
                 wip,
+                style,
+                expanded,
+                size: _,
             } = self;
             let no_checks = std::collections::HashMap::new();
             let mut summary =
@@ -1744,6 +1904,8 @@ mod tests {
                     picking: false,
                     checks: &no_checks,
                     filter_active: false,
+                    style: *style,
+                    expanded: *expanded,
                 };
                 if let Some(done) = view.ui(ui, graph, avatars, |_, _| {}) {
                     *action = Some(done);
@@ -1770,6 +1932,91 @@ mod tests {
 
     fn row_center(row: usize) -> Pos2 {
         Pos2::new(600.0, HEADER_H + ROW_H * (row as f32 + 0.5))
+    }
+
+    #[test]
+    fn a_gap_pushes_the_rows_below_it_down() {
+        let (mut h, dir) = Harness::new("gap-pushes");
+        h.expanded = Some((0, 100.0));
+        h.frame(vec![]);
+        let below_gap = |row: usize| Pos2::new(600.0, HEADER_H + ROW_H * row as f32 + 100.0 + 15.0);
+        h.click(below_gap(1), Modifiers::NONE);
+        assert!(matches!(
+            h.action.take(),
+            Some(GraphAction::Select(Selection::Commit(1)))
+        ));
+        h.click(below_gap(2), Modifiers::NONE);
+        assert!(matches!(
+            h.action.take(),
+            Some(GraphAction::Select(Selection::Commit(2)))
+        ));
+        h.click(row_center(0), Modifiers::NONE);
+        assert!(matches!(
+            h.action.take(),
+            Some(GraphAction::Select(Selection::Commit(0)))
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_click_inside_the_gap_selects_nothing() {
+        let (mut h, dir) = Harness::new("gap-click");
+        h.expanded = Some((0, 100.0));
+        h.frame(vec![]);
+        h.click(Pos2::new(600.0, HEADER_H + ROW_H + 50.0), Modifiers::NONE);
+        assert!(h.action.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_gap_rect_is_returned_under_its_row() {
+        let (mut h, dir) = Harness::new("gap-rect");
+        h.frame(vec![]);
+        assert_eq!(h.view.expanded_rect, None);
+        h.expanded = Some((0, 80.0));
+        h.frame(vec![]);
+        let first = h.view.expanded_rect.expect("the gap is in view");
+        h.expanded = Some((1, 80.0));
+        h.frame(vec![]);
+        let rect = h.view.expanded_rect.expect("the gap is in view");
+        assert_eq!(rect.top() - first.top(), ROW_H);
+        assert!((first.top() - (HEADER_H + ROW_H)).abs() < 4.0);
+        assert_eq!(rect.height(), 80.0);
+        assert!(rect.width() > 300.0);
+        h.expanded = None;
+        h.frame(vec![]);
+        assert_eq!(h.view.expanded_rect, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scrolling_to_a_row_brings_its_whole_gap_into_view() {
+        let dir = scratch_repo_of("gap-scroll", 40);
+        let (mut h, dir) = Harness::in_dir(dir);
+        h.size = vec2(900.0, 300.0);
+        h.expanded = Some((25, 90.0));
+        h.selected = Some(Selection::Commit(25));
+        h.view.scroll_to = Some(Selection::Commit(25));
+        h.frame(vec![]);
+        h.frame(vec![]);
+        let gap = h.view.expanded_rect.expect("the gap scrolled into view");
+        let view = h.view.viewport_rect;
+        assert_eq!(gap.height(), 90.0);
+        assert!(gap.bottom() <= view.bottom(), "{gap:?} in {view:?}");
+        assert!(gap.top() >= view.top() + ROW_H, "{gap:?} in {view:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_gap_below_the_scrolled_rows_is_not_drawn() {
+        let dir = scratch_repo_of("gap-far", 40);
+        let (mut h, dir) = Harness::in_dir(dir);
+        h.size = vec2(900.0, 300.0);
+        h.expanded = Some((35, 90.0));
+        h.frame(vec![]);
+        assert_eq!(h.view.expanded_rect, None);
+        assert!(!h.view.visible_commits.contains(&35));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
