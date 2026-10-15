@@ -1921,8 +1921,8 @@ impl Repo {
             picking,
             filter_active,
             checks: &checks.statuses,
-            style: Default::default(),
-            expanded: None,
+            style: dev_preview.style(),
+            expanded: dev_preview.expanded(),
         };
         let action = graph.ui(ui, input, avatars, |ui, target| match target {
             MenuFor::Worktree(tree) => menus::worktree(ui, tree, commands),
