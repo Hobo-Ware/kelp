@@ -26,6 +26,10 @@ impl Counts {
         }
     }
 
+    pub fn files(&self) -> usize {
+        self.modified + self.added + self.deleted
+    }
+
     pub fn changed(total: usize) -> Self {
         Self {
             modified: total,

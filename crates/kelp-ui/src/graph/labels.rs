@@ -233,6 +233,94 @@ pub fn paint(
     placed
 }
 
+const INLINE_H: f32 = 18.0;
+const INLINE_PAD: f32 = 7.0;
+const INLINE_GAP: f32 = 6.0;
+const INLINE_MAX_TEXT_W: f32 = 150.0;
+const INLINE_MIN_TEXT_W: f32 = 36.0;
+
+/// Draws small outlined chips left to right from `left`, stopping before `right` with a "+N"
+/// chip for the rest. Returns the chips and the x where the commit title can start.
+pub fn paint_inline(
+    painter: &egui::Painter,
+    left: f32,
+    right: f32,
+    mid: f32,
+    labels: &[&RefLabel],
+    accent: Color32,
+) -> (Vec<Placed>, f32) {
+    let font = FontId::monospace(11.0);
+    let mut placed = Vec::new();
+    let mut x = left;
+    for (i, label) in labels.iter().enumerate() {
+        let more = if i + 1 < labels.len() {
+            MORE_CHIP_W
+        } else {
+            0.0
+        };
+        let room = right - x - INLINE_PAD * 2.0 - more;
+        if i > 0 && room < INLINE_MIN_TEXT_W {
+            let g =
+                painter.layout_no_wrap(format!("+{}", labels.len() - i), font, theme::text_muted());
+            let rect = Rect::from_min_size(
+                pos2(x, mid - INLINE_H / 2.0),
+                vec2(g.size().x + INLINE_PAD * 2.0, INLINE_H),
+            );
+            painter.rect_stroke(
+                rect,
+                CornerRadius::same(5),
+                Stroke::new(1.0, theme::border()),
+                egui::StrokeKind::Inside,
+            );
+            painter.galley(
+                pos2(rect.left() + INLINE_PAD, mid - g.size().y / 2.0),
+                g,
+                theme::text_muted(),
+            );
+            x = rect.right() + INLINE_GAP;
+            placed.push(Placed {
+                rect,
+                slot: Slot::More,
+            });
+            break;
+        }
+        let head = label.kind == RefKind::Local && label.is_head;
+        let (ink, edge) = if head {
+            (accent, theme::with_alpha(accent, 0x73))
+        } else {
+            (theme::text_muted(), theme::border())
+        };
+        let galley = crate::paint::truncated(
+            painter,
+            label.name.clone(),
+            font.clone(),
+            ink,
+            room.clamp(INLINE_MIN_TEXT_W, INLINE_MAX_TEXT_W),
+        );
+        let rect = Rect::from_min_size(
+            pos2(x, mid - INLINE_H / 2.0),
+            vec2(galley.size().x + INLINE_PAD * 2.0, INLINE_H),
+        );
+        painter.rect_stroke(
+            rect,
+            CornerRadius::same(5),
+            Stroke::new(1.0, edge),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(
+            pos2(rect.left() + INLINE_PAD, mid - galley.size().y / 2.0),
+            galley,
+            ink,
+        );
+        x = rect.right() + INLINE_GAP;
+        placed.push(Placed {
+            rect,
+            slot: Slot::Label(i),
+        });
+    }
+    (placed, x)
+}
+
 const STACK_GAP: f32 = 3.0;
 
 pub fn stack_step() -> f32 {

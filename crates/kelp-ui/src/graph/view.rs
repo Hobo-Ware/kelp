@@ -115,6 +115,7 @@ struct RowStyle {
     faded: bool,
     descriptions: bool,
     labels_stacked: bool,
+    is_head: bool,
 }
 
 /// The current worktree's uncommitted changes.
@@ -233,6 +234,7 @@ impl GraphView {
         let auto_w = content_w.clamp(min_auto_w, style.content_w(DEFAULT_MAX_LANES, 0.0));
         let badges: ref_labels::RemoteBadges = remote_owners
             .iter()
+            .filter(|_| style.avatars)
             .filter_map(|(remote, owner)| Some((remote.clone(), avatars.owner_texture(owner)?)))
             .collect();
         let max_w = (ui.available_width() * 0.6).max(min_graph_w);
@@ -367,7 +369,9 @@ impl GraphView {
                 _ => {}
             }
             let pointer = ui.ctx().pointer_hover_pos().filter(|p| rect.contains(*p));
-            let stacked = |row: usize| history.refs.at_row(row).nth(1).is_some();
+            let stacked = |row: usize| {
+                style.refs == RefPlacement::Column && history.refs.at_row(row).nth(1).is_some()
+            };
             let under_pointer = pointer.and_then(|p| match row_at(p.y) {
                 Some(Row::Commit(row)) => Some(row),
                 _ => None,
@@ -484,7 +488,11 @@ impl GraphView {
                         open_buttons.push((button, other.tree.path.clone()));
                     }
                     (Row::Commit(row), _) => {
-                        let avatar = avatars.texture(&summaries[&row].email, history.id(row));
+                        let avatar = if style.avatars {
+                            avatars.texture(&summaries[&row].email, history.id(row))
+                        } else {
+                            None
+                        };
                         let row_style = RowStyle {
                             selected: is_selected,
                             own_wip_above: map.has_own_wip_above(row),
@@ -492,6 +500,7 @@ impl GraphView {
                             faded: is_faded(lit, row),
                             descriptions,
                             labels_stacked: expanded == Some(row),
+                            is_head: head_row == Some(row),
                         };
                         let placed = paint_row(
                             &painter,
@@ -527,7 +536,7 @@ impl GraphView {
                                 label_hits.push((spot.rect, row, labels[i].clone()));
                             }
                         }
-                        if is_selected {
+                        if is_selected && style.avatars {
                             let center = pos2(geo.lane_x(history.layout.node_lane(row)), geo.mid());
                             let graph_x = geo.graph_left()..=geo.msg_left();
                             halos.push((center, lane, graph_x));
@@ -1096,6 +1105,7 @@ fn paint_row(
         faded,
         descriptions,
         labels_stacked,
+        is_head,
     } = style;
     let mut soft = painter.clone();
     if faded {
@@ -1114,24 +1124,25 @@ fn paint_row(
         graph_soft.multiply_opacity(OFF_PATH_OPACITY + 0.3);
     }
 
-    let band_left = node.x.max(geo.graph_left());
-    let band = Rect::from_x_y_ranges(
-        band_left..=geo.msg_left(),
-        geo.top + 4.0..=geo.bottom() - 4.0,
-    );
-    graph_soft.rect_filled(
-        band,
-        0.0,
-        theme::with_alpha(color, if selected { 0x33 } else { 0x0f }),
-    );
-    let strip = Rect::from_x_y_ranges(
-        geo.msg_left()..=geo.msg_left() + 3.0,
-        geo.top..=geo.bottom(),
-    );
-    soft.rect_filled(strip, 0.0, theme::with_alpha(color, 0xb0));
+    if geo.style.row_bands {
+        let band_left = node.x.max(geo.graph_left());
+        let band = Rect::from_x_y_ranges(
+            band_left..=geo.msg_left(),
+            geo.top + 4.0..=geo.bottom() - 4.0,
+        );
+        graph_soft.rect_filled(
+            band,
+            0.0,
+            theme::with_alpha(color, if selected { 0x33 } else { 0x0f }),
+        );
+        let strip = Rect::from_x_y_ranges(
+            geo.msg_left()..=geo.msg_left() + 3.0,
+            geo.top..=geo.bottom(),
+        );
+        soft.rect_filled(strip, 0.0, theme::with_alpha(color, 0xb0));
+    }
     if selected {
-        let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
-        painter.rect_filled(bg, 0.0, theme::selected_row());
+        paint_selection(painter, geo);
     }
 
     let edges = layout.edges(row);
@@ -1146,7 +1157,7 @@ fn paint_row(
             &graph,
             pos2(node.x, geo.top),
             node,
-            color.gamma_multiply(wip_link_dim),
+            color.gamma_multiply(wip_link_dim * geo.style.line_alpha()),
         );
     }
     if other_wip_above {
@@ -1217,7 +1228,21 @@ fn paint_row(
     }
 
     let mut placed = Vec::new();
-    if node.x >= geo.graph_left() {
+    let mut title_x = geo.msg_left() + geo.style.text_inset();
+    if geo.style.refs == RefPlacement::Inline {
+        let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
+        let room = geo.right - LIST_PAD_R - LIST_DATE_W - INLINE_TITLE_GAP - title_x;
+        let (chips, end) = ref_labels::paint_inline(
+            &soft,
+            title_x,
+            title_x + room * INLINE_REFS_SHARE,
+            geo.mid(),
+            &labels,
+            color,
+        );
+        placed = chips;
+        title_x = end;
+    } else if node.x >= geo.graph_left() {
         let labels: Vec<&RefLabel> = history.refs.at_row(row).collect();
         let shown = if labels_stacked { &[][..] } else { &labels[..] };
         placed = paint_labels(&soft, geo, shown, badges, node, color);
@@ -1225,10 +1250,14 @@ fn paint_row(
             paint_label_link(&soft, geo, node, color);
         }
     }
-    if faded {
-        graph.circle_filled(node, AVATAR_R + 1.0, theme::bg());
+    if geo.style.avatars {
+        if faded {
+            graph.circle_filled(node, AVATAR_R + 1.0, theme::bg());
+        }
+        paint_avatar(&graph_soft, node, summary, avatar, color);
+    } else {
+        paint_dot(&graph, &graph_soft, node, color, is_head, faded);
     }
-    paint_avatar(&graph_soft, node, summary, avatar, color);
     let dot = paint_message(
         &soft,
         geo,
@@ -1238,10 +1267,49 @@ fn paint_row(
             selected,
             descriptions,
             checks: checks.map(|c| c.state),
+            x: title_x,
         },
         now,
     );
     (placed, dot)
+}
+
+const DOT_R: f32 = 4.0;
+const HEAD_DOT_R: f32 = 5.0;
+const INLINE_REFS_SHARE: f32 = 0.45;
+
+fn paint_dot(
+    graph: &egui::Painter,
+    graph_soft: &egui::Painter,
+    node: Pos2,
+    color: Color32,
+    is_head: bool,
+    faded: bool,
+) {
+    let radius = if is_head { HEAD_DOT_R } else { DOT_R };
+    if faded {
+        graph.circle_filled(node, radius + 1.0, theme::bg());
+    }
+    if is_head {
+        graph_soft.circle_filled(node, radius, theme::bg());
+        graph_soft.circle_stroke(node, radius, Stroke::new(2.0, color));
+    } else {
+        graph_soft.circle_filled(node, radius, color);
+    }
+}
+
+fn paint_selection(painter: &egui::Painter, geo: &RowGeo) {
+    if geo.style.row_bands {
+        let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
+        painter.rect_filled(bg, 0.0, theme::selected_row());
+    } else {
+        let row = Rect::from_x_y_ranges(geo.left..=geo.right, geo.top..=geo.bottom());
+        painter.rect_filled(
+            row,
+            CornerRadius::same(7),
+            theme::with_alpha(geo.style.accent(), 0x1a),
+        );
+    }
 }
 
 fn checks_tooltip(ui: &mut Ui, status: &kelp_core::checks::Status) {
@@ -1284,7 +1352,12 @@ struct MessageStyle {
     selected: bool,
     descriptions: bool,
     checks: Option<kelp_core::checks::State>,
+    x: f32,
 }
+
+const LIST_PAD_R: f32 = 12.0;
+const LIST_DATE_W: f32 = 82.0;
+const INLINE_TITLE_GAP: f32 = 8.0;
 
 const CHECK_DOT_R: f32 = 3.5;
 const CHECK_DOT_ROOM: f32 = 16.0;
@@ -1376,19 +1449,20 @@ fn paint_wip_row(
     let node = pos2(node_x, geo.mid());
     let graph = geo.graph_clip(painter);
 
-    let strip = Rect::from_x_y_ranges(
-        geo.msg_left()..=geo.msg_left() + 3.0,
-        geo.top..=geo.bottom(),
-    );
-    let strip_color = if label.current {
-        head_color
-    } else {
-        theme::wip_grey()
-    };
-    painter.rect_filled(strip, 0.0, strip_color);
+    if geo.style.row_bands {
+        let strip = Rect::from_x_y_ranges(
+            geo.msg_left()..=geo.msg_left() + 3.0,
+            geo.top..=geo.bottom(),
+        );
+        let strip_color = if label.current {
+            head_color
+        } else {
+            theme::wip_grey()
+        };
+        painter.rect_filled(strip, 0.0, strip_color);
+    }
     if selected {
-        let bg = Rect::from_x_y_ranges(geo.msg_left() + 3.0..=geo.right, geo.top..=geo.bottom());
-        painter.rect_filled(bg, 0.0, theme::selected_row());
+        paint_selection(painter, geo);
     }
     let above = if unborn || pinned {
         Vec::new()
@@ -1414,28 +1488,38 @@ fn paint_wip_row(
         graph.multiply_opacity(OFF_PATH_OPACITY + 0.3);
     }
     if !unborn {
-        dashed(&graph, node, pos2(node.x, geo.bottom()), mark_color);
+        let link = mark_color.gamma_multiply(geo.style.line_alpha());
+        dashed(&graph, node, pos2(node.x, geo.bottom()), link);
     }
 
+    let flat = !geo.style.avatars;
+    let ring_r = if flat { HEAD_DOT_R } else { AVATAR_R + 1.0 };
+    let ring_color = if flat { geo.style.lane(1) } else { mark_color };
     let ring: Vec<Pos2> = (0..=48)
         .map(|i| {
             let a = i as f32 / 48.0 * 2.0 * PI;
-            node + vec2(a.cos(), a.sin()) * (AVATAR_R + 1.0)
+            node + vec2(a.cos(), a.sin()) * ring_r
         })
         .collect();
-    graph.circle_filled(node, AVATAR_R + 1.0, theme::bg());
-    if label.current {
-        graph.circle_stroke(node, AVATAR_R + 1.0, Stroke::new(2.0, head_color));
+    graph.circle_filled(node, ring_r, theme::bg());
+    if label.current && !flat {
+        graph.circle_stroke(node, ring_r, Stroke::new(2.0, head_color));
     } else {
         graph.extend(Shape::dashed_line(
             &ring,
-            Stroke::new(2.0, mark_color),
+            Stroke::new(2.0, ring_color),
             3.0,
             2.5,
         ));
     }
-    paint_plus(&graph, node, 4.0, mark_color);
+    if !flat {
+        paint_plus(&graph, node, 4.0, mark_color);
+    }
 
+    if flat && label.current {
+        paint_wip_summary(painter, geo, ring_color, label.counts.files());
+        return;
+    }
     let mut job = LayoutJob::default();
     let italic = TextFormat {
         italics: true,
@@ -1458,12 +1542,13 @@ fn paint_wip_row(
         OPEN_BUTTON_W + 28.0
     };
     let counts_w = change_counts::width(painter, label.counts, 12.5);
-    let text_room = geo.right - reserved - geo.msg_left() - 15.0 - counts_w - COUNTS_GAP;
+    let inset = geo.style.text_inset();
+    let text_room = geo.right - reserved - geo.msg_left() - inset - counts_w - COUNTS_GAP;
     job.wrap = TextWrapping::truncate_at_width(text_room.max(0.0));
     let galley = painter.layout_job(job);
-    let text_right = geo.msg_left() + 15.0 + galley.size().x;
+    let text_right = geo.msg_left() + inset + galley.size().x;
     painter.galley(
-        pos2(geo.msg_left() + 15.0, geo.mid() - galley.size().y / 2.0),
+        pos2(geo.msg_left() + inset, geo.mid() - galley.size().y / 2.0),
         galley,
         theme::text(),
     );
@@ -1473,6 +1558,25 @@ fn paint_wip_row(
         geo.mid(),
         label.counts,
         12.5,
+    );
+}
+
+fn paint_wip_summary(painter: &egui::Painter, geo: &RowGeo, color: Color32, files: usize) {
+    let size = geo.style.title_size();
+    painter.text(
+        pos2(geo.msg_left() + geo.style.text_inset(), geo.mid()),
+        Align2::LEFT_CENTER,
+        "Uncommitted changes",
+        FontId::proportional(size),
+        color,
+    );
+    let noun = if files == 1 { "file" } else { "files" };
+    painter.text(
+        pos2(geo.right - LIST_PAD_R, geo.mid()),
+        Align2::RIGHT_CENTER,
+        format!("{files} {noun}"),
+        FontId::proportional(12.0),
+        theme::text_faint(),
     );
 }
 
@@ -1492,7 +1596,7 @@ fn side_lane(history: &History, head_row: usize) -> u16 {
 fn wip_link_color(history: &History, tint: WipTint<'_>, head: usize) -> Color32 {
     tint.style
         .lane(history.layout.node_color(head))
-        .gamma_multiply(tint.dim(head))
+        .gamma_multiply(tint.dim(head) * tint.style.line_alpha())
 }
 
 fn paint_gap(
@@ -1688,18 +1792,33 @@ fn paint_message(
         selected,
         descriptions,
         checks,
+        x,
     } = style;
-    let right = geo.message_right();
-    columns::paint_cells(
-        painter,
-        &geo.columns,
-        geo.right,
-        geo.mid(),
-        id,
-        summary,
-        now,
-    );
-    let time_w = if geo.columns.date {
+    let list = geo.style.list_text;
+    let right = if list { geo.right } else { geo.message_right() };
+    let pad_r = if list { LIST_PAD_R } else { 14.0 };
+    if !list {
+        columns::paint_cells(
+            painter,
+            &geo.columns,
+            geo.right,
+            geo.mid(),
+            id,
+            summary,
+            now,
+        );
+    }
+    let time_w = if list {
+        let when = commit::relative_time(summary.time, now);
+        painter.text(
+            pos2(right - pad_r, geo.mid()),
+            Align2::RIGHT_CENTER,
+            when,
+            FontId::proportional(12.0),
+            theme::text_faint(),
+        );
+        LIST_DATE_W
+    } else if geo.columns.date {
         0.0
     } else {
         let when = commit::relative_time(summary.time, now);
@@ -1708,7 +1827,7 @@ fn paint_message(
         let time_w = time_galley.size().x;
         painter.galley(
             pos2(
-                right - 14.0 - time_w,
+                right - pad_r - time_w,
                 geo.mid() - time_galley.size().y / 2.0,
             ),
             time_galley,
@@ -1717,14 +1836,15 @@ fn paint_message(
         time_w
     };
     let dot = checks.map(|state| {
-        let center = pos2(right - 14.0 - time_w - CHECK_DOT_ROOM / 2.0, geo.mid());
+        let center = pos2(right - pad_r - time_w - CHECK_DOT_ROOM / 2.0, geo.mid());
         painter.circle_filled(center, CHECK_DOT_R, check_color(state));
         Rect::from_center_size(center, vec2(CHECK_DOT_ROOM, geo.row_h()))
     });
     let time_w = time_w + if dot.is_some() { CHECK_DOT_ROOM } else { 0.0 };
 
-    let x = geo.msg_left() + 15.0;
-    let max_width = (right - 14.0 - time_w - 12.0 - x).max(0.0);
+    let gap = if list { INLINE_TITLE_GAP } else { 12.0 };
+    let max_width = (right - pad_r - time_w - gap - x).max(0.0);
+    let size = geo.style.title_size();
     let mut job = LayoutJob::default();
     let title_color = if selected {
         theme::text_strong()
@@ -1732,20 +1852,28 @@ fn paint_message(
         theme::text()
     };
     let title_font = if selected {
-        FontId::new(13.0, theme::semibold())
+        FontId::new(size, theme::semibold())
     } else {
-        FontId::proportional(13.0)
+        FontId::proportional(size)
     };
-    job.append(
-        &summary.title,
-        0.0,
-        TextFormat::simple(title_font, title_color),
-    );
+    let (prefix, title) = if list {
+        split_type_prefix(&summary.title)
+    } else {
+        ("", summary.title.as_str())
+    };
+    if !prefix.is_empty() {
+        job.append(
+            prefix,
+            0.0,
+            TextFormat::simple(title_font.clone(), theme::text_faint()),
+        );
+    }
+    job.append(title, 0.0, TextFormat::simple(title_font, title_color));
     if descriptions && !summary.body_preview.is_empty() {
         job.append(
             &summary.body_preview,
             10.0,
-            TextFormat::simple(FontId::proportional(13.0), theme::text_faint()),
+            TextFormat::simple(FontId::proportional(size), theme::text_faint()),
         );
     }
     job.wrap = TextWrapping {
@@ -1761,6 +1889,29 @@ fn paint_message(
         theme::text(),
     );
     dot
+}
+
+/// Splits `feat(scope): rest` into `("feat(scope): ", "rest")`; anything else is all title.
+fn split_type_prefix(title: &str) -> (&str, &str) {
+    let word = title.bytes().take_while(|b| b.is_ascii_lowercase()).count();
+    if word == 0 {
+        return ("", title);
+    }
+    let mut end = word;
+    if title[end..].starts_with('(') {
+        match title[end..].find(')') {
+            Some(close) if !title[end..end + close].contains(' ') => end += close + 1,
+            _ => return ("", title),
+        }
+    }
+    if title[end..].starts_with('!') {
+        end += 1;
+    }
+    if title[end..].starts_with(": ") {
+        title.split_at(end + 2)
+    } else {
+        ("", title)
+    }
 }
 
 #[cfg(test)]
@@ -1956,6 +2107,92 @@ mod tests {
             Some(GraphAction::Select(Selection::Commit(0)))
         ));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn embedded() -> GraphStyle {
+        GraphStyle::embedded(egui::Color32::from_rgb(0x2d, 0xd4, 0xbf))
+    }
+
+    fn embedded_row(row: f32) -> Pos2 {
+        Pos2::new(600.0, embedded().row_h * (row + 0.5))
+    }
+
+    #[test]
+    fn the_embedded_look_starts_at_the_top_with_taller_rows() {
+        let (mut h, dir) = Harness::new("embedded-rows");
+        h.style = embedded();
+        h.frame(vec![]);
+        assert_eq!(h.view.visible_commits, vec![0, 1, 2]);
+        h.click(embedded_row(0.0), Modifiers::NONE);
+        assert!(matches!(
+            h.action.take(),
+            Some(GraphAction::Select(Selection::Commit(0)))
+        ));
+        h.click(embedded_row(2.0), Modifiers::NONE);
+        assert!(matches!(
+            h.action.take(),
+            Some(GraphAction::Select(Selection::Commit(2)))
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_embedded_look_draws_the_uncommitted_row_above_head() {
+        let (mut h, dir) = Harness::new("embedded-wip");
+        h.style = embedded();
+        h.wip = vec![FileChange {
+            path: "a.txt".into(),
+            kind: kelp_core::commit::ChangeKind::Modified,
+        }];
+        h.frame(vec![]);
+        h.click(embedded_row(0.0), Modifiers::NONE);
+        assert!(matches!(
+            h.action.take(),
+            Some(GraphAction::Select(Selection::Wip))
+        ));
+        h.click(embedded_row(1.0), Modifiers::NONE);
+        assert!(matches!(
+            h.action.take(),
+            Some(GraphAction::Select(Selection::Commit(0)))
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_embedded_look_takes_a_gap_too() {
+        let (mut h, dir) = Harness::new("embedded-gap");
+        h.style = embedded();
+        h.expanded = Some((0, 100.0));
+        h.frame(vec![]);
+        let rect = h.view.expanded_rect.expect("the gap is in view");
+        assert_eq!(rect.height(), 100.0);
+        h.click(Pos2::new(600.0, 36.0 + 100.0 + 18.0), Modifiers::NONE);
+        assert!(matches!(
+            h.action.take(),
+            Some(GraphAction::Select(Selection::Commit(1)))
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_conventional_prefix_is_split_off_the_title() {
+        for (title, prefix) in [
+            ("feat: add x", "feat: "),
+            ("fix(kelp-ui): add x", "fix(kelp-ui): "),
+            ("feat!: break x", "feat!: "),
+            ("refactor(a)!: x", "refactor(a)!: "),
+            ("Merge branch 'x': y", ""),
+            ("docs(a b): x", ""),
+            ("feat(a: x", ""),
+            ("feature x", ""),
+            ("feat:x", ""),
+            ("", ""),
+            ("é: x", ""),
+        ] {
+            let (head, rest) = super::split_type_prefix(title);
+            assert_eq!(head, prefix, "{title}");
+            assert_eq!(format!("{head}{rest}"), title);
+        }
     }
 
     #[test]
