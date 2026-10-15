@@ -83,6 +83,10 @@ impl GraphStyle {
         }
     }
 
+    pub(super) fn accent(&self) -> Color32 {
+        self.accent.unwrap_or_else(theme::accent)
+    }
+
     pub(super) fn arc_r(&self) -> f32 {
         self.row_h / 2.0
     }
@@ -108,6 +112,14 @@ impl GraphStyle {
 
     pub(super) fn line_alpha(&self) -> f32 {
         if self.avatars { 1.0 } else { 0.5 }
+    }
+
+    pub(super) fn text_inset(&self) -> f32 {
+        if self.row_bands { 15.0 } else { 0.0 }
+    }
+
+    pub(super) fn title_size(&self) -> f32 {
+        if self.list_text { 13.5 } else { 13.0 }
     }
 }
 
