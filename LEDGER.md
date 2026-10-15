@@ -15,6 +15,16 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-10-15
 
+- **kelp-ui API: `DiffStyle`** (not user-visible in Kelp). `DiffInput` gets
+  `style: DiffStyle` (`Default` is today's look; `DiffStyle::embedded(accent)` is a calmer
+  look for a diff inside a host's card: 7% green and red row tints with a 2 px bar, a colored
+  sign, dim line numbers, hunk headers as a quiet divider labelled from the hunk numbers,
+  small flat note cards, and the host's accent on the selection, focus ring and comment
+  button). Split view shares it. Hunk labels are built once per diff, not per frame. Default
+  look checked pixel-identical (PSNR 120, 0 differing pixels on the diff area, offline
+  screenshots of this repo before and after, unified and split). `KELP_EMBEDDED_LOOK=1` now
+  covers the diff too. fmt and clippy clean; kelp-ui tests 98 -> 102.
+
 - **kelp-ui API: `GraphStyle` and a row gap** (not user-visible in Kelp). `GraphInput`
   gets `style: GraphStyle` (`Default` is today's look; `GraphStyle::embedded(accent)` is a
   flat list for a host's side panel) and `expanded: Option<(usize, f32)>`, a gap under a
