@@ -475,6 +475,7 @@ impl DiffView {
                 hunk_buttons: &hunk_buttons,
                 line_select_hint,
                 texts: &DiffTexts::default(),
+                style: crate::graph_glue::diff_style(),
             },
         );
         if matches!(self.diff.body, Body::Text(_)) {
