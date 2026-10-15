@@ -1,6 +1,7 @@
+use eframe::egui::Color32;
 use kelp_core::commit::{self, Summary};
 use kelp_core::history::History;
-use kelp_ui::graph::{GraphAction, Preview};
+use kelp_ui::graph::{GraphAction, GraphStyle, Preview};
 
 use crate::commands::Command;
 use crate::ref_labels;
@@ -37,6 +38,8 @@ pub struct DevPreview {
     open_drop: Option<String>,
     open_commit_menu: bool,
     open_label_menu: Option<String>,
+    embedded: bool,
+    gap: Option<(usize, f32)>,
 }
 
 impl DevPreview {
@@ -49,7 +52,24 @@ impl DevPreview {
             open_drop: std::env::var("KELP_OPEN_DROP").ok(),
             open_commit_menu: std::env::var("KELP_OPEN_MENU").as_deref() == Ok("commit"),
             open_label_menu: std::env::var("KELP_OPEN_LABEL_MENU").ok(),
+            embedded: std::env::var_os("KELP_EMBEDDED_LOOK").is_some(),
+            gap: std::env::var("KELP_EMBEDDED_GAP").ok().and_then(|v| {
+                let (row, height) = v.split_once(':')?;
+                Some((row.parse().ok()?, height.parse().ok()?))
+            }),
         }
+    }
+
+    pub fn style(&self) -> GraphStyle {
+        if self.embedded {
+            GraphStyle::embedded(Color32::from_rgb(0x2d, 0xd4, 0xbf))
+        } else {
+            GraphStyle::default()
+        }
+    }
+
+    pub fn expanded(&self) -> Option<(usize, f32)> {
+        self.gap
     }
 
     pub fn preview(&self) -> Preview<'_> {
