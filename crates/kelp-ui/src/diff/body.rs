@@ -8,6 +8,7 @@ use egui::{
 use kelp_core::diff::{Body, FileDiff, Line, LineKind};
 use kelp_core::review::{Anchor, Comment, Side, Thread};
 
+use super::style::{DiffStyle, LineLook, hunk_label};
 use crate::theme;
 
 pub const LINE_H: f32 = 22.0;
@@ -88,6 +89,8 @@ pub struct DiffInput<'a> {
     pub line_select_hint: Option<&'a str>,
     /// Host-specific wording of the thread cards and the composer.
     pub texts: &'a DiffTexts,
+    /// How the body looks. `DiffStyle::default()` is Kelp's own look.
+    pub style: DiffStyle,
 }
 
 /// Text the body shows that depends on the host: where comments are stored and which shortcuts
@@ -151,6 +154,7 @@ pub enum DiffAction {
 #[derive(Default)]
 struct Prepared {
     hunks: Vec<String>,
+    hunk_labels: Vec<String>,
     lines: Vec<(usize, Line)>,
     old_lines: Vec<String>,
     new_lines: Vec<String>,
@@ -160,10 +164,12 @@ struct Prepared {
 impl Prepared {
     fn of(diff: &FileDiff) -> Self {
         let mut hunks = Vec::new();
+        let mut hunk_labels = Vec::new();
         let mut lines = Vec::new();
         if let Body::Text(list) = &diff.body {
             for (h, hunk) in list.iter().enumerate() {
                 hunks.push(hunk.header.clone());
+                hunk_labels.push(hunk_label(&hunk.header).unwrap_or_else(|| hunk.header.clone()));
                 lines.extend(hunk.lines.iter().cloned().map(|l| (h, l)));
             }
         }
@@ -177,6 +183,7 @@ impl Prepared {
             old_lines: split(&diff.old_text),
             new_lines: split(&diff.new_text),
             hunks,
+            hunk_labels,
             lines,
             file_change_starts,
         }
@@ -555,16 +562,21 @@ impl DiffBody {
             let rect = Rect::from_min_size(origin + vec2(0.0, top), vec2(width, heights[k]));
             match *item {
                 Item::Hunk(h) => {
-                    ui.painter().rect_filled(rect, 0.0, theme::hunk_bg());
-                    ui.painter().text(
-                        pos2(rect.left() + 16.0, rect.center().y),
-                        Align2::LEFT_CENTER,
-                        &self.data.hunks[h],
-                        font.clone(),
-                        theme::hunk_text(),
-                    );
                     let visible_right = rect.left() + viewport.max.x - viewport.min.x;
                     let mut right = visible_right.min(rect.right()) - 12.0;
+                    if input.style.hunk_divider {
+                        let buttons_w: f32 = input.hunk_buttons.iter().map(|b| b.width + 8.0).sum();
+                        hunk_divider(ui, rect, &self.data.hunk_labels[h], right - buttons_w);
+                    } else {
+                        ui.painter().rect_filled(rect, 0.0, theme::hunk_bg());
+                        ui.painter().text(
+                            pos2(rect.left() + 16.0, rect.center().y),
+                            Align2::LEFT_CENTER,
+                            &self.data.hunks[h],
+                            font.clone(),
+                            theme::hunk_text(),
+                        );
+                    }
                     for (index, spec) in input.hunk_buttons.iter().enumerate() {
                         let button_rect = Rect::from_min_size(
                             pos2(right - spec.width, rect.top() + 3.0),
@@ -630,12 +642,9 @@ impl DiffBody {
                         rect,
                         Row {
                             numbers: Numbers::One(Some(number)),
-                            mark: "",
                             text: &text,
                             emphasis: &[],
-                            bg: Color32::TRANSPARENT,
-                            mark_color: theme::text_faint(),
-                            text_color: theme::text_body(),
+                            look: input.style.look(LineKind::Context),
                             side: Side::New,
                             selectable: None,
                         },
@@ -674,7 +683,7 @@ impl DiffBody {
         input: &DiffInput<'_>,
     ) {
         let line = self.data.lines[index].1.clone();
-        let (bg, mark, mark_color) = style(line.kind);
+        let look = input.style.look(line.kind);
         let side = if line.kind == LineKind::Removed {
             Side::Old
         } else {
@@ -682,12 +691,9 @@ impl DiffBody {
         };
         let row = Row {
             numbers: Numbers::Both(line.old, line.new),
-            mark,
             text: &line.text,
             emphasis: &line.emphasis,
-            bg,
-            mark_color,
-            text_color: text_color(line.kind),
+            look,
             side,
             selectable: self.selectable(index, input),
         };
@@ -704,12 +710,16 @@ impl DiffBody {
         input: &DiffInput<'_>,
     ) {
         let Some(index) = index else {
-            ui.painter()
-                .rect_filled(rect, 0.0, theme::tone(Color32::from_rgb(0x18, 0x1b, 0x21)));
+            let filler = if input.style.tinted() {
+                Color32::TRANSPARENT
+            } else {
+                theme::tone(Color32::from_rgb(0x18, 0x1b, 0x21))
+            };
+            ui.painter().rect_filled(rect, 0.0, filler);
             return;
         };
         let line = self.data.lines[index].1.clone();
-        let (bg, mark, mark_color) = style(line.kind);
+        let look = input.style.look(line.kind);
         let number = if side == Side::Old {
             line.old
         } else {
@@ -717,12 +727,9 @@ impl DiffBody {
         };
         let row = Row {
             numbers: Numbers::One(number),
-            mark,
             text: &line.text,
             emphasis: &line.emphasis,
-            bg,
-            mark_color,
-            text_color: text_color(line.kind),
+            look,
             side,
             selectable: self.selectable(index, input),
         };
@@ -743,7 +750,16 @@ impl DiffBody {
         input: &DiffInput<'_>,
     ) {
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, row.bg);
+        let look = row.look;
+        let accent = input.style.accent();
+        painter.rect_filled(rect, 0.0, look.fill);
+        if let Some(bar) = look.bar {
+            painter.rect_filled(
+                Rect::from_min_size(rect.min, vec2(input.style.bar_w, rect.height())),
+                0.0,
+                bar,
+            );
+        }
         let mid = rect.center().y;
         let num = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
         let numbers_w = match row.numbers {
@@ -760,11 +776,11 @@ impl DiffBody {
                 )
                 .on_hover_cursor(CursorIcon::PointingHand);
             if self.selected_lines.contains(&index) {
-                painter.rect_filled(numbers_rect, 0.0, theme::with_alpha(theme::accent(), 0x38));
+                painter.rect_filled(numbers_rect, 0.0, theme::with_alpha(accent, 0x38));
                 painter.rect_filled(
                     Rect::from_min_size(rect.min, vec2(3.0, rect.height())),
                     0.0,
-                    theme::accent(),
+                    accent,
                 );
             } else if response.hovered() {
                 painter.rect_filled(numbers_rect, 0.0, theme::overlay(0x0c));
@@ -782,14 +798,14 @@ impl DiffBody {
                     Align2::RIGHT_CENTER,
                     num(old),
                     font.clone(),
-                    theme::line_number(),
+                    look.number,
                 );
                 painter.text(
                     pos2(rect.left() + NUM_W * 2.0 - 8.0, mid),
                     Align2::RIGHT_CENTER,
                     num(new),
                     font.clone(),
-                    theme::line_number(),
+                    look.number,
                 );
                 if row.side == Side::Old { old } else { new }
             }
@@ -799,7 +815,7 @@ impl DiffBody {
                     Align2::RIGHT_CENTER,
                     num(n),
                     font.clone(),
-                    theme::line_number(),
+                    look.number,
                 );
                 n
             }
@@ -825,7 +841,7 @@ impl DiffBody {
                 if response.hovered() {
                     theme::text_strong()
                 } else {
-                    theme::accent()
+                    accent
                 },
             );
             painter.text(
@@ -843,17 +859,12 @@ impl DiffBody {
         painter.text(
             pos2(gutter.right() + 4.0, mid),
             Align2::LEFT_CENTER,
-            row.mark,
+            look.mark,
             font.clone(),
-            row.mark_color,
+            look.mark_color,
         );
-        let galley = painter.layout_no_wrap(row.text.to_string(), font.clone(), row.text_color);
+        let galley = painter.layout_no_wrap(row.text.to_string(), font.clone(), look.text);
         let origin = pos2(gutter.right() + 20.0, mid - galley.size().y / 2.0);
-        let emphasis_fill = if row.bg == theme::removed_bg() {
-            theme::removed_emphasis()
-        } else {
-            theme::added_emphasis()
-        };
         for &(start, end) in row.emphasis {
             let x = |byte: usize| {
                 let chars = row.text.get(..byte).map_or(0, |t| t.chars().count());
@@ -866,9 +877,9 @@ impl DiffBody {
                 origin.x + x(start)..=origin.x + x(end),
                 rect.top() + 2.0..=rect.bottom() - 2.0,
             );
-            painter.rect_filled(span, 3.0, emphasis_fill);
+            painter.rect_filled(span, 3.0, look.emphasis);
         }
-        painter.galley(origin, galley, row.text_color);
+        painter.galley(origin, galley, look.text);
     }
 
     fn thread(
@@ -895,11 +906,14 @@ impl DiffBody {
         if thread.resolved && !expanded {
             let chip = Rect::from_min_size(card.min, vec2(220.0, 24.0));
             let response = ui.interact(chip, ui.id().with(("resolved", id)), Sense::click());
+            let (fill, border) = input
+                .style
+                .note(theme::tone(Color32::from_rgb(0x2c, 0x34, 0x42)));
             ui.painter().rect(
                 chip,
                 12.0,
-                theme::thread(),
-                Stroke::new(1.0, theme::tone(Color32::from_rgb(0x2c, 0x34, 0x42))),
+                fill,
+                Stroke::new(1.0, border),
                 egui::StrokeKind::Inside,
             );
             let label = format!(
@@ -920,11 +934,14 @@ impl DiffBody {
             }
             return;
         }
+        let (fill, border) = input
+            .style
+            .note(theme::tone(Color32::from_rgb(0x33, 0x40, 0x55)));
         ui.painter().rect(
             card,
             8.0,
-            theme::thread(),
-            Stroke::new(1.0, theme::tone(Color32::from_rgb(0x33, 0x40, 0x55))),
+            fill,
+            Stroke::new(1.0, border),
             egui::StrokeKind::Inside,
         );
         let mut y = card.top() + 12.0;
@@ -983,6 +1000,7 @@ impl DiffBody {
                 .layout(egui::Layout::top_down(egui::Align::Min)),
         );
         child.spacing_mut().item_spacing.y = 8.0;
+        input.style.paint_accent(&mut child);
         let draft = self.replies.entry(id).or_default();
         child.add(
             egui::TextEdit::multiline(draft)
@@ -1005,7 +1023,7 @@ impl DiffBody {
                         .family(theme::semibold())
                         .color(theme::on_accent()),
                 )
-                .fill(theme::accent())
+                .fill(input.style.accent())
                 .corner_radius(5);
                 if (ui.add_enabled(can_send, reply).clicked() || send_shortcut) && can_send {
                     let body = self.replies.remove(&id).unwrap_or_default();
@@ -1056,8 +1074,8 @@ impl DiffBody {
         ui.painter().rect(
             card,
             8.0,
-            theme::thread(),
-            Stroke::new(1.0, theme::with_alpha(theme::accent(), 0x99)),
+            input.style.note(Color32::TRANSPARENT).0,
+            Stroke::new(1.0, theme::with_alpha(input.style.accent(), 0x99)),
             egui::StrokeKind::Inside,
         );
         let area = card.shrink(12.0);
@@ -1067,6 +1085,7 @@ impl DiffBody {
                 .layout(egui::Layout::top_down(egui::Align::Min)),
         );
         child.spacing_mut().item_spacing.y = 8.0;
+        input.style.paint_accent(&mut child);
         child.label(
             RichText::new(format!("Comment on line {line_no}"))
                 .size(12.0)
@@ -1092,7 +1111,7 @@ impl DiffBody {
                         .family(theme::semibold())
                         .color(theme::on_accent()),
                 )
-                .fill(theme::accent())
+                .fill(input.style.accent())
                 .corner_radius(5);
                 let clicked = ui.add_enabled(enabled, save).clicked();
                 if enabled && (clicked || save_shortcut) {
@@ -1135,12 +1154,9 @@ impl DiffBody {
 
 struct Row<'a> {
     numbers: Numbers,
-    mark: &'static str,
     text: &'a str,
     emphasis: &'a [(usize, usize)],
-    bg: Color32,
-    mark_color: Color32,
-    text_color: Color32,
+    look: LineLook,
     side: Side,
     selectable: Option<usize>,
 }
@@ -1151,18 +1167,34 @@ enum Numbers {
     One(Option<u32>),
 }
 
+fn hunk_divider(ui: &Ui, rect: Rect, label: &str, right: f32) {
+    let painter = ui.painter_at(rect);
+    let galley = painter.layout_no_wrap(
+        label.to_string(),
+        FontId::proportional(11.5),
+        theme::text_faint(),
+    );
+    let left = rect.left() + 16.0;
+    let mid = rect.center().y;
+    let text_left = ((left + right - galley.size().x) / 2.0).max(left);
+    let text_right = text_left + galley.size().x;
+    let line = Stroke::new(1.0, theme::border());
+    for (from, to) in [(left, text_left - 10.0), (text_right + 10.0, right)] {
+        if to > from {
+            painter.hline(from..=to, mid, line);
+        }
+    }
+    painter.galley(
+        pos2(text_left, mid - galley.size().y / 2.0),
+        galley,
+        theme::text_faint(),
+    );
+}
+
 fn key_of(line: &Line) -> Option<(Side, u32)> {
     match line.kind {
         LineKind::Removed => line.old.map(|n| (Side::Old, n)),
         _ => line.new.map(|n| (Side::New, n)),
-    }
-}
-
-fn text_color(kind: LineKind) -> Color32 {
-    if kind == LineKind::Context {
-        theme::text_body()
-    } else {
-        theme::text()
     }
 }
 
@@ -1196,14 +1228,6 @@ fn same_lines(a: &[(usize, Line)], b: &[(usize, Line)]) -> bool {
         && a.iter().zip(b).all(|((_, x), (_, y))| {
             x.kind == y.kind && x.raw == y.raw && x.old == y.old && x.new == y.new
         })
-}
-
-fn style(kind: LineKind) -> (Color32, &'static str, Color32) {
-    match kind {
-        LineKind::Added => (theme::added_bg(), "+", theme::added()),
-        LineKind::Removed => (theme::removed_bg(), "-", theme::deleted()),
-        LineKind::Context => (Color32::TRANSPARENT, "", theme::text_faint()),
-    }
 }
 
 fn submodule_card(ui: &mut Ui, change: &kelp_core::submodules::Change) {
@@ -1283,6 +1307,8 @@ mod tests {
         hint: Option<&'static str>,
         buttons: Vec<HunkButton>,
         texts: DiffTexts,
+        style: DiffStyle,
+        fills: Vec<Color32>,
     }
 
     impl Harness {
@@ -1299,6 +1325,8 @@ mod tests {
                 hint: None,
                 buttons: Vec::new(),
                 texts: DiffTexts::default(),
+                style: DiffStyle::default(),
+                fills: Vec::new(),
             }
         }
 
@@ -1319,8 +1347,10 @@ mod tests {
                 hint,
                 buttons,
                 texts,
+                style,
+                fills,
             } = self;
-            let _ = ctx.run_ui(input, |ui| {
+            let output = ctx.run_ui(input, |ui| {
                 actions = body.ui(
                     ui,
                     DiffInput {
@@ -1332,9 +1362,18 @@ mod tests {
                         hunk_buttons: buttons,
                         line_select_hint: *hint,
                         texts,
+                        style: *style,
                     },
                 );
             });
+            *fills = output
+                .shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Rect(rect) => Some(rect.fill),
+                    _ => None,
+                })
+                .collect();
             actions
         }
 
@@ -1393,6 +1432,7 @@ mod tests {
             hunk_buttons: &h.buttons,
             line_select_hint: h.hint,
             texts: &h.texts,
+            style: DiffStyle::default(),
         }
     }
 
@@ -1541,6 +1581,33 @@ mod tests {
             kinds(&h.body, &input(&h)),
             ["hunk", "line", "line", "line", "line", "line"]
         );
+    }
+
+    #[test]
+    fn embedded_tints_color_the_changed_rows_in_both_layouts() {
+        let mut h = Harness::new();
+        h.diff = diff::build("f.txt", Some(b"a\nold\nb\n"), Some(b"a\nnew\nb\n"));
+        h.body = DiffBody::new(&h.diff);
+        h.style = DiffStyle::embedded(Color32::from_rgb(0x2d, 0xd4, 0xbf));
+        let added = h.style.look(LineKind::Added).fill;
+        let removed = h.style.look(LineKind::Removed).fill;
+        for layout in [DiffLayout::Unified, DiffLayout::Split] {
+            h.body.set_layout(layout);
+            h.frame(vec![], Modifiers::NONE);
+            assert!(h.fills.contains(&added), "{layout:?} added");
+            assert!(h.fills.contains(&removed), "{layout:?} removed");
+            assert!(!h.fills.contains(&theme::added_bg()), "{layout:?}");
+            assert!(!h.fills.contains(&theme::removed_bg()), "{layout:?}");
+            assert!(!h.fills.contains(&theme::hunk_bg()), "{layout:?}");
+        }
+        h.style = DiffStyle::default();
+        for layout in [DiffLayout::Unified, DiffLayout::Split] {
+            h.body.set_layout(layout);
+            h.frame(vec![], Modifiers::NONE);
+            assert!(h.fills.contains(&theme::added_bg()), "{layout:?}");
+            assert!(h.fills.contains(&theme::removed_bg()), "{layout:?}");
+            assert!(h.fills.contains(&theme::hunk_bg()), "{layout:?}");
+        }
     }
 
     #[test]
