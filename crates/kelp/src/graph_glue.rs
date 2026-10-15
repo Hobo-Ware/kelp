@@ -1,6 +1,7 @@
 use eframe::egui::Color32;
 use kelp_core::commit::{self, Summary};
 use kelp_core::history::History;
+use kelp_ui::diff::DiffStyle;
 use kelp_ui::graph::{GraphAction, GraphStyle, Preview};
 
 use crate::commands::Command;
@@ -30,6 +31,17 @@ pub fn github_owners(repo: &gix::Repository) -> Vec<(String, String)> {
             Some((name, github.owner))
         })
         .collect()
+}
+
+pub fn diff_style() -> DiffStyle {
+    static STYLE: std::sync::OnceLock<DiffStyle> = std::sync::OnceLock::new();
+    *STYLE.get_or_init(|| {
+        if std::env::var_os("KELP_EMBEDDED_LOOK").is_some() {
+            DiffStyle::embedded(Color32::from_rgb(0x2d, 0xd4, 0xbf))
+        } else {
+            DiffStyle::default()
+        }
+    })
 }
 
 pub struct DevPreview {
