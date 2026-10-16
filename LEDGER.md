@@ -28,6 +28,19 @@ A running log of what got done, newest first. The plan lives in
   switch `KELP_OPEN_COMPOSER=<line>`. Checked with offline screenshots of a throwaway repo,
   default and embedded.
 
+- **Notes on a block of lines.** Press on a line number (or the **+**) and drag up or down, or
+  click a line and Shift+click another, to pick a block in one hunk and on one side; the rows get
+  an accent tint and a 2 px bar, releasing opens the composer ("Comment on lines 6-12") under the
+  last line, Esc clears. A click still comments on one line. `kelp_core::review::Anchor` gains
+  `span` (extra lines below `line_hint`, `#[serde(default)]`, so old notes load as 0) and `block`
+  (those lines, so the anchor can be found again; both are left out of the file when empty).
+  Saved notes of a block sit under their last line, show "Lines 6-12" in the header and the
+  resolved chip, and tint their lines while hovered or while their reply field has focus.
+  Markdown export names the range and quotes the block. `DiffBody::open_composer` now takes
+  `first` and `last`; `KELP_OPEN_COMPOSER=<first>-<last>`. Kelp does not post review comments
+  to GitHub anywhere, so there is no `start_line` call to change. 7 new kelp-core review
+  tests, kelp-ui 114 -> 131.
+
 ## 2026-10-16
 
 - **kelp-ui API: embedded note card** (not user-visible in Kelp). With `DiffStyle::embedded`

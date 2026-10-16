@@ -145,11 +145,11 @@ impl DiffView {
         };
         let lfs_hint = lfs_hint_due(&diff);
         let mut body = DiffBody::new(&diff);
-        if let Some(line) = std::env::var("KELP_OPEN_COMPOSER")
-            .ok()
-            .and_then(|v| v.parse().ok())
-        {
-            body.open_composer(kelp_core::review::Side::New, line);
+        if let Ok(spec) = std::env::var("KELP_OPEN_COMPOSER") {
+            let (first, last) = spec.split_once('-').unwrap_or((&spec, &spec));
+            if let (Ok(first), Ok(last)) = (first.parse(), last.parse()) {
+                body.open_composer(kelp_core::review::Side::New, first, last);
+            }
         }
         Ok(Self {
             source,

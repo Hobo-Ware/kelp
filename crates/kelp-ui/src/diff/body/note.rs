@@ -5,6 +5,7 @@ use egui::{
 };
 use kelp_core::review::{Comment, Thread};
 
+use super::range::anchor_label;
 use super::{DiffAction, DiffBody, DiffInput, DiffStyle, now};
 use crate::theme;
 
@@ -206,9 +207,18 @@ impl DiffBody {
         let id = thread.id;
         let accent = input.style.accent();
         let mut y = card.top() + PAD;
-        for comment in &thread.comments {
+        for (n, comment) in thread.comments.iter().enumerate() {
             let center = pos2(card.left() + PAD + AVATAR / 2.0, y + AVATAR / 2.0);
             avatar(ui, center, &comment.author, accent);
+            if n == 0 && thread.anchor.span > 0 {
+                ui.painter().text(
+                    pos2(card.right() - PAD, center.y),
+                    Align2::RIGHT_CENTER,
+                    anchor_label(&thread.anchor),
+                    FontId::proportional(12.0),
+                    theme::text_faint(),
+                );
+            }
             let header = ui.painter().text(
                 pos2(card.left() + TEXT_X, center.y),
                 Align2::LEFT_CENTER,
@@ -267,6 +277,9 @@ impl DiffBody {
                 .desired_width(f32::INFINITY),
         );
         let has_text = !draft.trim().is_empty();
+        if edit.has_focus() {
+            self.lit_next = Some(id);
+        }
         paint_field(&child, slot, field_rect, edit.has_focus(), &input.style);
         child.allocate_rect(field_rect, Sense::hover());
         let send_shortcut =
