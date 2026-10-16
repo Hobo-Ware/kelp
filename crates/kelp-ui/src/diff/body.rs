@@ -11,6 +11,7 @@ use kelp_core::review::{Anchor, Comment, Side, Thread};
 use super::style::{DiffStyle, LineLook, hunk_label};
 use crate::theme;
 
+mod composer;
 mod note;
 
 pub const LINE_H: f32 = 22.0;
@@ -22,7 +23,6 @@ const THREAD_W: f32 = 640.0;
 const THREAD_MIN_W: f32 = 240.0;
 const THREAD_MARGIN: f32 = 16.0;
 const RESOLVED_H: f32 = 34.0;
-const COMPOSER_H: f32 = 132.0;
 
 /// Side-by-side or single-column diff.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -103,7 +103,7 @@ pub struct DiffTexts {
     pub saved_hint: Cow<'static, str>,
     /// Placeholder of a thread's reply box.
     pub reply_hint: Cow<'static, str>,
-    /// Placeholder of the new comment box.
+    /// Placeholder of the new comment box. The embedded look ignores it.
     pub comment_hint: Cow<'static, str>,
 }
 
@@ -115,10 +115,7 @@ impl Default for DiffTexts {
                 "Reply…  ({} to send)",
                 crate::widgets::chord_label(cfg!(target_os = "macos"), "⌘ Enter")
             )),
-            comment_hint: Cow::Owned(format!(
-                "Write a comment…  ({} to save)",
-                crate::widgets::chord_label(cfg!(target_os = "macos"), "⌘ Enter")
-            )),
+            comment_hint: Cow::Borrowed("Leave a comment"),
         }
     }
 }
@@ -197,6 +194,7 @@ pub struct DiffBody {
     data: Prepared,
     layout: DiffLayout,
     composer: Option<(Side, u32)>,
+    composer_focused: bool,
     draft: String,
     replies: HashMap<u64, String>,
     expanded: HashMap<u64, bool>,
@@ -213,6 +211,7 @@ impl DiffBody {
             data: Prepared::of(diff),
             layout: DiffLayout::default(),
             composer: None,
+            composer_focused: false,
             draft: String::new(),
             replies: HashMap::new(),
             expanded: HashMap::new(),
@@ -294,6 +293,13 @@ impl DiffBody {
             }
         }
         self.select_anchor = Some(index);
+    }
+
+    /// Opens the comment composer under `line` (1-based) of `side`.
+    pub fn open_composer(&mut self, side: Side, line: u32) {
+        self.composer = Some((side, line));
+        self.composer_focused = false;
+        self.draft.clear();
     }
 
     pub fn scroll_y(&self) -> f32 {
@@ -441,7 +447,7 @@ impl DiffBody {
         match item {
             Item::Hunk(_) | Item::OutsideHeader => HUNK_H,
             Item::Line(_) | Item::Split(..) | Item::FileLine(_) => LINE_H,
-            Item::Composer => COMPOSER_H,
+            Item::Composer => composer::height(ui, &self.draft, card_w),
             Item::Thread(id) => {
                 let Some(thread) = input
                     .threads
@@ -858,6 +864,7 @@ impl DiffBody {
             );
             if response.on_hover_text("Add a comment").clicked() {
                 self.composer = Some((side, line_no));
+                self.composer_focused = false;
                 self.draft.clear();
             }
         }
@@ -939,16 +946,7 @@ impl DiffBody {
             }
             return;
         }
-        let (fill, border) = input
-            .style
-            .note(theme::tone(Color32::from_rgb(0x33, 0x40, 0x55)));
-        ui.painter().rect(
-            card,
-            8.0,
-            fill,
-            Stroke::new(1.0, border),
-            egui::StrokeKind::Inside,
-        );
+        note::paint_card(ui, card, &input.style);
         if input.style.note_card {
             self.embedded_thread(ui, card, thread, input, actions);
             return;
@@ -1063,101 +1061,6 @@ impl DiffBody {
                 }
             });
         });
-    }
-
-    fn composer_ui(
-        &mut self,
-        ui: &mut Ui,
-        rect: Rect,
-        card_w: f32,
-        input: &DiffInput<'_>,
-        actions: &mut Vec<DiffAction>,
-    ) {
-        let Some((side, line_no)) = self.composer else {
-            return;
-        };
-        let card = Rect::from_min_size(
-            pos2(rect.left() + THREAD_INDENT, rect.top() + 6.0),
-            vec2(card_w, rect.height() - 12.0),
-        );
-        ui.painter().rect(
-            card,
-            8.0,
-            input.style.note(Color32::TRANSPARENT).0,
-            Stroke::new(1.0, theme::with_alpha(input.style.accent(), 0x99)),
-            egui::StrokeKind::Inside,
-        );
-        let area = card.shrink(12.0);
-        let mut child = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(area)
-                .layout(egui::Layout::top_down(egui::Align::Min)),
-        );
-        child.spacing_mut().item_spacing.y = 8.0;
-        input.style.paint_accent(&mut child);
-        child.label(
-            RichText::new(format!("Comment on line {line_no}"))
-                .size(12.0)
-                .color(theme::text_muted()),
-        );
-        let edit = child.add(
-            egui::TextEdit::multiline(&mut self.draft)
-                .hint_text(input.texts.comment_hint.as_ref())
-                .desired_rows(2)
-                .desired_width(f32::INFINITY),
-        );
-        if !edit.has_focus() && child.memory(|m| m.focused().is_none()) {
-            edit.request_focus();
-        }
-        let save_shortcut = child.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
-        let cancel_shortcut = child.input(|i| i.key_pressed(egui::Key::Escape));
-        let mut close = cancel_shortcut;
-        child.horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let enabled = !self.draft.trim().is_empty();
-                let save = egui::Button::new(
-                    RichText::new("Comment")
-                        .family(theme::semibold())
-                        .color(theme::on_accent()),
-                )
-                .fill(input.style.accent())
-                .corner_radius(5);
-                let clicked = ui.add_enabled(enabled, save).clicked();
-                if enabled && (clicked || save_shortcut) {
-                    let lines: Vec<&str> = if side == Side::Old {
-                        &self.data.old_lines
-                    } else {
-                        &self.data.new_lines
-                    }
-                    .iter()
-                    .map(String::as_str)
-                    .collect();
-                    let index = (line_no as usize)
-                        .saturating_sub(1)
-                        .min(lines.len().saturating_sub(1));
-                    if !lines.is_empty() {
-                        let anchor = Anchor::at(&lines, index, side);
-                        let comment = Comment {
-                            author: input.author.to_string(),
-                            time: now(),
-                            body: self.draft.trim().to_string(),
-                        };
-                        actions.push(DiffAction::AddThread { anchor, comment });
-                    }
-                    close = true;
-                }
-                if ui
-                    .add(egui::Button::new("Cancel").corner_radius(5))
-                    .clicked()
-                {
-                    close = true;
-                }
-            });
-        });
-        if close {
-            self.composer = None;
-            self.draft.clear();
-        }
     }
 }
 
@@ -1318,6 +1221,7 @@ mod tests {
         texts: DiffTexts,
         style: DiffStyle,
         fills: Vec<Color32>,
+        other_field: Option<String>,
     }
 
     impl Harness {
@@ -1336,6 +1240,7 @@ mod tests {
                 texts: DiffTexts::default(),
                 style: DiffStyle::default(),
                 fills: Vec::new(),
+                other_field: None,
             }
         }
 
@@ -1358,8 +1263,17 @@ mod tests {
                 texts,
                 style,
                 fills,
+                other_field,
             } = self;
             let output = ctx.run_ui(input, |ui| {
+                if let Some(text) = other_field {
+                    let other = ui.add(
+                        egui::TextEdit::singleline(text).id(egui::Id::new("some-other-field")),
+                    );
+                    if !other.has_focus() {
+                        other.request_focus();
+                    }
+                }
                 actions = body.ui(
                     ui,
                     DiffInput {
@@ -1527,6 +1441,87 @@ mod tests {
         assert_eq!(comment.body, "why y?");
         assert_eq!(comment.author, "T");
         assert!(h.body.composer.is_none());
+    }
+
+    fn key(key: egui::Key, modifiers: Modifiers) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }
+    }
+
+    #[test]
+    fn escape_cancels_a_focused_composer_and_drops_its_draft() {
+        let mut h = Harness::new();
+        h.body.composer = Some((Side::New, 3));
+        h.body.draft = "draft".into();
+        h.frame(vec![], Modifiers::NONE);
+        let actions = h.frame(
+            vec![key(egui::Key::Escape, Modifiers::NONE)],
+            Modifiers::NONE,
+        );
+        assert_eq!(actions, []);
+        assert!(h.body.composer.is_none());
+        assert_eq!(h.body.draft, "");
+    }
+
+    #[test]
+    fn the_composer_keeps_its_hands_off_keys_while_another_field_has_focus() {
+        let mut h = Harness::new();
+        h.other_field = Some(String::new());
+        h.frame(vec![], Modifiers::NONE);
+        h.body.composer = Some((Side::New, 3));
+        h.body.draft = "draft".into();
+        h.frame(vec![], Modifiers::NONE);
+        h.frame(
+            vec![key(egui::Key::Escape, Modifiers::NONE)],
+            Modifiers::NONE,
+        );
+        assert!(h.body.composer.is_some());
+        let actions = h.cmd_enter();
+        assert_eq!(actions, []);
+        assert_eq!(h.body.draft, "draft");
+    }
+
+    #[test]
+    fn an_empty_comment_cannot_be_saved_with_the_shortcut() {
+        let mut h = Harness::new();
+        h.body.composer = Some((Side::New, 3));
+        h.body.draft = "  ".into();
+        h.frame(vec![], Modifiers::NONE);
+        assert_eq!(h.cmd_enter(), []);
+        assert!(h.body.composer.is_some());
+    }
+
+    #[test]
+    fn the_composer_row_grows_with_the_draft_and_is_three_rows_tall_when_empty() {
+        let mut h = Harness::new();
+        h.body.composer = Some((Side::New, 3));
+        let measure = |h: &Harness| {
+            let mut seen = 0.0;
+            let raw = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 400.0))),
+                ..Default::default()
+            };
+            let _ = h.ctx.run_ui(raw, |ui| {
+                let rows = h.body.rows(ui, &input(h));
+                let at = rows
+                    .items
+                    .iter()
+                    .position(|i| matches!(i, Item::Composer))
+                    .expect("a composer row");
+                seen = rows.heights[at];
+            });
+            seen
+        };
+        let empty = measure(&h);
+        h.body.draft = "one\ntwo\nthree".into();
+        assert_eq!(measure(&h), empty);
+        h.body.draft = "1\n2\n3\n4\n5\n6\n7\n8".into();
+        assert!(measure(&h) > empty + 40.0);
     }
 
     #[test]
@@ -1729,18 +1724,12 @@ mod tests {
     fn the_default_texts_are_the_wording_kelp_always_used() {
         let texts = DiffTexts::default();
         assert_eq!(texts.saved_hint, "Saved in this repo only · not pushed");
-        let (reply, comment) = if cfg!(target_os = "macos") {
-            (
-                "Reply…  (⌘ Enter to send)",
-                "Write a comment…  (⌘ Enter to save)",
-            )
+        let reply = if cfg!(target_os = "macos") {
+            "Reply…  (⌘ Enter to send)"
         } else {
-            (
-                "Reply…  (Ctrl+Enter to send)",
-                "Write a comment…  (Ctrl+Enter to save)",
-            )
+            "Reply…  (Ctrl+Enter to send)"
         };
         assert_eq!(texts.reply_hint, reply);
-        assert_eq!(texts.comment_hint, comment);
+        assert_eq!(texts.comment_hint, "Leave a comment");
     }
 }

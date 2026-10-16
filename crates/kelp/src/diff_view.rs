@@ -144,10 +144,17 @@ impl DiffView {
             _ => Mode::Diff,
         };
         let lfs_hint = lfs_hint_due(&diff);
+        let mut body = DiffBody::new(&diff);
+        if let Some(line) = std::env::var("KELP_OPEN_COMPOSER")
+            .ok()
+            .and_then(|v| v.parse().ok())
+        {
+            body.open_composer(kelp_core::review::Side::New, line);
+        }
         Ok(Self {
             source,
             old_path: old_path.map(str::to_string),
-            body: DiffBody::new(&diff),
+            body,
             diff,
             mode,
             pending: None,
