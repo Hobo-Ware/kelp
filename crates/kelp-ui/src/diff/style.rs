@@ -6,6 +6,10 @@ use crate::theme;
 const EMBEDDED_ADD: Color32 = Color32::from_rgb(0x8f, 0xd1, 0x6a);
 const EMBEDDED_DEL: Color32 = Color32::from_rgb(0xf8, 0x71, 0x71);
 const EMBEDDED_EMPHASIS_ALPHA: u8 = 0x30;
+const EMBEDDED_CARD_FILL: Color32 = Color32::from_rgb(0x1a, 0x20, 0x29);
+const EMBEDDED_CARD_LINE: Color32 = Color32::from_rgb(0x26, 0x2e, 0x3b);
+const EMBEDDED_FIELD_FILL: Color32 = Color32::from_rgb(0x15, 0x1a, 0x23);
+const EMBEDDED_FIELD_LINE: Color32 = Color32::from_rgb(0x2f, 0x37, 0x45);
 
 /// How the diff body looks. `Default` is the Kelp app's look; [`DiffStyle::embedded`] is a
 /// calmer one for a diff shown inside a card of a host app.
@@ -25,6 +29,14 @@ pub struct DiffStyle {
     pub hunk_divider: bool,
     /// Thread cards, resolved chips and the composer use a small flat card.
     pub note_card: bool,
+    /// Fill of a thread card, the resolved chip and the composer. `None` keeps Kelp's.
+    pub card_fill: Option<Color32>,
+    /// Border of those cards. `None` keeps Kelp's.
+    pub card_line: Option<Color32>,
+    /// Fill of a thread's reply field, slightly above the card. Used only with `note_card`.
+    pub field_fill: Option<Color32>,
+    /// Border of the reply field and of the quiet buttons. Used only with `note_card`.
+    pub field_line: Option<Color32>,
     /// Replaces Kelp's accent on the selection, the focus ring, the comment button and links.
     pub accent: Option<Color32>,
 }
@@ -53,6 +65,10 @@ impl DiffStyle {
             bar_w: 2.0,
             hunk_divider: true,
             note_card: true,
+            card_fill: Some(EMBEDDED_CARD_FILL),
+            card_line: Some(EMBEDDED_CARD_LINE),
+            field_fill: Some(EMBEDDED_FIELD_FILL),
+            field_line: Some(EMBEDDED_FIELD_LINE),
             accent: Some(accent),
         }
     }
@@ -62,14 +78,17 @@ impl DiffStyle {
     }
 
     pub(super) fn note(&self, border: Color32) -> (Color32, Color32) {
-        if self.note_card {
-            (
-                theme::tone(Color32::from_rgb(0x1a, 0x20, 0x29)),
-                theme::tone(Color32::from_rgb(0x2a, 0x31, 0x3d)),
-            )
-        } else {
-            (theme::thread(), border)
-        }
+        (
+            self.card_fill.map_or_else(theme::thread, theme::tone),
+            self.card_line.map_or(border, theme::tone),
+        )
+    }
+
+    pub(super) fn field(&self) -> (Color32, Color32) {
+        (
+            theme::tone(self.field_fill.unwrap_or(EMBEDDED_FIELD_FILL)),
+            theme::tone(self.field_line.unwrap_or(EMBEDDED_FIELD_LINE)),
+        )
     }
 
     pub(super) fn paint_accent(&self, ui: &mut egui::Ui) {
@@ -183,6 +202,10 @@ mod tests {
         assert_eq!(style.bar_alpha, 0);
         assert!(!style.hunk_divider);
         assert!(!style.note_card);
+        assert_eq!(style.card_fill, None);
+        assert_eq!(style.card_line, None);
+        assert_eq!(style.field_fill, None);
+        assert_eq!(style.field_line, None);
         assert_eq!(style.accent, None);
         assert!(!style.tinted());
         assert_eq!(style.accent(), theme::accent());
@@ -227,6 +250,21 @@ mod tests {
         assert_eq!(style.accent(), Color32::from_rgb(0x2d, 0xd4, 0xbf));
         assert!(style.tinted() && style.hunk_divider && style.note_card);
         assert_eq!(style.bar_w, 2.0);
+    }
+
+    #[test]
+    fn embedded_note_cards_use_the_host_card_colors() {
+        let style = DiffStyle::embedded(Color32::from_rgb(0x2d, 0xd4, 0xbf));
+        assert_eq!(style.card_fill, Some(Color32::from_rgb(0x1a, 0x20, 0x29)));
+        assert_eq!(style.card_line, Some(Color32::from_rgb(0x26, 0x2e, 0x3b)));
+        assert_eq!(style.field_fill, Some(Color32::from_rgb(0x15, 0x1a, 0x23)));
+        assert_eq!(style.field_line, Some(Color32::from_rgb(0x2f, 0x37, 0x45)));
+    }
+
+    #[test]
+    fn the_default_note_card_is_kelps_thread_fill_and_the_given_border() {
+        let border = Color32::from_rgb(1, 2, 3);
+        assert_eq!(DiffStyle::default().note(border), (theme::thread(), border));
     }
 
     #[test]
