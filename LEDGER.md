@@ -13,6 +13,19 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-16
+
+- **kelp-ui API: embedded note card** (not user-visible in Kelp). With `DiffStyle::embedded`
+  the thread card is restyled to fit a host: a card that fits its content (no empty bottom),
+  a 22 px avatar disc tinted with the accent, a rounded reply field with an accent border when
+  focused, quiet bordered Reply, Resolve and Delete buttons (Reply is the only filled one, and
+  only with text; Delete has red ink), and the send shortcut as a dim hint right of the button
+  row. New `DiffStyle` fields `card_fill`, `card_line`, `field_fill` and `field_line` (`None`
+  keeps Kelp's). The embedded card ignores `DiffTexts::reply_hint` and `saved_hint`. Default
+  look checked pixel-identical (PSNR 120, 0 differing pixels on the diff area, offline
+  screenshots of a clone of this repo with two review threads, before and after, unified and
+  split). `KELP_EMBEDDED_LOOK=1` draws it. fmt and clippy clean; kelp-ui tests 102 -> 106.
+
 ## 2026-10-15
 
 - **kelp-ui API: `DiffStyle`** (not user-visible in Kelp). `DiffInput` gets
