@@ -31,6 +31,7 @@ pub enum Icon {
     Commit,
     Filter,
     Compare,
+    Comment,
 }
 
 pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -278,6 +279,22 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             circle(18.0, 18.0, 2.5);
             line(&[(6.0, 8.5), (6.0, 15.0), (9.0, 18.0), (15.5, 18.0)]);
             line(&[(18.0, 15.5), (18.0, 9.0), (15.0, 6.0), (8.5, 6.0)]);
+        }
+        Icon::Comment => {
+            line(&[
+                (6.0, 4.0),
+                (18.0, 4.0),
+                (20.0, 6.0),
+                (20.0, 14.0),
+                (18.0, 16.0),
+                (11.0, 16.0),
+                (7.0, 20.0),
+                (7.0, 16.0),
+                (6.0, 16.0),
+                (4.0, 14.0),
+                (4.0, 6.0),
+                (6.0, 4.0),
+            ]);
         }
         Icon::Pin => {
             line(&[(9.0, 4.0), (15.0, 4.0)]);

@@ -41,6 +41,16 @@ A running log of what got done, newest first. The plan lives in
   to GitHub anywhere, so there is no `start_line` call to change. 7 new kelp-core review
   tests, kelp-ui 114 -> 131.
 
+- **Notes badge in the graph.** A commit with review notes pending gets a speech bubble and
+  the count before its date (left of the CI dot when there is one), in the graph's accent
+  (Kelp's own, or the embedded look's); the uncommitted changes row draws the same badge, in
+  both looks. New `GraphInput::notes: &HashMap<ObjectId, usize>` (an empty map draws nothing)
+  and `Wip::notes: Option<usize>`; `Icon::Comment`; `Review::open_by_commit` and
+  `open_uncommitted` count unresolved notes, and Kelp's graph passes them. Counts above 99 read
+  `99+`. Verified with offline screenshots of a throwaway repo, default and embedded; the
+  graph benchmark was not re-run (one map lookup per visible row, nothing drawn without notes).
+  kelp-ui tests 131 -> 136, kelp-core 1 more.
+
 ## 2026-10-16
 
 - **kelp-ui API: embedded note card** (not user-visible in Kelp). With `DiffStyle::embedded`

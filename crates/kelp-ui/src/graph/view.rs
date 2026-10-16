@@ -19,6 +19,7 @@ use super::flow::Flow;
 use super::hover::{HoverPath, Label, VisiblePath};
 use super::labels::{self as ref_labels, DropPlan, DropTarget, Forced, LabelEvent, MenuFor};
 use super::marks::{self, Marks};
+use super::notes;
 use super::rows::{Row, RowMap, WipLink};
 use super::style::{GraphStyle, RefPlacement};
 use super::{GraphAction, Selection};
@@ -100,6 +101,9 @@ pub struct GraphInput<'a> {
     pub filter_active: bool,
     /// CI state per commit; commits found here get a status dot.
     pub checks: &'a HashMap<kelp_core::ObjectId, kelp_core::checks::Status>,
+    /// Review notes pending per commit; commits found here get a speech bubble and the count
+    /// before their date. An empty map draws nothing.
+    pub notes: &'a HashMap<kelp_core::ObjectId, usize>,
     /// The look of the graph. `GraphStyle::default()` is the Kelp app's.
     pub style: GraphStyle,
     /// Opens a gap of the given height under a commit row, pushing every row below it down. Lanes
@@ -122,6 +126,8 @@ struct RowStyle {
 pub struct Wip<'a> {
     pub head_row: usize,
     pub changes: &'a [FileChange],
+    /// Review notes pending on the uncommitted changes, drawn like a commit's.
+    pub notes: Option<usize>,
 }
 
 /// Uncommitted changes in another worktree, drawn with an Open button.
@@ -209,6 +215,7 @@ impl GraphView {
             picking,
             filter_active,
             checks,
+            notes,
             style,
             expanded: gap_input,
         } = input;
@@ -458,6 +465,7 @@ impl GraphView {
                             counts: Counts::of(wip.changes),
                             current: true,
                             pinned: map.pinned_head().is_some(),
+                            notes: wip.notes.unwrap_or(0),
                         };
                         paint_wip_row(
                             &painter,
@@ -480,6 +488,7 @@ impl GraphView {
                             counts: Counts::changed(other.changes),
                             current: false,
                             pinned: false,
+                            notes: 0,
                         };
                         paint_wip_row(&painter, &geo, history, tint, other.head_row, &label, false);
                         let button = open_button_rect(&geo);
@@ -514,6 +523,7 @@ impl GraphView {
                                 path: visible_path.as_ref(),
                                 on_path: on_path(row),
                                 checks: checks.get(&history.id(row)),
+                                notes: notes.get(&history.id(row)).copied().unwrap_or(0),
                                 lit,
                                 badges: &badges,
                             },
@@ -1061,6 +1071,7 @@ struct RowPaint<'a> {
     path: Option<&'a VisiblePath<'a>>,
     on_path: OnPath,
     checks: Option<&'a kelp_core::checks::Status>,
+    notes: usize,
     lit: Option<&'a [bool]>,
     badges: &'a ref_labels::RemoteBadges,
 }
@@ -1095,6 +1106,7 @@ fn paint_row(
         path,
         on_path,
         checks,
+        notes,
         lit,
         badges,
     } = paint;
@@ -1267,6 +1279,7 @@ fn paint_row(
             selected,
             descriptions,
             checks: checks.map(|c| c.state),
+            notes,
             x: title_x,
         },
         now,
@@ -1352,6 +1365,7 @@ struct MessageStyle {
     selected: bool,
     descriptions: bool,
     checks: Option<kelp_core::checks::State>,
+    notes: usize,
     x: f32,
 }
 
@@ -1375,6 +1389,7 @@ struct WipLabel {
     counts: Counts,
     current: bool,
     pinned: bool,
+    notes: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -1517,7 +1532,7 @@ fn paint_wip_row(
     }
 
     if flat && label.current {
-        paint_wip_summary(painter, geo, ring_color, label.counts.files());
+        paint_wip_summary(painter, geo, ring_color, label.counts.files(), label.notes);
         return;
     }
     let mut job = LayoutJob::default();
@@ -1536,11 +1551,21 @@ fn paint_wip_row(
         0.0,
         TextFormat::simple(FontId::proportional(13.0), owner_color),
     );
-    let reserved = if label.current {
+    let mut reserved = if label.current {
         14.0
     } else {
         OPEN_BUTTON_W + 28.0
     };
+    if label.notes > 0 {
+        notes::paint(
+            painter,
+            geo.right - reserved,
+            geo.mid(),
+            label.notes,
+            geo.style.accent(),
+        );
+        reserved += notes::width(painter, label.notes) + notes::GAP;
+    }
     let counts_w = change_counts::width(painter, label.counts, 12.5);
     let inset = geo.style.text_inset();
     let text_room = geo.right - reserved - geo.msg_left() - inset - counts_w - COUNTS_GAP;
@@ -1561,7 +1586,13 @@ fn paint_wip_row(
     );
 }
 
-fn paint_wip_summary(painter: &egui::Painter, geo: &RowGeo, color: Color32, files: usize) {
+fn paint_wip_summary(
+    painter: &egui::Painter,
+    geo: &RowGeo,
+    color: Color32,
+    files: usize,
+    notes: usize,
+) {
     let size = geo.style.title_size();
     painter.text(
         pos2(geo.msg_left() + geo.style.text_inset(), geo.mid()),
@@ -1571,13 +1602,22 @@ fn paint_wip_summary(painter: &egui::Painter, geo: &RowGeo, color: Color32, file
         color,
     );
     let noun = if files == 1 { "file" } else { "files" };
-    painter.text(
+    let count = painter.text(
         pos2(geo.right - LIST_PAD_R, geo.mid()),
         Align2::RIGHT_CENTER,
         format!("{files} {noun}"),
         FontId::proportional(12.0),
         theme::text_faint(),
     );
+    if notes > 0 {
+        notes::paint(
+            painter,
+            count.left() - notes::GAP * 2.0,
+            geo.mid(),
+            notes,
+            geo.style.accent(),
+        );
+    }
 }
 
 fn side_lane(history: &History, head_row: usize) -> u16 {
@@ -1792,6 +1832,7 @@ fn paint_message(
         selected,
         descriptions,
         checks,
+        notes,
         x,
     } = style;
     let list = geo.style.list_text;
@@ -1841,6 +1882,19 @@ fn paint_message(
         Rect::from_center_size(center, vec2(CHECK_DOT_ROOM, geo.row_h()))
     });
     let time_w = time_w + if dot.is_some() { CHECK_DOT_ROOM } else { 0.0 };
+    let time_w = if notes > 0 {
+        let badge_w = notes::width(painter, notes);
+        notes::paint(
+            painter,
+            right - pad_r - time_w - notes::GAP,
+            geo.mid(),
+            notes,
+            geo.style.accent(),
+        );
+        time_w + badge_w + notes::GAP * 2.0
+    } else {
+        time_w
+    };
 
     let gap = if list { INLINE_TITLE_GAP } else { 12.0 };
     let max_width = (right - pad_r - time_w - gap - x).max(0.0);
@@ -1968,6 +2022,8 @@ mod tests {
         style: GraphStyle,
         expanded: Option<(usize, f32)>,
         size: egui::Vec2,
+        notes: std::collections::HashMap<kelp_core::ObjectId, usize>,
+        wip_notes: Option<usize>,
     }
 
     impl Harness {
@@ -2008,6 +2064,8 @@ mod tests {
                 style: GraphStyle::default(),
                 expanded: None,
                 size: vec2(900.0, 400.0),
+                notes: std::collections::HashMap::new(),
+                wip_notes: None,
             };
             (harness, dir)
         }
@@ -2031,6 +2089,8 @@ mod tests {
                 style,
                 expanded,
                 size: _,
+                notes,
+                wip_notes,
             } = self;
             let no_checks = std::collections::HashMap::new();
             let mut summary =
@@ -2046,6 +2106,7 @@ mod tests {
                     wip: (!wip.is_empty()).then_some(Wip {
                         head_row: 0,
                         changes: wip,
+                        notes: *wip_notes,
                     }),
                     lit: None,
                     descriptions: false,
@@ -2054,6 +2115,7 @@ mod tests {
                     compare: Default::default(),
                     picking: false,
                     checks: &no_checks,
+                    notes,
                     filter_active: false,
                     style: *style,
                     expanded: *expanded,
@@ -2107,6 +2169,119 @@ mod tests {
             Some(GraphAction::Select(Selection::Commit(0)))
         ));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn texts(output: &egui::FullOutput) -> Vec<(String, Pos2, egui::Color32)> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<(String, Pos2, egui::Color32)>) {
+            match shape {
+                egui::Shape::Text(text) => {
+                    let center = text.pos + vec2(0.0, text.galley.size().y / 2.0);
+                    let color = text
+                        .galley
+                        .job
+                        .sections
+                        .first()
+                        .map_or(egui::Color32::PLACEHOLDER, |s| s.format.color);
+                    out.push((text.galley.text().to_string(), center, color));
+                }
+                egui::Shape::Vec(list) => list.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in &output.shapes {
+            walk(&clipped.shape, &mut out);
+        }
+        out
+    }
+
+    fn badge(output: &egui::FullOutput, label: &str) -> Option<(Pos2, egui::Color32)> {
+        texts(output)
+            .into_iter()
+            .find(|(text, ..)| text == label)
+            .map(|(_, at, color)| (at, color))
+    }
+
+    #[test]
+    fn a_commit_with_notes_gets_a_count_near_the_right_edge_on_its_row() {
+        let (mut h, dir) = Harness::new("notes-badge");
+        let id = h.history.id(1);
+        h.notes.insert(id, 7);
+        h.frame(vec![]);
+        let output = h.frame_with(vec![], Modifiers::NONE);
+        let (at, color) = badge(&output, "7").expect("a count");
+        assert_eq!(color, crate::theme::accent());
+        assert!(at.x > 600.0 && at.x < 900.0, "x = {}", at.x);
+        let title = texts(&output)
+            .into_iter()
+            .find(|(text, ..)| text == "commit 1")
+            .expect("the row's title");
+        assert!(
+            (at.y - title.1.y).abs() < 1.0,
+            "y = {} vs {}",
+            at.y,
+            title.1.y
+        );
+        assert!(at.x > title.1.x);
+        assert!(badge(&output, "8").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn no_notes_draw_no_badge() {
+        let (mut h, dir) = Harness::new("notes-none");
+        h.frame(vec![]);
+        let output = h.frame_with(vec![], Modifiers::NONE);
+        assert!(badge(&output, "7").is_none());
+        let id = h.history.id(1);
+        h.notes.insert(id, 0);
+        let output = h.frame_with(vec![], Modifiers::NONE);
+        assert!(badge(&output, "0").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_embedded_look_draws_the_badge_in_its_accent() {
+        let (mut h, dir) = Harness::new("notes-embedded");
+        h.style = embedded();
+        let id = h.history.id(0);
+        h.notes.insert(id, 3);
+        h.frame(vec![]);
+        let output = h.frame_with(vec![], Modifiers::NONE);
+        let (at, color) = badge(&output, "3").expect("a count");
+        assert_eq!(color, egui::Color32::from_rgb(0x2d, 0xd4, 0xbf));
+        assert!((at.y - embedded_row(0.0).y).abs() < 1.0, "y = {}", at.y);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_uncommitted_row_shows_its_notes_in_both_looks() {
+        for style in [GraphStyle::default(), embedded()] {
+            let (mut h, dir) = Harness::new("notes-wip");
+            h.style = style;
+            h.wip = vec![FileChange {
+                path: "a.txt".into(),
+                kind: kelp_core::commit::ChangeKind::Modified,
+            }];
+            h.frame(vec![]);
+            let output = h.frame_with(vec![], Modifiers::NONE);
+            assert!(badge(&output, "7").is_none());
+            h.wip_notes = Some(7);
+            let output = h.frame_with(vec![], Modifiers::NONE);
+            let (at, _) = badge(&output, "7").expect("a count on the uncommitted row");
+            let row_h = style.row_h;
+            let top = if style == GraphStyle::default() {
+                HEADER_H
+            } else {
+                0.0
+            };
+            assert!(
+                at.y > top && at.y < top + row_h,
+                "the count is on the first row, y = {}",
+                at.y
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     fn embedded() -> GraphStyle {

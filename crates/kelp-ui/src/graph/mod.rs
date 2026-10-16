@@ -5,6 +5,7 @@ mod flow;
 mod hover;
 mod labels;
 mod marks;
+mod notes;
 mod rows;
 mod style;
 mod view;

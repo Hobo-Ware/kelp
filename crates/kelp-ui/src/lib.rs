@@ -19,7 +19,9 @@
 //! - [`avatars::AvatarStore`]: background avatar loading, handed to the graph.
 //! - [`jobs::Jobs`]: a small background job runner that wakes the UI when a job finishes.
 //! - [`graph`]: [`graph::GraphView`] draws the commit graph from a `kelp_core::history::History`
-//!   and a [`graph::GraphInput`], and returns a [`graph::GraphAction`].
+//!   and a [`graph::GraphInput`], and returns a [`graph::GraphAction`]. `GraphInput::notes`
+//!   maps commits to the number of review notes pending on them, drawn as a speech bubble and the
+//!   count before the date (`Wip::notes` does the same for the uncommitted changes row).
 //! - [`diff`]: [`diff::DiffBody`] draws a `kelp_core::diff::FileDiff` (unified or split, word
 //!   highlights, jumping between changes, review thread cards and the comment composer) and
 //!   returns [`diff::DiffAction`]s. Dragging over line numbers comments on a block: a new
