@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -194,6 +195,28 @@ impl Review {
 
     pub fn open_count(&self) -> usize {
         self.threads.iter().filter(|t| !t.resolved).count()
+    }
+
+    /// Unresolved threads per commit they were written on.
+    pub fn open_by_commit(&self) -> HashMap<gix::ObjectId, usize> {
+        let mut counts = HashMap::new();
+        let commits = self
+            .threads
+            .iter()
+            .filter(|t| !t.resolved)
+            .filter_map(|t| gix::ObjectId::from_hex(t.commit.as_deref()?.as_bytes()).ok());
+        for id in commits {
+            *counts.entry(id).or_insert(0) += 1;
+        }
+        counts
+    }
+
+    /// Unresolved threads written on uncommitted changes.
+    pub fn open_uncommitted(&self) -> usize {
+        self.threads
+            .iter()
+            .filter(|t| !t.resolved && t.commit.is_none())
+            .count()
     }
 
     pub fn to_markdown(&self) -> String {
@@ -471,5 +494,36 @@ mod tests {
         let md = review.to_markdown();
         assert!(md.contains("**Lines 2-4**"), "{md}");
         assert!(md.contains("```\n    let x = 1;\n    let bend = row * 0.5;\n    draw(x);\n```"));
+    }
+
+    #[test]
+    fn open_notes_are_counted_per_commit_and_for_uncommitted_changes() {
+        let a = gix::ObjectId::from_hex(&[b'a'; 40]).unwrap();
+        let b = gix::ObjectId::from_hex(&[b'b'; 40]).unwrap();
+        let mut review = Review::default();
+        let mut add = |commit: Option<&gix::ObjectId>| {
+            review.add(
+                "f.rs",
+                commit.map(|id| id.to_string()),
+                Anchor::at(FILE, 1, Side::New),
+                comment("hm"),
+            )
+        };
+        let resolved = add(Some(&a));
+        add(Some(&a));
+        add(Some(&b));
+        add(None);
+        add(None);
+        add(None);
+        review.set_resolved(resolved, true);
+        review.threads.push(Thread {
+            commit: Some("not a hash".into()),
+            ..review.threads[0].clone()
+        });
+        let counts = review.open_by_commit();
+        assert_eq!(counts.len(), 2);
+        assert_eq!((counts[&a], counts[&b]), (1, 1));
+        assert_eq!(review.open_uncommitted(), 3);
+        assert_eq!(Review::default().open_by_commit().len(), 0);
     }
 }

@@ -1877,11 +1877,14 @@ impl Repo {
             workspace,
             columns_changed,
             checks,
+            review,
             ..
         } = self;
+        let notes = review.open_by_commit();
         let wip = (!changes.is_empty()).then(|| Wip {
             head_row: head_row.unwrap_or(0),
             changes,
+            notes: Some(review.open_uncommitted()),
         });
         let other_wips: Vec<OtherWip> = workspace
             .worktrees
@@ -1921,6 +1924,7 @@ impl Repo {
             picking,
             filter_active,
             checks: &checks.statuses,
+            notes: &notes,
             style: dev_preview.style(),
             expanded: dev_preview.expanded(),
         };
