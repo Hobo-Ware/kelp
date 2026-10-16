@@ -83,6 +83,10 @@ pub(super) fn shortcut_hint(mac: bool) -> String {
     )
 }
 
+pub(super) fn hint_fits(room: f32, hint_width: f32) -> bool {
+    room >= hint_width + HINT_GAP
+}
+
 fn file_name(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
@@ -215,7 +219,7 @@ impl DiffBody {
         let hint_galley =
             ui.painter()
                 .layout_no_wrap(hint, FontId::proportional(11.0), theme::text_faint());
-        if footer.width() - used >= hint_galley.size().x + HINT_GAP {
+        if hint_fits(footer.width() - used, hint_galley.size().x) {
             ui.painter().galley(
                 pos2(
                     footer.left(),
@@ -276,6 +280,18 @@ mod tests {
             shortcut_hint(false),
             "Ctrl+Enter to comment · Esc to cancel"
         );
+    }
+
+    #[test]
+    fn a_hint_shows_only_when_it_fits_beside_the_buttons() {
+        let cases = [
+            (200.0, 120.0, true),
+            (120.0, 120.0, false),
+            (40.0, 120.0, false),
+        ];
+        for (room, width, fits) in cases {
+            assert_eq!(hint_fits(room, width), fits, "room {room} width {width}");
+        }
     }
 
     #[test]

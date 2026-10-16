@@ -316,11 +316,18 @@ impl DiffBody {
                 actions.push(DiffAction::DeleteThread(id));
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(hint)
-                        .size(11.0)
-                        .color(theme::text_faint()),
+                let galley = ui.painter().layout_no_wrap(
+                    hint.clone(),
+                    egui::FontId::proportional(11.0),
+                    theme::text_faint(),
                 );
+                if super::composer::hint_fits(ui.available_width(), galley.size().x) {
+                    ui.label(
+                        egui::RichText::new(hint)
+                            .size(11.0)
+                            .color(theme::text_faint()),
+                    );
+                }
             });
         });
     }
