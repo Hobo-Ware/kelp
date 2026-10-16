@@ -1,6 +1,7 @@
+use egui::layers::ShapeIdx;
 use egui::{
-    Align, Align2, Color32, CursorIcon, FontId, Layout, Margin, Rect, Response, Sense, Stroke,
-    StrokeKind, TextEdit, Ui, UiBuilder, pos2, vec2,
+    Align, Align2, Color32, CursorIcon, FontId, Layout, Margin, Rect, Response, Sense, Shape,
+    Stroke, StrokeKind, TextEdit, Ui, UiBuilder, epaint::RectShape, pos2, vec2,
 };
 use kelp_core::review::{Comment, Thread};
 
@@ -12,11 +13,16 @@ const AVATAR: f32 = 22.0;
 const TEXT_X: f32 = PAD + AVATAR + 8.0;
 const BODY_DY: f32 = 28.0;
 const COMMENT_GAP: f32 = 12.0;
-const FIELD_H: f32 = 32.0;
-const FIELD_PAD_Y: f32 = 6.0;
+const FIELD_H: f32 = 36.0;
+const FIELD_PAD_X: i8 = 10;
+const FIELD_PAD_Y: i8 = 9;
 const ROW_GAP: f32 = 8.0;
-const BUTTON_H: f32 = 22.0;
-const CARD_MARGIN_Y: f32 = 6.0;
+pub(super) const BUTTON_H: f32 = 28.0;
+const BUTTON_PAD_X: f32 = 12.0;
+const CARD_RADIUS: u8 = 8;
+const BAR_W: f32 = 2.0;
+pub(super) const CARD_MARGIN_Y: f32 = 6.0;
+pub(super) const DEFAULT_LINE: Color32 = Color32::from_rgb(0x33, 0x40, 0x55);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ButtonKind {
@@ -67,35 +73,38 @@ pub(super) fn measured_height(ui: &Ui, thread: &Thread, card_w: f32) -> f32 {
     }))
 }
 
-fn button(
+pub(super) fn button(
     ui: &mut Ui,
     label: &str,
     kind: ButtonKind,
     enabled: bool,
     style: &DiffStyle,
 ) -> Response {
-    let font = if kind == ButtonKind::Primary {
-        FontId::new(12.0, theme::semibold())
-    } else {
-        FontId::proportional(12.0)
-    };
     let (_, line) = style.field();
-    let (ink, fill, border) = match kind {
-        ButtonKind::Primary => (theme::on_accent(), style.accent(), style.accent()),
-        ButtonKind::Quiet => (theme::text(), Color32::TRANSPARENT, line),
-        ButtonKind::Danger => (
+    let accent = style.accent();
+    let (ink, fill, border) = match (kind, enabled) {
+        (ButtonKind::Primary, true) => (theme::on_accent(), accent, accent),
+        (ButtonKind::Primary, false) => (
+            theme::with_alpha(theme::on_accent(), 0xb0),
+            theme::with_alpha(accent, 0x55),
+            theme::with_alpha(accent, 0x55),
+        ),
+        (ButtonKind::Quiet, true) => (theme::text(), Color32::TRANSPARENT, line),
+        (ButtonKind::Quiet, false) => (
+            theme::with_alpha(theme::text(), 0x66),
+            Color32::TRANSPARENT,
+            line,
+        ),
+        (ButtonKind::Danger, _) => (
             theme::deleted(),
             Color32::TRANSPARENT,
             theme::with_alpha(theme::deleted(), 0x66),
         ),
     };
-    let ink = if enabled {
-        ink
-    } else {
-        theme::with_alpha(ink, 0x66)
-    };
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font, ink);
-    let size = vec2(galley.size().x + 20.0, BUTTON_H);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), FontId::proportional(12.0), ink);
+    let size = vec2(galley.size().x + BUTTON_PAD_X * 2.0, BUTTON_H);
     let sense = if enabled {
         Sense::click()
     } else {
@@ -129,6 +138,62 @@ fn button(
     }
 }
 
+/// The card every note shares: the style's fill and a quiet 1 px line, with a 2 px accent bar
+/// down the left edge.
+pub(super) fn paint_card(ui: &Ui, card: Rect, style: &DiffStyle) {
+    let (fill, line) = style.note(theme::tone(DEFAULT_LINE));
+    ui.painter().rect(
+        card,
+        CARD_RADIUS,
+        fill,
+        Stroke::new(1.0, line),
+        StrokeKind::Inside,
+    );
+    ui.painter_at(Rect::from_min_size(card.min, vec2(BAR_W, card.height())))
+        .rect_filled(card, CARD_RADIUS, style.accent());
+}
+
+/// Reserves the layer under a field's text, so its fill can be painted once the text edit has
+/// said whether it has focus.
+pub(super) fn field_slot(ui: &Ui) -> ShapeIdx {
+    ui.painter().add(Shape::Noop)
+}
+
+/// A field's fill and 1 px line; the accent shows only while it has focus, as a thin ring.
+pub(super) fn paint_field(ui: &Ui, slot: ShapeIdx, rect: Rect, focused: bool, style: &DiffStyle) {
+    let (fill, line) = style.field();
+    let accent = style.accent();
+    let stroke = Stroke::new(1.0, if focused { accent } else { line });
+    let mut shapes = vec![Shape::Rect(RectShape::new(
+        rect,
+        CARD_RADIUS,
+        fill,
+        stroke,
+        StrokeKind::Inside,
+    ))];
+    if focused {
+        shapes.push(Shape::Rect(RectShape::stroke(
+            rect.expand(2.0),
+            CARD_RADIUS + 2,
+            Stroke::new(2.0, theme::with_alpha(accent, 0x38)),
+            StrokeKind::Inside,
+        )));
+    }
+    ui.painter().set(slot, Shape::Vec(shapes));
+}
+
+pub(super) fn avatar(ui: &Ui, center: egui::Pos2, name: &str, accent: Color32) {
+    ui.painter()
+        .circle_filled(center, AVATAR / 2.0, theme::with_alpha(accent, 0x26));
+    ui.painter().text(
+        center,
+        Align2::CENTER_CENTER,
+        kelp_core::avatar::initials(name),
+        FontId::new(10.0, theme::semibold()),
+        accent,
+    );
+}
+
 impl DiffBody {
     pub(super) fn embedded_thread(
         &mut self,
@@ -143,15 +208,7 @@ impl DiffBody {
         let mut y = card.top() + PAD;
         for comment in &thread.comments {
             let center = pos2(card.left() + PAD + AVATAR / 2.0, y + AVATAR / 2.0);
-            ui.painter()
-                .circle_filled(center, AVATAR / 2.0, theme::with_alpha(accent, 0x26));
-            ui.painter().text(
-                center,
-                Align2::CENTER_CENTER,
-                kelp_core::avatar::initials(&comment.author),
-                FontId::new(10.0, theme::semibold()),
-                accent,
-            );
+            avatar(ui, center, &comment.author, accent);
             let header = ui.painter().text(
                 pos2(card.left() + TEXT_X, center.y),
                 Align2::LEFT_CENTER,
@@ -191,27 +248,27 @@ impl DiffBody {
         );
         child.spacing_mut().item_spacing = vec2(6.0, ROW_GAP);
         input.style.paint_accent(&mut child);
-        let (field_fill, field_line) = input.style.field();
-        let mut field = egui::Frame::new()
-            .fill(field_fill)
-            .corner_radius(8)
-            .stroke(Stroke::new(1.0, field_line))
-            .inner_margin(Margin::symmetric(10, FIELD_PAD_Y as i8))
-            .begin(&mut child);
+        let field_rect =
+            Rect::from_min_size(child.cursor().min, vec2(child.available_width(), FIELD_H));
+        let inner = field_rect.shrink2(vec2(
+            f32::from(FIELD_PAD_X) + 1.0,
+            f32::from(FIELD_PAD_Y) + 1.0,
+        ));
+        let slot = field_slot(&child);
+        let mut field = child.new_child(UiBuilder::new().max_rect(inner));
         let draft = self.replies.entry(id).or_default();
-        let edit = field.content_ui.add(
+        let edit = field.add(
             TextEdit::multiline(draft)
                 .frame(egui::Frame::NONE)
+                .margin(Margin::ZERO)
+                .font(FontId::proportional(13.0))
                 .hint_text("Reply")
                 .desired_rows(1)
-                .desired_width(f32::INFINITY)
-                .min_size(vec2(0.0, FIELD_H - 2.0 * FIELD_PAD_Y - 2.0)),
+                .desired_width(f32::INFINITY),
         );
         let has_text = !draft.trim().is_empty();
-        if edit.has_focus() {
-            field.frame.stroke = Stroke::new(1.0, accent);
-        }
-        field.end(&mut child);
+        paint_field(&child, slot, field_rect, edit.has_focus(), &input.style);
+        child.allocate_rect(field_rect, Sense::hover());
         let send_shortcut =
             child.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter)) && has_text;
         let [reply_kind, resolve_kind, delete_kind] = button_kinds(has_text);
@@ -277,7 +334,7 @@ mod tests {
         let one = thread_height([32.0]);
         assert_eq!(
             one,
-            12.0 + 28.0 + 32.0 + 12.0 + 32.0 + 8.0 + 22.0 + 12.0 + 12.0
+            12.0 + 28.0 + 32.0 + 12.0 + 36.0 + 8.0 + 28.0 + 12.0 + 12.0
         );
         assert_eq!(thread_height([32.0, 16.0]), one + 28.0 + 16.0 + 12.0);
         assert_eq!(body_width(640.0), 640.0 - 42.0 - 12.0);

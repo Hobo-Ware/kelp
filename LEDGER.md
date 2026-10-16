@@ -13,6 +13,21 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-17
+
+- **kelp-ui: note composer redesign** (user-visible, in both looks). The composer and the
+  thread cards share one card: the style's fill, a quiet 1 px line, 8 px corners, 12 px
+  padding and a 2 px accent bar down the left edge (the border is no longer the accent). The
+  composer has a header (avatar disc, "Comment on line N" in the body color, file name dim), a
+  darker field with a 1 px line that shows the accent only as a thin ring while focused,
+  three rows tall and growing with the text, and a footer on one baseline: a dim shortcut hint
+  on the left, a quiet Cancel and a filled Comment (28 px, 12 px padding, regular weight,
+  disabled while the field is empty) on the right. Thread buttons use the same metrics. Cmd+Enter
+  and Esc act only while the composer's field had focus. The default `DiffTexts::comment_hint` is
+  now "Leave a comment"; the embedded look ignores it. New `DiffBody::open_composer` and dev
+  switch `KELP_OPEN_COMPOSER=<line>`. Checked with offline screenshots of a throwaway repo,
+  default and embedded.
+
 ## 2026-10-16
 
 - **kelp-ui API: embedded note card** (not user-visible in Kelp). With `DiffStyle::embedded`
