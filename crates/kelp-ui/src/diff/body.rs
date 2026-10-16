@@ -8,11 +8,14 @@ use egui::{
 use kelp_core::diff::{Body, FileDiff, Line, LineKind};
 use kelp_core::review::{Anchor, Comment, Side, Thread};
 
+use self::composer::Composer;
+use self::range::{Candidate, LineRange, anchor_label, head_at};
 use super::style::{DiffStyle, LineLook, hunk_label};
 use crate::theme;
 
 mod composer;
 mod note;
+mod range;
 
 pub const LINE_H: f32 = 22.0;
 pub const HUNK_H: f32 = 28.0;
@@ -193,8 +196,14 @@ impl Prepared {
 pub struct DiffBody {
     data: Prepared,
     layout: DiffLayout,
-    composer: Option<(Side, u32)>,
+    composer: Option<Composer>,
     composer_focused: bool,
+    range: Option<LineRange>,
+    range_drag: bool,
+    range_fresh: bool,
+    lit: Option<u64>,
+    lit_next: Option<u64>,
+    lit_span: Option<(Side, u32, u32)>,
     draft: String,
     replies: HashMap<u64, String>,
     expanded: HashMap<u64, bool>,
@@ -212,6 +221,12 @@ impl DiffBody {
             layout: DiffLayout::default(),
             composer: None,
             composer_focused: false,
+            range: None,
+            range_drag: false,
+            range_fresh: false,
+            lit: None,
+            lit_next: None,
+            lit_span: None,
             draft: String::new(),
             replies: HashMap::new(),
             expanded: HashMap::new(),
@@ -229,6 +244,8 @@ impl DiffBody {
         if !same_lines(&self.data.lines, &fresh.lines) {
             self.selected_lines.clear();
             self.select_anchor = None;
+            self.range = None;
+            self.range_drag = false;
         }
         self.data = fresh;
         self.jump = None;
@@ -295,11 +312,26 @@ impl DiffBody {
         self.select_anchor = Some(index);
     }
 
-    /// Opens the comment composer under `line` (1-based) of `side`.
-    pub fn open_composer(&mut self, side: Side, line: u32) {
-        self.composer = Some((side, line));
+    /// Opens the comment composer under line `last` of `side`, covering `first` to `last`
+    /// (1-based, inclusive).
+    pub fn open_composer(&mut self, side: Side, first: u32, last: u32) {
+        let (first, last) = (first.min(last), first.max(last));
+        let hunk = self.hunk_of(side, first);
+        let mut range = LineRange::new(side, hunk, first);
+        range.head = last;
+        self.range = Some(range);
+        self.range_fresh = false;
+        self.composer = Some(Composer { side, first, last });
         self.composer_focused = false;
         self.draft.clear();
+    }
+
+    fn hunk_of(&self, side: Side, line: u32) -> usize {
+        self.data
+            .lines
+            .iter()
+            .find(|(_, l)| key_of(l) == Some((side, line)))
+            .map_or(0, |(hunk, _)| *hunk)
     }
 
     pub fn scroll_y(&self) -> f32 {
@@ -349,7 +381,10 @@ impl DiffBody {
             };
             match thread.anchor.locate(text) {
                 Some(i) => placed
-                    .entry((thread.anchor.side, i as u32 + 1))
+                    .entry((
+                        thread.anchor.side,
+                        thread.anchor.last_index(i, text.len()) as u32 + 1,
+                    ))
                     .or_default()
                     .push(thread.id),
                 None => outside.push(thread.id),
@@ -360,7 +395,7 @@ impl DiffBody {
             if let Some(ids) = placed.get(&key) {
                 items.extend(ids.iter().map(|id| Item::Thread(*id)));
             }
-            if self.composer == Some(key) {
+            if self.composer.map(|c| (c.side, c.last)) == Some(key) {
                 items.push(Item::Composer);
             }
             shown.push(key);
@@ -564,6 +599,9 @@ impl DiffBody {
         } = rows;
         let card_w = *card_w;
         let font = FontId::monospace(12.5);
+        self.lit = self.lit_next.take();
+        self.lit_span = self.lit.and_then(|id| self.thread_span(input, id));
+        self.drive_range(ui, rows, origin);
         let first = offsets.partition_point(|o| *o + LINE_H * 4.0 < viewport.min.y);
         for (k, item) in items.iter().enumerate().skip(first) {
             let top = offsets[k];
@@ -652,6 +690,7 @@ impl DiffBody {
                         ui,
                         rect,
                         Row {
+                            hunk: 0,
                             numbers: Numbers::One(Some(number)),
                             text: &text,
                             emphasis: &[],
@@ -666,6 +705,119 @@ impl DiffBody {
                 Item::Thread(id) => self.thread(ui, rect, card_w, id, input, actions),
                 Item::Composer => self.composer_ui(ui, rect, card_w, input, actions),
             }
+        }
+        if self.lit != self.lit_next {
+            ui.ctx().request_repaint();
+        }
+    }
+
+    fn thread_span(&self, input: &DiffInput<'_>, id: u64) -> Option<(Side, u32, u32)> {
+        let thread = input
+            .threads
+            .iter()
+            .find(|t| t.id == id && t.path == input.diff.path)?;
+        let anchor = &thread.anchor;
+        if anchor.span == 0 {
+            return None;
+        }
+        let text = if anchor.side == Side::Old {
+            &self.data.old_lines
+        } else {
+            &self.data.new_lines
+        };
+        let lines: Vec<&str> = text.iter().map(String::as_str).collect();
+        let first = anchor.locate(&lines)?;
+        let last = anchor.last_index(first, lines.len());
+        Some((anchor.side, first as u32 + 1, last as u32 + 1))
+    }
+
+    fn item_line(&self, item: &Item, side: Side) -> Option<(usize, u32)> {
+        let index = match *item {
+            Item::Line(i) => Some(i),
+            Item::Split(old, new) => {
+                if side == Side::Old {
+                    old
+                } else {
+                    new
+                }
+            }
+            Item::FileLine(i) => return (side == Side::New).then_some((0, i as u32 + 1)),
+            _ => None,
+        }?;
+        let (hunk, line) = &self.data.lines[index];
+        let number = if side == Side::Old {
+            line.old
+        } else {
+            line.new
+        };
+        Some((*hunk, number?))
+    }
+
+    fn candidates(&self, rows: &Rows, side: Side, hunk: usize) -> Vec<Candidate> {
+        rows.items
+            .iter()
+            .zip(&rows.offsets)
+            .filter_map(|(item, &top)| {
+                let (item_hunk, number) = self.item_line(item, side)?;
+                (item_hunk == hunk).then_some(Candidate { top, number })
+            })
+            .collect()
+    }
+
+    fn press_line(&mut self, ui: &Ui, hunk: usize, side: Side, line: u32) {
+        let shift = ui.input(|i| i.modifiers.shift);
+        match &mut self.range {
+            Some(range) if shift && range.extends_to(side, hunk) => range.head = line,
+            _ => {
+                self.range = Some(LineRange::new(side, hunk, line));
+                self.range_fresh = true;
+            }
+        }
+        self.range_drag = true;
+        ui.ctx().request_repaint();
+    }
+
+    fn drive_range(&mut self, ui: &Ui, rows: &Rows, origin: egui::Pos2) {
+        let Some(mut range) = self.range else {
+            self.range_drag = false;
+            return;
+        };
+        if self.composer.is_none()
+            && !ui.ctx().egui_wants_keyboard_input()
+            && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
+        {
+            self.range = None;
+            self.range_drag = false;
+            self.range_fresh = false;
+            ui.ctx().request_repaint();
+            return;
+        }
+        if !self.range_drag {
+            return;
+        }
+        let before = range;
+        let (pos, down) = ui.input(|i| (i.pointer.latest_pos(), i.pointer.primary_down()));
+        if let Some(pos) = pos {
+            let rows = self.candidates(rows, range.side, range.hunk);
+            if let Some(line) = head_at(&rows, pos.y - origin.y) {
+                range.head = line;
+            }
+        }
+        self.range = Some(range);
+        if !down {
+            self.range_drag = false;
+            if std::mem::take(&mut self.range_fresh) {
+                self.draft.clear();
+            }
+            self.composer = Some(Composer {
+                side: range.side,
+                first: range.first(),
+                last: range.last(),
+            });
+            self.composer_focused = false;
+        }
+        if range != before || !down {
+            ui.ctx().request_repaint();
         }
     }
 
@@ -701,6 +853,7 @@ impl DiffBody {
             Side::New
         };
         let row = Row {
+            hunk: self.data.lines[index].0,
             numbers: Numbers::Both(line.old, line.new),
             text: &line.text,
             emphasis: &line.emphasis,
@@ -737,6 +890,7 @@ impl DiffBody {
             line.new
         };
         let row = Row {
+            hunk: self.data.lines[index].0,
             numbers: Numbers::One(number),
             text: &line.text,
             emphasis: &line.emphasis,
@@ -770,6 +924,32 @@ impl DiffBody {
                 0.0,
                 bar,
             );
+        }
+        let number_on = |side: Side| match row.numbers {
+            Numbers::Both(old, new) => {
+                if side == Side::Old {
+                    old
+                } else {
+                    new
+                }
+            }
+            Numbers::One(n) => n.filter(|_| row.side == side),
+        };
+        let picked = self
+            .range
+            .filter(LineRange::is_multi)
+            .is_some_and(|r| number_on(r.side).is_some_and(|n| r.contains(n)));
+        if picked {
+            painter.rect_filled(rect, 0.0, theme::with_alpha(accent, 0x22));
+            painter.rect_filled(
+                Rect::from_min_size(rect.min, vec2(2.0, rect.height())),
+                0.0,
+                accent,
+            );
+        } else if self.lit_span.is_some_and(|(side, first, last)| {
+            number_on(side).is_some_and(|n| (first..=last).contains(&n))
+        }) {
+            painter.rect_filled(rect, 0.0, theme::with_alpha(accent, 0x12));
         }
         let mid = rect.center().y;
         let num = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
@@ -836,36 +1016,54 @@ impl DiffBody {
             pos2(rect.left() + numbers_w, rect.top()),
             vec2(GUTTER_W, rect.height()),
         );
-        if let Some(line_no) = line_no
-            && ui.rect_contains_pointer(rect)
-        {
+        if let Some(line_no) = line_no {
             let button = Rect::from_center_size(gutter.center(), vec2(18.0, 18.0));
+            let handle = if row.selectable.is_none() {
+                Rect::from_min_max(rect.min, pos2(gutter.right(), rect.bottom()))
+            } else {
+                button
+            };
             let response = ui.interact(
-                button,
+                handle,
                 ui.id()
                     .with(("comment", side as u8, line_no, rect.left() as i32)),
-                Sense::click(),
+                Sense::click_and_drag(),
             );
-            painter.rect_filled(
-                button,
-                4.0,
-                if response.hovered() {
-                    theme::text_strong()
-                } else {
-                    accent
-                },
-            );
-            painter.text(
-                button.center(),
-                Align2::CENTER_CENTER,
-                "+",
-                FontId::proportional(14.0),
-                theme::on_accent(),
-            );
-            if response.on_hover_text("Add a comment").clicked() {
-                self.composer = Some((side, line_no));
-                self.composer_focused = false;
-                self.draft.clear();
+            let hovered = response.hovered();
+            if hovered {
+                ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                if row.selectable.is_none() {
+                    painter.rect_filled(
+                        Rect::from_min_size(rect.min, vec2(numbers_w, rect.height())),
+                        0.0,
+                        theme::overlay(0x0c),
+                    );
+                }
+                if ui.input(|i| i.pointer.primary_pressed()) {
+                    self.press_line(ui, row.hunk, side, line_no);
+                }
+            }
+            if ui.rect_contains_pointer(rect) {
+                let on_button = hovered && ui.rect_contains_pointer(button);
+                painter.rect_filled(
+                    button,
+                    4.0,
+                    if on_button {
+                        theme::text_strong()
+                    } else {
+                        accent
+                    },
+                );
+                painter.text(
+                    button.center(),
+                    Align2::CENTER_CENTER,
+                    "+",
+                    FontId::proportional(14.0),
+                    theme::on_accent(),
+                );
+                if on_button {
+                    response.on_hover_text("Add a comment, or drag to cover several lines");
+                }
             }
         }
         painter.text(
@@ -916,7 +1114,8 @@ impl DiffBody {
             vec2(card_w, rect.height() - 12.0),
         );
         if thread.resolved && !expanded {
-            let chip = Rect::from_min_size(card.min, vec2(220.0, 24.0));
+            let chip_w = if thread.anchor.span > 0 { 270.0 } else { 220.0 };
+            let chip = Rect::from_min_size(card.min, vec2(chip_w, 24.0));
             let response = ui.interact(chip, ui.id().with(("resolved", id)), Sense::click());
             let (fill, border) = input
                 .style
@@ -929,10 +1128,10 @@ impl DiffBody {
                 egui::StrokeKind::Inside,
             );
             let label = format!(
-                "✔ {} resolved comment{} · line {}",
+                "✔ {} resolved comment{} · {}",
                 thread.comments.len(),
                 if thread.comments.len() == 1 { "" } else { "s" },
-                thread.anchor.line_hint
+                anchor_label(&thread.anchor).to_lowercase()
             );
             ui.painter().text(
                 pos2(chip.left() + 12.0, chip.center().y),
@@ -947,12 +1146,15 @@ impl DiffBody {
             return;
         }
         note::paint_card(ui, card, &input.style);
+        if ui.rect_contains_pointer(card) {
+            self.lit_next = Some(id);
+        }
         if input.style.note_card {
             self.embedded_thread(ui, card, thread, input, actions);
             return;
         }
         let mut y = card.top() + 12.0;
-        for comment in &thread.comments {
+        for (n, comment) in thread.comments.iter().enumerate() {
             let avatar = pos2(card.left() + 26.0, y + 12.0);
             let (fill, ink) = theme::generated_avatar(&comment.author);
             ui.painter().circle(
@@ -983,6 +1185,15 @@ impl DiffBody {
                 FontId::proportional(12.0),
                 theme::text_faint(),
             );
+            if n == 0 && thread.anchor.span > 0 {
+                ui.painter().text(
+                    pos2(card.right() - 14.0, y + 5.0),
+                    Align2::RIGHT_TOP,
+                    anchor_label(&thread.anchor),
+                    FontId::proportional(12.0),
+                    theme::text_faint(),
+                );
+            }
             let body = ui.painter().layout(
                 comment.body.clone(),
                 FontId::proportional(13.0),
@@ -1009,12 +1220,15 @@ impl DiffBody {
         child.spacing_mut().item_spacing.y = 8.0;
         input.style.paint_accent(&mut child);
         let draft = self.replies.entry(id).or_default();
-        child.add(
+        let reply_edit = child.add(
             egui::TextEdit::multiline(draft)
                 .hint_text(input.texts.reply_hint.as_ref())
                 .desired_rows(1)
                 .desired_width(f32::INFINITY),
         );
+        if reply_edit.has_focus() {
+            self.lit_next = Some(id);
+        }
         let send_shortcut = child.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter))
             && !draft.trim().is_empty();
         child.horizontal(|ui| {
@@ -1065,6 +1279,7 @@ impl DiffBody {
 }
 
 struct Row<'a> {
+    hunk: usize,
     numbers: Numbers,
     text: &'a str,
     emphasis: &'a [(usize, usize)],
@@ -1222,6 +1437,7 @@ mod tests {
         style: DiffStyle,
         fills: Vec<Color32>,
         other_field: Option<String>,
+        height: f32,
     }
 
     impl Harness {
@@ -1241,12 +1457,13 @@ mod tests {
                 style: DiffStyle::default(),
                 fills: Vec::new(),
                 other_field: None,
+                height: 150.0,
             }
         }
 
         fn frame(&mut self, events: Vec<Event>, modifiers: Modifiers) -> Vec<DiffAction> {
             let input = RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 150.0))),
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, self.height))),
                 events,
                 modifiers,
                 ..Default::default()
@@ -1264,6 +1481,7 @@ mod tests {
                 style,
                 fills,
                 other_field,
+                ..
             } = self;
             let output = ctx.run_ui(input, |ui| {
                 if let Some(text) = other_field {
@@ -1312,6 +1530,28 @@ mod tests {
             actions.extend(self.frame(vec![press(false)], modifiers));
             actions.extend(self.frame(vec![], Modifiers::NONE));
             actions
+        }
+
+        fn press(&mut self, at: Pos2, modifiers: Modifiers, pressed: bool) {
+            let event = Event::PointerButton {
+                pos: at,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers,
+            };
+            self.frame(vec![event], modifiers);
+        }
+
+        fn drag(&mut self, from: Pos2, path: &[Pos2], modifiers: Modifiers) {
+            self.frame(vec![Event::PointerMoved(from)], modifiers);
+            self.press(from, modifiers, true);
+            let mut at = from;
+            for &next in path {
+                at = next;
+                self.frame(vec![Event::PointerMoved(next)], modifiers);
+            }
+            self.press(at, modifiers, false);
+            self.frame(vec![], Modifiers::NONE);
         }
 
         fn cmd_enter(&mut self) -> Vec<DiffAction> {
@@ -1428,7 +1668,7 @@ mod tests {
     #[test]
     fn saving_the_composer_asks_the_host_to_add_a_thread_anchored_on_the_line() {
         let mut h = Harness::new();
-        h.body.composer = Some((Side::New, 3));
+        h.body.open_composer(Side::New, 3, 3);
         h.body.draft = "  why y?  ".into();
         h.frame(vec![], Modifiers::NONE);
         let actions = h.cmd_enter();
@@ -1456,7 +1696,7 @@ mod tests {
     #[test]
     fn escape_cancels_a_focused_composer_and_drops_its_draft() {
         let mut h = Harness::new();
-        h.body.composer = Some((Side::New, 3));
+        h.body.open_composer(Side::New, 3, 3);
         h.body.draft = "draft".into();
         h.frame(vec![], Modifiers::NONE);
         let actions = h.frame(
@@ -1473,7 +1713,7 @@ mod tests {
         let mut h = Harness::new();
         h.other_field = Some(String::new());
         h.frame(vec![], Modifiers::NONE);
-        h.body.composer = Some((Side::New, 3));
+        h.body.open_composer(Side::New, 3, 3);
         h.body.draft = "draft".into();
         h.frame(vec![], Modifiers::NONE);
         h.frame(
@@ -1489,7 +1729,7 @@ mod tests {
     #[test]
     fn an_empty_comment_cannot_be_saved_with_the_shortcut() {
         let mut h = Harness::new();
-        h.body.composer = Some((Side::New, 3));
+        h.body.open_composer(Side::New, 3, 3);
         h.body.draft = "  ".into();
         h.frame(vec![], Modifiers::NONE);
         assert_eq!(h.cmd_enter(), []);
@@ -1499,29 +1739,245 @@ mod tests {
     #[test]
     fn the_composer_row_grows_with_the_draft_and_is_three_rows_tall_when_empty() {
         let mut h = Harness::new();
-        h.body.composer = Some((Side::New, 3));
-        let measure = |h: &Harness| {
-            let mut seen = 0.0;
-            let raw = RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 400.0))),
-                ..Default::default()
-            };
-            let _ = h.ctx.run_ui(raw, |ui| {
-                let rows = h.body.rows(ui, &input(h));
-                let at = rows
-                    .items
-                    .iter()
-                    .position(|i| matches!(i, Item::Composer))
-                    .expect("a composer row");
-                seen = rows.heights[at];
-            });
-            seen
-        };
-        let empty = measure(&h);
+        h.body.open_composer(Side::New, 3, 3);
+        let empty = composer_height(&h);
         h.body.draft = "one\ntwo\nthree".into();
-        assert_eq!(measure(&h), empty);
+        assert_eq!(composer_height(&h), empty);
         h.body.draft = "1\n2\n3\n4\n5\n6\n7\n8".into();
-        assert!(measure(&h) > empty + 40.0);
+        assert!(composer_height(&h) > empty + 40.0);
+    }
+
+    fn composer_height(h: &Harness) -> f32 {
+        let mut seen = 0.0;
+        let raw = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 400.0))),
+            ..Default::default()
+        };
+        let _ = h.ctx.run_ui(raw, |ui| {
+            let rows = h.body.rows(ui, &input(h));
+            let at = rows
+                .items
+                .iter()
+                .position(|i| matches!(i, Item::Composer))
+                .expect("a composer row");
+            seen = rows.heights[at];
+        });
+        seen
+    }
+
+    fn composer_range(h: &Harness) -> Option<(Side, u32, u32)> {
+        h.body.composer.map(|c| (c.side, c.first, c.last))
+    }
+
+    fn tint(alpha: u8) -> Color32 {
+        theme::with_alpha(theme::accent(), alpha)
+    }
+
+    #[test]
+    fn dragging_down_a_number_gutter_selects_a_block_and_releasing_opens_the_composer() {
+        let mut h = Harness::new();
+        h.frame(vec![], Modifiers::NONE);
+        h.frame(vec![Event::PointerMoved(line_center(1))], Modifiers::NONE);
+        h.press(line_center(1), Modifiers::NONE, true);
+        assert_eq!(h.body.range.map(|r| (r.first(), r.last())), Some((2, 2)));
+        h.frame(vec![Event::PointerMoved(line_center(3))], Modifiers::NONE);
+        assert_eq!(h.body.range.map(|r| (r.first(), r.last())), Some((2, 4)));
+        assert!(
+            h.body.composer.is_none(),
+            "the composer waits for the release"
+        );
+        assert!(h.fills.contains(&tint(0x22)));
+        h.press(line_center(3), Modifiers::NONE, false);
+        h.frame(vec![], Modifiers::NONE);
+        assert_eq!(composer_range(&h), Some((Side::New, 2, 4)));
+        assert_eq!(
+            kinds(&h.body, &input(&h)),
+            ["hunk", "line", "line", "line", "line", "composer", "line"]
+        );
+    }
+
+    #[test]
+    fn dragging_up_selects_the_same_block() {
+        let mut h = Harness::new();
+        h.frame(vec![], Modifiers::NONE);
+        h.drag(
+            line_center(3),
+            &[line_center(2), line_center(1)],
+            Modifiers::NONE,
+        );
+        assert_eq!(composer_range(&h), Some((Side::New, 2, 4)));
+    }
+
+    #[test]
+    fn a_single_click_on_a_number_comments_on_one_line() {
+        let mut h = Harness::new();
+        h.frame(vec![], Modifiers::NONE);
+        h.click(line_center(2), Modifiers::NONE);
+        assert_eq!(composer_range(&h), Some((Side::New, 3, 3)));
+        assert!(!h.fills.contains(&tint(0x22)), "one line is not tinted");
+    }
+
+    #[test]
+    fn shift_click_extends_from_the_first_line_and_keeps_the_draft() {
+        let mut h = Harness::new();
+        h.height = 400.0;
+        h.frame(vec![], Modifiers::NONE);
+        h.click(line_center(1), Modifiers::NONE);
+        assert_eq!(composer_range(&h), Some((Side::New, 2, 2)));
+        h.body.draft = "keep me".into();
+        let below = line_center(3) + vec2(0.0, composer_height(&h));
+        h.click(below, Modifiers::SHIFT);
+        assert_eq!(composer_range(&h), Some((Side::New, 2, 4)));
+        assert_eq!(h.body.draft, "keep me");
+        h.click(line_center(0), Modifiers::SHIFT);
+        assert_eq!(composer_range(&h), Some((Side::New, 1, 2)));
+    }
+
+    #[test]
+    fn clicking_a_line_below_an_open_composer_picks_that_line_not_the_one_the_rows_shift_to() {
+        let mut h = Harness::new();
+        h.height = 400.0;
+        h.frame(vec![], Modifiers::NONE);
+        h.body.open_composer(Side::New, 2, 2);
+        h.frame(vec![], Modifiers::NONE);
+        let below = line_center(3) + vec2(0.0, composer_height(&h));
+        h.click(below, Modifiers::NONE);
+        assert_eq!(composer_range(&h), Some((Side::New, 4, 4)));
+    }
+
+    #[test]
+    fn a_plain_click_elsewhere_starts_a_new_selection_and_drops_the_draft() {
+        let mut h = Harness::new();
+        h.frame(vec![], Modifiers::NONE);
+        h.drag(line_center(1), &[line_center(3)], Modifiers::NONE);
+        h.body.draft = "old".into();
+        h.click(line_center(2), Modifiers::NONE);
+        assert_eq!(composer_range(&h), Some((Side::New, 3, 3)));
+        assert_eq!(h.body.draft, "");
+    }
+
+    #[test]
+    fn escape_clears_a_selection_in_progress_and_a_cancelled_composer_leaves_none() {
+        let mut h = Harness::new();
+        h.frame(vec![], Modifiers::NONE);
+        h.frame(vec![Event::PointerMoved(line_center(1))], Modifiers::NONE);
+        h.press(line_center(1), Modifiers::NONE, true);
+        h.frame(vec![Event::PointerMoved(line_center(2))], Modifiers::NONE);
+        assert!(h.body.range.is_some());
+        h.frame(
+            vec![key(egui::Key::Escape, Modifiers::NONE)],
+            Modifiers::NONE,
+        );
+        assert!(h.body.range.is_none());
+        h.press(line_center(2), Modifiers::NONE, false);
+        h.frame(vec![], Modifiers::NONE);
+        assert!(
+            h.body.composer.is_none(),
+            "the release after Esc opens nothing"
+        );
+        assert!(!h.fills.contains(&tint(0x22)));
+
+        h.drag(line_center(1), &[line_center(3)], Modifiers::NONE);
+        assert!(h.body.composer.is_some());
+        h.frame(
+            vec![key(egui::Key::Escape, Modifiers::NONE)],
+            Modifiers::NONE,
+        );
+        assert!(h.body.composer.is_none() && h.body.range.is_none());
+        h.frame(vec![], Modifiers::NONE);
+        assert!(!h.fills.contains(&tint(0x22)));
+    }
+
+    #[test]
+    fn a_drag_that_leaves_the_hunk_stops_at_its_edge() {
+        let mut h = Harness::new();
+        let old: String = (1..=30).map(|i| format!("l{i}\n")).collect();
+        let new = old
+            .replace("l2\n", "two\n")
+            .replace("l25\n", "twenty five\n");
+        h.diff = diff::build("f.txt", Some(old.as_bytes()), Some(new.as_bytes()));
+        h.body = DiffBody::new(&h.diff);
+        h.frame(vec![], Modifiers::NONE);
+        h.drag(line_center(0), &[pos2(20.0, 900.0)], Modifiers::NONE);
+        assert_eq!(composer_range(&h), Some((Side::New, 1, 5)));
+    }
+
+    #[test]
+    fn a_selection_stays_on_the_side_it_started_on() {
+        let mut h = Harness::new();
+        h.diff = diff::build("f.txt", Some(b"a\nold\nb\n"), Some(b"a\nnew\nb\n"));
+        h.body = DiffBody::new(&h.diff);
+        h.frame(vec![], Modifiers::NONE);
+        h.drag(
+            line_center(1),
+            &[line_center(2), line_center(3)],
+            Modifiers::NONE,
+        );
+        assert_eq!(composer_range(&h), Some((Side::Old, 2, 3)));
+    }
+
+    #[test]
+    fn with_a_select_hint_the_number_column_keeps_staging_and_the_plus_starts_a_range() {
+        let mut h = Harness::new();
+        h.hint = Some("Select");
+        h.frame(vec![], Modifiers::NONE);
+        h.click(line_center(2), Modifiers::NONE);
+        assert!(h.body.composer.is_none());
+        assert_eq!(h.body.selection().len(), 1);
+        let plus = |index: usize| pos2(NUM_W * 2.0 + GUTTER_W / 2.0, line_center(index).y);
+        h.drag(plus(1), &[plus(3)], Modifiers::NONE);
+        assert_eq!(composer_range(&h), Some((Side::New, 2, 4)));
+    }
+
+    #[test]
+    fn saving_a_range_asks_the_host_for_a_thread_covering_it() {
+        let mut h = Harness::new();
+        h.body.open_composer(Side::New, 2, 4);
+        h.body.draft = "  why these?  ".into();
+        h.frame(vec![], Modifiers::NONE);
+        let actions = h.cmd_enter();
+        let [DiffAction::AddThread { anchor, .. }] = actions.as_slice() else {
+            panic!("expected one AddThread, got {actions:?}")
+        };
+        assert_eq!((anchor.line_hint, anchor.span), (2, 2));
+        assert_eq!(anchor.text, "x");
+        assert_eq!(anchor.block, ["y", "z"]);
+        assert!(h.body.composer.is_none() && h.body.range.is_none());
+    }
+
+    #[test]
+    fn a_multi_line_thread_sits_under_its_last_line_and_lights_its_lines_while_hovered() {
+        let mut h = Harness::new();
+        let lines: Vec<&str> = vec!["a", "x", "y", "z", "b"];
+        h.threads = vec![thread(5, Anchor::over(&lines, 1, 2, Side::New), false)];
+        assert_eq!(
+            kinds(&h.body, &input(&h)),
+            ["hunk", "line", "line", "line", "line", "thread", "line"]
+        );
+        h.frame(vec![], Modifiers::NONE);
+        assert!(!h.fills.contains(&tint(0x12)));
+        let on_card = pos2(THREAD_INDENT + 40.0, 28.0 + 22.0 * 4.0 + 30.0);
+        h.frame(vec![Event::PointerMoved(on_card)], Modifiers::NONE);
+        h.frame(vec![], Modifiers::NONE);
+        h.frame(vec![], Modifiers::NONE);
+        assert!(h.fills.contains(&tint(0x12)));
+        h.frame(vec![Event::PointerMoved(pos2(900.0, 5.0))], Modifiers::NONE);
+        h.frame(vec![], Modifiers::NONE);
+        h.frame(vec![], Modifiers::NONE);
+        assert!(!h.fills.contains(&tint(0x12)));
+    }
+
+    #[test]
+    fn a_one_line_thread_never_lights_other_lines() {
+        let mut h = Harness::new();
+        let lines: Vec<&str> = vec!["a", "x", "y", "z", "b"];
+        h.threads = vec![thread(5, Anchor::at(&lines, 1, Side::New), false)];
+        h.frame(vec![], Modifiers::NONE);
+        let on_card = pos2(THREAD_INDENT + 40.0, 28.0 + 22.0 * 2.0 + 30.0);
+        h.frame(vec![Event::PointerMoved(on_card)], Modifiers::NONE);
+        h.frame(vec![], Modifiers::NONE);
+        h.frame(vec![], Modifiers::NONE);
+        assert!(!h.fills.contains(&tint(0x12)));
     }
 
     #[test]

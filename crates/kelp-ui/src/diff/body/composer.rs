@@ -17,6 +17,14 @@ const FONT_SIZE: f32 = 13.0;
 const HINT_GAP: f32 = 12.0;
 const PLACEHOLDER: &str = "Leave a comment";
 
+/// The comment box under a line, covering `first` to `last` of one side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Composer {
+    pub side: Side,
+    pub first: u32,
+    pub last: u32,
+}
+
 fn font() -> FontId {
     FontId::proportional(FONT_SIZE)
 }
@@ -88,7 +96,7 @@ impl DiffBody {
         input: &DiffInput<'_>,
         actions: &mut Vec<DiffAction>,
     ) {
-        let Some((side, line_no)) = self.composer else {
+        let Some(Composer { side, first, last }) = self.composer else {
             return;
         };
         let accent = input.style.accent();
@@ -109,7 +117,7 @@ impl DiffBody {
         let title = ui.painter_at(card).text(
             pos2(head.x + AVATAR / 2.0 + 8.0, head.y),
             Align2::LEFT_CENTER,
-            heading(line_no, line_no),
+            heading(first, last),
             FontId::proportional(13.0),
             theme::text_control(),
         );
@@ -130,7 +138,7 @@ impl DiffBody {
             pos2(card.right() - PAD, footer.top() - GAP),
         );
         let slot = note::field_slot(ui);
-        let id = ui.id().with(("composer-field", side as u8, line_no));
+        let id = ui.id().with(("composer-field", side as u8, first, last));
         let (save_key, cancel_key) = if self.composer_focused {
             ui.input_mut(|i| {
                 (
@@ -227,12 +235,12 @@ impl DiffBody {
             .iter()
             .map(String::as_str)
             .collect();
-            let index = (line_no as usize)
+            let index = (first as usize)
                 .saturating_sub(1)
                 .min(lines.len().saturating_sub(1));
             if !lines.is_empty() {
                 actions.push(DiffAction::AddThread {
-                    anchor: Anchor::at(&lines, index, side),
+                    anchor: Anchor::over(&lines, index, last.saturating_sub(first), side),
                     comment: Comment {
                         author: input.author.to_string(),
                         time: now(),
@@ -244,6 +252,7 @@ impl DiffBody {
         }
         if close {
             self.composer = None;
+            self.range = None;
             self.composer_focused = false;
             self.draft.clear();
         }
