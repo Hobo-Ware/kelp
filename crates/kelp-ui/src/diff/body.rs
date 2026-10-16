@@ -11,6 +11,8 @@ use kelp_core::review::{Anchor, Comment, Side, Thread};
 use super::style::{DiffStyle, LineLook, hunk_label};
 use crate::theme;
 
+mod note;
+
 pub const LINE_H: f32 = 22.0;
 pub const HUNK_H: f32 = 28.0;
 const NUM_W: f32 = 46.0;
@@ -450,6 +452,9 @@ impl DiffBody {
                 };
                 if thread.resolved && !self.expanded.get(id).copied().unwrap_or(false) {
                     return RESOLVED_H;
+                }
+                if input.style.note_card {
+                    return note::measured_height(ui, thread, card_w);
                 }
                 let body_w = card_w - 64.0;
                 let comments: f32 = thread
@@ -944,6 +949,10 @@ impl DiffBody {
             Stroke::new(1.0, border),
             egui::StrokeKind::Inside,
         );
+        if input.style.note_card {
+            self.embedded_thread(ui, card, thread, input, actions);
+            return;
+        }
         let mut y = card.top() + 12.0;
         for comment in &thread.comments {
             let avatar = pos2(card.left() + 26.0, y + 12.0);
