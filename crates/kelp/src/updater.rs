@@ -10,6 +10,7 @@ pub fn new(ctx: egui::Context) -> Updater {
             .with_user_agent("kelp-git-client"),
         app_name: "Kelp".into(),
         version: env!("CARGO_PKG_VERSION").into(),
+        state_dir: crate::settings::state_dir(),
     };
     let mut updater = Updater::new(ctx, config);
     if !SUPPORTED {

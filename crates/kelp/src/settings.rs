@@ -83,19 +83,23 @@ pub fn is_dev_run() -> bool {
     std::env::var_os("KELP_SCREENSHOT").is_some() || std::env::var_os("KELP_BENCH_SCROLL").is_some()
 }
 
+pub fn state_dir() -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let base = if cfg!(target_os = "macos") {
+        home.join("Library/Application Support")
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".config"))
+    };
+    base.join("kelp")
+}
+
 impl Settings {
     fn file() -> PathBuf {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default();
-        let base = if cfg!(target_os = "macos") {
-            home.join("Library/Application Support")
-        } else {
-            std::env::var_os("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| home.join(".config"))
-        };
-        base.join("kelp").join("settings.json")
+        state_dir().join("settings.json")
     }
 
     pub fn load() -> Self {
