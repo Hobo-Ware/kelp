@@ -1,8 +1,9 @@
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
 use egui::{self, RichText, ViewportCommand};
-use kelp_core::update::{self, Release, Source};
+use kelp_core::update::{self, Release, Source, UpgradeError};
 
 use crate::theme;
 
@@ -19,6 +20,7 @@ pub enum Status {
     Available(Release),
     Installing(Release),
     Ready(Release),
+    Stuck(PathBuf),
     Failed(String),
 }
 
@@ -28,7 +30,8 @@ enum Message {
         asked: bool,
     },
     AlreadyInstalled(Release),
-    Installed(Release, anyhow::Result<()>),
+    Stuck(PathBuf),
+    Installed(Release, Result<(), UpgradeError>),
 }
 
 /// What the updater needs to know about the app it updates.
@@ -40,6 +43,8 @@ pub struct UpdateConfig {
     pub app_name: String,
     /// The running version, compared with the latest release.
     pub version: String,
+    /// Where the repair helper writes its log.
+    pub state_dir: PathBuf,
 }
 
 /// Checks for new releases in the background and installs them with `brew upgrade`.
@@ -50,6 +55,7 @@ pub struct Updater {
     next_check: Instant,
     last_check: Option<Instant>,
     focused: bool,
+    quit_requested: bool,
     tx: Sender<Message>,
     rx: Receiver<Message>,
     ctx: egui::Context,
@@ -65,6 +71,7 @@ impl Updater {
             next_check: Instant::now() + FIRST_CHECK_AFTER,
             last_check: None,
             focused: true,
+            quit_requested: false,
             tx,
             rx,
             ctx,
@@ -114,12 +121,13 @@ impl Updater {
         std::thread::spawn(move || {
             let installed =
                 update::installed_version().filter(|version| update::is_newer(version, &current));
-            let message = match installed {
-                Some(version) => Message::AlreadyInstalled(Release {
+            let message = match (update::stuck_upgrade(&source), installed) {
+                (Some(path), _) => Message::Stuck(path),
+                (None, Some(version)) => Message::AlreadyInstalled(Release {
                     version,
                     url: String::new(),
                 }),
-                None => Message::Checked {
+                (None, None) => Message::Checked {
                     result: update::latest_release(&source),
                     asked,
                 },
@@ -130,6 +138,10 @@ impl Updater {
     }
 
     pub fn install(&mut self, release: Release) {
+        if let Some(path) = update::stuck_upgrade(&self.config.source) {
+            self.status = Status::Stuck(path);
+            return;
+        }
         self.status = Status::Installing(release.clone());
         let tx = self.tx.clone();
         let ctx = self.ctx.clone();
@@ -168,7 +180,10 @@ impl Updater {
                 }
                 Message::AlreadyInstalled(release) => Status::Ready(release),
                 Message::Installed(release, Ok(())) => Status::Ready(release),
-                Message::Installed(_, Err(e)) => Status::Failed(format!("{e:#}")),
+                Message::Stuck(path) | Message::Installed(_, Err(UpgradeError::Stuck(path))) => {
+                    Status::Stuck(path)
+                }
+                Message::Installed(_, Err(e)) => Status::Failed(e.to_string()),
             };
             if let Status::Available(release) = &self.status
                 && auto_install
@@ -194,6 +209,50 @@ impl Updater {
         }
     }
 
+    /// The commands the repair helper runs, or `None` outside an app bundle.
+    pub fn repair_script(&self) -> Option<String> {
+        let bundle = update::app_bundle()?;
+        Some(update::repair_command(
+            &self.config.source,
+            &bundle,
+            std::process::id(),
+        ))
+    }
+
+    /// Starts the repair helper detached. On success the host should quit once `take_quit_request` says so.
+    pub fn fix(&mut self) {
+        if !self.active || matches!(self.status, Status::Installing(_)) {
+            return;
+        }
+        let Some(bundle) = update::app_bundle() else {
+            self.status = Status::Failed("Not running from an app bundle".into());
+            return;
+        };
+        let log = self.config.state_dir.join("update-repair.log");
+        match update::start_repair(&self.config.source, &bundle, std::process::id(), &log) {
+            Ok(()) => self.quit_requested = true,
+            Err(e) => self.status = Status::Failed(format!("Could not start the repair: {e}")),
+        }
+    }
+
+    /// True once after `fix` started the helper: the host must now quit the app.
+    pub fn take_quit_request(&mut self) -> bool {
+        std::mem::take(&mut self.quit_requested)
+    }
+
+    pub fn can_restart(&self) -> bool {
+        !matches!(self.status, Status::Installing(_))
+    }
+
+    /// Opens a fresh copy and closes this window. Refused while an update is installing.
+    pub fn restart(&self, ctx: &egui::Context) -> bool {
+        if !self.can_restart() {
+            return false;
+        }
+        restart(ctx);
+        true
+    }
+
     pub fn has_news(&self) -> bool {
         self.active && matches!(self.status, Status::Available(_) | Status::Ready(_))
     }
@@ -212,26 +271,49 @@ impl Updater {
             ),
             Status::Installing(r) => (format!("Installing {}…", r.version), None),
             Status::Ready(r) => (format!("Restart to update to {}", r.version), None),
+            Status::Stuck(_) => (STUCK_LABEL.to_string(), None),
+            Status::Failed(_) => (FAILED_LABEL.to_string(), None),
             _ => return,
         };
-        let ready = matches!(self.status, Status::Ready(_));
+        let trouble = matches!(self.status, Status::Stuck(_) | Status::Failed(_));
+        let (fill, ink) = if trouble {
+            (theme::with_alpha(theme::modified(), 40), theme::modified())
+        } else {
+            (theme::accent(), theme::on_accent())
+        };
         let button = egui::Button::new(
             RichText::new(label)
                 .size(12.0)
                 .family(theme::semibold())
-                .color(theme::on_accent()),
+                .color(ink),
         )
-        .fill(theme::accent())
+        .fill(fill)
         .corner_radius(12);
-        let response = ui.add(button);
+        let mut response = ui.add(button);
+        if let Some(tip) = self.pill_tooltip() {
+            response = response.on_hover_text(tip);
+        }
         if response.clicked() {
-            if ready {
-                restart(ui.ctx());
-            } else if let Some(release) = action {
-                self.install(release);
-            } else if let Status::Available(release) = &self.status {
-                ui.ctx().open_url(egui::OpenUrl::new_tab(&release.url));
+            match &self.status {
+                Status::Ready(_) => {
+                    self.restart(ui.ctx());
+                }
+                Status::Stuck(_) => self.fix(),
+                Status::Failed(_) => self.check_now(),
+                Status::Available(release) => match action {
+                    Some(release) => self.install(release),
+                    None => ui.ctx().open_url(egui::OpenUrl::new_tab(&release.url)),
+                },
+                _ => {}
             }
+        }
+    }
+
+    fn pill_tooltip(&self) -> Option<String> {
+        match &self.status {
+            Status::Failed(error) => Some(format!("{error}\nClick to try again.")),
+            Status::Stuck(path) => Some(stuck_explanation(&self.config.app_name, path)),
+            _ => None,
         }
     }
 
@@ -261,7 +343,8 @@ impl Updater {
             ),
             Status::Installing(r) => format!("Installing {app} {}…", r.version),
             Status::Ready(r) => format!("{app} {} is installed. Restart to use it.", r.version),
-            Status::Failed(e) => format!("Update check failed: {e}"),
+            Status::Failed(e) => format!("Update failed: {e}"),
+            Status::Stuck(path) => stuck_explanation(&app, path),
         };
         ui.label(RichText::new(status).size(12.0).color(theme::text_muted()));
         ui.horizontal(|ui| {
@@ -270,6 +353,21 @@ impl Updater {
             }
             self.pill(ui);
         });
+        if let Some(script) = self.repair_script()
+            && matches!(self.status, Status::Stuck(_))
+        {
+            ui.label(
+                RichText::new("Fix runs:")
+                    .size(12.0)
+                    .color(theme::text_faint()),
+            );
+            ui.label(
+                RichText::new(script)
+                    .size(11.0)
+                    .monospace()
+                    .color(theme::text_muted()),
+            );
+        }
         ui.checkbox(
             enabled,
             RichText::new("Check for updates automatically").color(theme::text_strong()),
@@ -293,6 +391,16 @@ impl Updater {
     }
 }
 
+const STUCK_LABEL: &str = "Update stuck · Fix";
+const FAILED_LABEL: &str = "Update failed";
+
+fn stuck_explanation(app: &str, path: &std::path::Path) -> String {
+    format!(
+        "A Homebrew upgrade of {app} did not finish and left {}. Fix quits {app}, reinstalls it with Homebrew and opens it again.",
+        path.display()
+    )
+}
+
 fn restart(ctx: &egui::Context) {
     if let Some(bundle) = update::app_bundle() {
         let _ = std::process::Command::new("open")
@@ -307,15 +415,25 @@ fn restart(ctx: &egui::Context) {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use kelp_core::update::Source;
+    use std::path::PathBuf;
+
+    use kelp_core::update::{Source, UpgradeError};
 
     use super::{Message, RETRY_AFTER, Release, Status, UpdateConfig, Updater};
+
+    fn release() -> Release {
+        Release {
+            version: "99.0.0".into(),
+            url: String::new(),
+        }
+    }
 
     fn updater() -> Updater {
         let config = UpdateConfig {
             source: Source::new("Hobo-Ware/kelp", "hobo-ware/tap/kelp"),
             app_name: "Kelp".into(),
             version: "0.8.19".into(),
+            state_dir: std::env::temp_dir().join("kelp-updater-test"),
         };
         let mut updater = Updater::new(egui::Context::default(), config);
         updater.status = Status::UpToDate;
@@ -352,6 +470,83 @@ mod tests {
             .unwrap();
         updater.tick(false, false);
         assert_eq!(updater.status, Status::Failed("offline".into()));
+        assert_eq!(
+            updater.pill_tooltip().as_deref(),
+            Some("offline\nClick to try again.")
+        );
+    }
+
+    #[test]
+    fn a_failed_install_keeps_the_brew_error() {
+        let mut updater = updater();
+        let error = UpgradeError::Failed("brew upgrade failed: no".into());
+        updater
+            .tx
+            .send(Message::Installed(release(), Err(error)))
+            .unwrap();
+        updater.tick(false, false);
+        assert_eq!(
+            updater.status,
+            Status::Failed("brew upgrade failed: no".into())
+        );
+    }
+
+    #[test]
+    fn a_stuck_upgrade_shows_in_the_status() {
+        let path = PathBuf::from("/tmp/x/kelp/1.0.upgrading");
+        for message in [
+            Message::Stuck(path.clone()),
+            Message::Installed(release(), Err(UpgradeError::Stuck(path.clone()))),
+        ] {
+            let mut updater = updater();
+            updater.tx.send(message).unwrap();
+            updater.tick(false, false);
+            assert_eq!(updater.status, Status::Stuck(path.clone()));
+        }
+        let tip = updater().pill_tooltip();
+        assert_eq!(tip, None);
+        let mut stuck = updater();
+        stuck.status = Status::Stuck(path);
+        let tip = stuck.pill_tooltip().unwrap();
+        assert!(tip.contains("/tmp/x/kelp/1.0.upgrading"));
+        assert!(tip.contains("Fix quits Kelp"));
+    }
+
+    #[test]
+    fn a_restart_is_refused_while_installing() {
+        let mut updater = updater();
+        assert!(updater.can_restart());
+        updater.status = Status::Installing(release());
+        assert!(!updater.can_restart());
+        assert!(!updater.restart(&egui::Context::default()));
+    }
+
+    #[test]
+    fn fixing_while_installing_does_nothing() {
+        let mut updater = updater();
+        updater.status = Status::Installing(release());
+        updater.fix();
+        assert!(!updater.take_quit_request());
+        assert_eq!(updater.status, Status::Installing(release()));
+    }
+
+    #[test]
+    fn the_quit_request_is_handed_over_once() {
+        let mut updater = updater();
+        updater.quit_requested = true;
+        assert!(updater.take_quit_request());
+        assert!(!updater.take_quit_request());
+    }
+
+    #[test]
+    fn fixing_outside_an_app_bundle_says_so() {
+        let mut updater = updater();
+        updater.fix();
+        assert_eq!(
+            updater.status,
+            Status::Failed("Not running from an app bundle".into())
+        );
+        assert!(!updater.take_quit_request());
     }
 
     #[test]

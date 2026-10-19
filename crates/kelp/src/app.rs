@@ -1111,6 +1111,9 @@ impl eframe::App for KelpApp {
 
         self.updater
             .tick(self.settings.updates_enabled(), self.settings.auto_update);
+        if self.updater.take_quit_request() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         self.handle_shortcuts(&ctx);
         self.palette_frame(&ctx);
         self.handle_drops(&ctx);
