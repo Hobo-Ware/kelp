@@ -30,6 +30,7 @@ pub mod sidebar_prefs;
 pub mod signing;
 pub mod status;
 pub mod submodules;
+pub mod test_files;
 pub mod undo;
 pub mod update;
 pub mod view;
