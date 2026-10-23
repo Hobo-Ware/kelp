@@ -492,7 +492,7 @@ fn stash_prompt(ctx: &egui::Context, prompt: &mut StashPrompt) -> PromptOutcome 
                 });
             });
         });
-    if modal.should_close() && matches!(outcome, PromptOutcome::Keep) {
+    if crate::dialogs::dismissed(ctx, &modal) && matches!(outcome, PromptOutcome::Keep) {
         outcome = PromptOutcome::Cancel;
     }
     outcome
