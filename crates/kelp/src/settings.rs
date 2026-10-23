@@ -35,6 +35,7 @@ pub struct Settings {
     pub dim_outside_history: bool,
     pub load_avatars: bool,
     pub show_descriptions: bool,
+    pub hide_test_files: bool,
     pub open_tabs: Vec<PathBuf>,
     pub check_updates: bool,
     pub auto_update: bool,
@@ -62,6 +63,7 @@ impl Default for Settings {
             dim_outside_history: false,
             load_avatars: true,
             show_descriptions: true,
+            hide_test_files: false,
             open_tabs: Vec::new(),
             check_updates: true,
             auto_update: true,
@@ -228,6 +230,12 @@ impl Settings {
                 );
                 option(
                     ui,
+                    &mut self.hide_test_files,
+                    "Hide test files in diffs",
+                    "Leaves them out of a commit's file list. Staging still shows every file.",
+                );
+                option(
+                    ui,
                     &mut self.load_avatars,
                     "Load avatars from GitHub and Gravatar",
                     "Off means generated initials only, and no network requests.",
@@ -387,5 +395,6 @@ mod tests {
         assert!(back.recent_repos.is_empty());
         assert_eq!(back.panels, Panels::default());
         assert_eq!(back.zoom, 1.0);
+        assert!(!back.hide_test_files);
     }
 }

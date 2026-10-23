@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use kelp_core::commit::FileChange;
+use kelp_core::test_files::is_test_file;
 
 use super::{Center, Repo, Selection};
 use crate::details;
@@ -40,10 +41,15 @@ impl FilePicks {
 }
 
 impl Repo {
-    fn changed_files(&self) -> &[FileChange] {
-        self.details
-            .as_ref()
-            .map_or(&[][..], |d| d.changes.as_slice())
+    pub fn shown_changes(&self) -> Vec<FileChange> {
+        let hide = self.hide_tests && !self.tests_revealed;
+        self.details.as_ref().map_or_else(Vec::new, |d| {
+            d.changes
+                .iter()
+                .filter(|c| !(hide && is_test_file(&c.path)))
+                .cloned()
+                .collect()
+        })
     }
 
     fn open_path(&self) -> Option<String> {
@@ -54,7 +60,7 @@ impl Repo {
     }
 
     pub fn pick_file(&mut self, path: &str, how: PickHow) {
-        let order = details::display_order(self.changed_files(), self.file_list_mode);
+        let order = details::display_order(&self.shown_changes(), self.file_list_mode);
         let index_of = |p: &str| order.iter().position(|o| o == p);
         match how {
             PickHow::Only => {

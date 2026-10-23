@@ -6,6 +6,7 @@ use gix::ObjectId;
 use kelp_core::commit::ChangeKind;
 use kelp_core::compare::{RangeChange, Side};
 use kelp_core::history::History;
+use kelp_core::test_files::is_test_file;
 
 use kelp_ui::graph::{MARK_A, MARK_B, Marks, paint_mark};
 
@@ -24,6 +25,8 @@ pub struct CompareView {
     base_title: String,
     target_title: String,
     files: Files,
+    pub hide_tests: bool,
+    tests_revealed: bool,
 }
 
 pub enum Event {
@@ -54,6 +57,8 @@ impl CompareView {
             base_title: title(base),
             target_title,
             files: list(ctx, dir, base, target),
+            hide_tests: false,
+            tests_revealed: false,
             base,
             target,
         }
@@ -151,12 +156,22 @@ impl CompareView {
         let Files::Ready(files) = &self.files else {
             return event;
         };
+        let hide = self.hide_tests && !self.tests_revealed;
+        let listed: Vec<&RangeChange> = files
+            .iter()
+            .filter(|c| !(hide && is_test_file(&c.path)))
+            .collect();
+        let tests = if self.hide_tests {
+            files.iter().filter(|c| is_test_file(&c.path)).count()
+        } else {
+            0
+        };
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-                let mut rows = Vec::with_capacity(files.len());
-                for change in files {
+                let mut rows = Vec::with_capacity(listed.len());
+                for change in &listed {
                     let row = FileRow {
                         kind: Some(change.kind),
                         path: &change.path,
@@ -174,13 +189,14 @@ impl CompareView {
                     };
                     rows.push((row.id, row.rect));
                     if row.clicked() {
-                        event = Event::Open(change.clone());
+                        event = Event::Open((*change).clone());
                     }
                 }
-                let open = active.and_then(|a| files.iter().position(|c| c.path == a));
+                crate::details::tests_row(ui, tests, &mut self.tests_revealed);
+                let open = active.and_then(|a| listed.iter().position(|c| c.path == a));
                 let owns_keys = open.is_some() && crate::list_keys::nothing_focused(ui.ctx());
                 if let Some(at) = crate::list_keys::step(ui, &rows, open, owns_keys) {
-                    event = Event::Open(files[at].clone());
+                    event = Event::Open(listed[at].clone());
                 }
             });
         event
@@ -254,6 +270,8 @@ mod tests {
             base_title: String::new(),
             target_title: String::new(),
             files: Files::Ready(files),
+            hide_tests: false,
+            tests_revealed: false,
         }
     }
 
@@ -300,5 +318,20 @@ mod tests {
         assert_eq!(opened(end).as_deref(), Some("c.rs"));
         let up = frame(&ctx, &mut view, "c.rs", Some(Key::ArrowUp));
         assert_eq!(opened(up).as_deref(), Some("b.rs"));
+    }
+
+    #[test]
+    fn arrows_skip_hidden_test_files_until_they_are_revealed() {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let mut view = view(&["a.rs", "tests/b.rs", "c.rs"]);
+        view.hide_tests = true;
+        frame(&ctx, &mut view, "a.rs", None);
+        let down = frame(&ctx, &mut view, "a.rs", Some(Key::ArrowDown));
+        assert_eq!(opened(down).as_deref(), Some("c.rs"));
+        view.tests_revealed = true;
+        frame(&ctx, &mut view, "a.rs", None);
+        let down = frame(&ctx, &mut view, "a.rs", Some(Key::ArrowDown));
+        assert_eq!(opened(down).as_deref(), Some("tests/b.rs"));
     }
 }
