@@ -28,7 +28,7 @@ const THREAD_MARGIN: f32 = 16.0;
 const RESOLVED_H: f32 = 34.0;
 
 /// Side-by-side or single-column diff.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug, serde::Serialize, serde::Deserialize)]
 pub enum DiffLayout {
     #[default]
     Unified,

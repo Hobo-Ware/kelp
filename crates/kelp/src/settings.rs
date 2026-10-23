@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::panels::{self, Panels};
 use crate::recents::Recent;
 use crate::theme;
+use kelp_ui::diff::DiffLayout;
 use kelp_ui::graph::GraphColumns;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +43,7 @@ pub struct Settings {
     pub editor: String,
     pub window: Option<[f32; 4]>,
     pub graph_columns: GraphColumns,
+    pub diff_layout: DiffLayout,
     pub recent_actions: Vec<String>,
     pub recent_repos: Vec<Recent>,
     pub panels: Panels,
@@ -68,6 +70,7 @@ impl Default for Settings {
             editor: String::new(),
             window: None,
             graph_columns: GraphColumns::default(),
+            diff_layout: DiffLayout::default(),
             recent_actions: Vec::new(),
             recent_repos: Vec::new(),
             panels: Panels::default(),

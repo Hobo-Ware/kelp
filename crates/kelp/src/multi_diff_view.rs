@@ -21,6 +21,16 @@ impl MultiDiff {
         self.layout
     }
 
+    pub fn set_layout(&mut self, layout: Layout) {
+        if layout == self.layout {
+            return;
+        }
+        self.layout = layout;
+        for view in &mut self.views {
+            view.set_layout(layout);
+        }
+    }
+
     pub fn ui(
         &mut self,
         ui: &mut Ui,

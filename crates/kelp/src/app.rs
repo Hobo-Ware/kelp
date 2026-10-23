@@ -1219,6 +1219,10 @@ impl eframe::App for KelpApp {
                     self.settings.panels = layout;
                     self.settings_unsaved = true;
                 }
+                if let Some(layout) = repo.diff_layout_changed.take() {
+                    self.settings.diff_layout = layout;
+                    self.settings_unsaved = true;
+                }
             }
         }
         if let Some(action) = welcome_action {
