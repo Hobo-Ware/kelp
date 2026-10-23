@@ -69,7 +69,10 @@ sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
 - **Columns:** right-click the column header to add Author, Date and
   Hash columns; drag their edges to resize.
 - **Commits:** message, author, parents, changed files as a list or a
-  tree, or every file in the commit.
+  tree, or every file in the commit. Settings > Hide test files in diffs
+  leaves tests (`tests/`, `*_test.go`, `*.spec.ts`, ...) out of that list and
+  out of Compare; an eye row with their count shows them again for that
+  view. Staging always lists every file.
 - **Diffs:** unified or split, or the full file, with the changed words
   highlighted inside each line. Jump between changes with the arrows or
   Alt+Up / Alt+Down.
@@ -313,6 +316,7 @@ Developer switches (environment variables):
 | `KELP_FAKE_PULLS=<file>` | Load pull requests from a `gh pr list --json` file instead of GitHub |
 | `KELP_FAKE_AGENTS=<path>:<tool>,...` | Pretend those AI agent sessions are running (`claude`, `codex`, `gemini`, `copilot`, `aider`, `cursor`) |
 | `KELP_FAKE_CHECKS=<file>` | CI dots from a JSON map of commit prefix to `{state, failing, pending}` instead of GitHub |
+| `KELP_HIDE_TESTS=1` | Hide test files in diffs for this run (Settings has the real toggle) |
 | `KELP_HOVER_ROW=<row>` | Draw the graph as if that commit row were hovered |
 | `KELP_POINTER=<x>,<y>` | Keep the mouse pointer at that spot, in points, to capture hover states |
 | `KELP_OPEN_REBASE=<rev>` (or `<rev>:<letters>`, e.g. `HEAD~4:prsd`) | Open interactive rebase from a commit, optionally with actions preset |

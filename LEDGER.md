@@ -13,6 +13,20 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-24
+
+- **Hide test files in diffs** (user-visible, off by default). Settings > "Hide test files in
+  diffs" leaves test files out of a commit's file list (Path and Tree), the arrow-key walk,
+  Shift-range picks and Compare's list; the uncommitted changes list is never filtered. A row at
+  the end of the list shows an eye-off icon and the hidden count, and a click shows them for
+  that commit or comparison only (it resets when the selection changes). Detection is
+  `kelp_core::test_files::is_test_file` on the repo-relative path: a directory segment of
+  test, tests, __tests__, spec, specs, testdata or __snapshots__ (any case), or a name like
+  `*_test.*`, `*.test.*`, `*.spec.*`, `*_spec.*`, `test_*.py`, `conftest.py`, `*Test.java|kt|swift|cs`,
+  `*Tests.swift|cs`. New `Settings::hide_test_files` (serde default, so old settings load) and dev
+  switch `KELP_HIDE_TESTS=1`. kelp-core 166 -> 169 tests, kelp 172 -> 174. Checked with offline
+  screenshots of a commit that adds a file under `tests/` and of Settings.
+
 ## 2026-10-23
 
 - **Dialogs stay open on a backdrop click** (user-visible). Create tag, new branch, rename,
