@@ -229,6 +229,8 @@ pub struct Repo {
     pub sidebar: sidebar::State,
     pub columns_changed: Option<kelp_ui::graph::GraphColumns>,
     pub panels_changed: Option<Panels>,
+    pub diff_layout_changed: Option<diff_view::Layout>,
+    dev_diff_layout: Option<diff_view::Layout>,
     panels: Panels,
     pub editor: String,
     _watcher: Option<Watcher>,
@@ -330,6 +332,8 @@ impl Repo {
             sidebar,
             columns_changed: None,
             panels_changed: None,
+            diff_layout_changed: None,
+            dev_diff_layout: None,
             panels: Panels::default(),
             editor: String::new(),
             _watcher: watcher,
@@ -427,10 +431,8 @@ impl Repo {
             })
         {
             ready.open_diff(&path);
-            if std::env::var("KELP_OPEN_DIFF").as_deref() == Ok("split")
-                && let Center::Diff(view) = &mut ready.center
-            {
-                view.set_layout(diff_view::Layout::Split);
+            if std::env::var("KELP_OPEN_DIFF").as_deref() == Ok("split") {
+                ready.dev_diff_layout = Some(diff_view::Layout::Split);
             }
             if wanted_preview.is_some()
                 && let Center::Diff(view) = &mut ready.center
@@ -1602,6 +1604,10 @@ impl Repo {
         let ctx = ui.ctx().clone();
         let mut commands = Vec::new();
         self.panels = settings.panels;
+        self.diff_layout = self
+            .diff_layout_changed
+            .or(self.dev_diff_layout)
+            .unwrap_or(settings.diff_layout);
         focus_areas::begin_frame(&ctx);
         focus_areas::handle_keys(&ctx);
         focus_areas::apply_dev_focus(&ctx);
@@ -1681,8 +1687,13 @@ impl Repo {
             .frame(egui::Frame::new().fill(theme::bg()))
             .show(ui, |ui| match &mut self.center {
                 Center::Diff(view) => {
+                    view.set_layout(self.diff_layout);
                     let event = view.ui(ui, &mut self.review, &self.author, &mut self.avatars);
-                    self.diff_layout = view.layout();
+                    if view.layout() != self.diff_layout {
+                        self.diff_layout = view.layout();
+                        self.diff_layout_changed = Some(self.diff_layout);
+                        self.dev_diff_layout = None;
+                    }
                     match route_diff_event(event, &mut self.review, &mut self.toast, &mut commands)
                     {
                         Some(diff_view::Event::Close) => self.center = Center::Graph,
@@ -1696,9 +1707,14 @@ impl Repo {
                     }
                 }
                 Center::Multi(view) => {
+                    view.set_layout(self.diff_layout);
                     let (event, from) =
                         view.ui(ui, &mut self.review, &self.author, &mut self.avatars);
-                    self.diff_layout = view.layout();
+                    if view.layout() != self.diff_layout {
+                        self.diff_layout = view.layout();
+                        self.diff_layout_changed = Some(self.diff_layout);
+                        self.dev_diff_layout = None;
+                    }
                     let own =
                         route_diff_event(event, &mut self.review, &mut self.toast, &mut commands);
                     if let (Some(diff_view::Event::OpenInEditor), Some(path)) = (own, from) {
