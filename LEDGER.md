@@ -5,7 +5,7 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.21 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.22 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
@@ -14,6 +14,11 @@ A running log of what got done, newest first. The plan lives in
   update check.
 
 ## 2026-10-24
+
+- **v0.8.22.** Merged #24 (dialogs stay open on a backdrop click, tysonkerridge), #25 (diff
+  layout remembered, seferturan, plus a fix so `KELP_OPEN_DIFF=split` never saves) and #26
+  (hide test files in diffs). Also ships the note blocks, the notes badge, the composer
+  redesign and the stuck Homebrew update repair from main.
 
 - **Hide test files in diffs** (user-visible, off by default). Settings > "Hide test files in
   diffs" leaves test files out of a commit's file list (Path and Tree), the arrow-key walk,

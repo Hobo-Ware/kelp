@@ -2,6 +2,16 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.22 - 2026-10-24
+
+- New setting: Hide test files in diffs. It leaves test files out of a commit's file list and out of Compare, and an eye icon with their count shows them again for that commit. Staging always lists every file. Off by default.
+- The diff layout (split or unified) is remembered across tabs and restarts. Thanks @seferturan.
+- Clicking back into Kelp after switching apps no longer closes an open dialog and throws away what you typed. Dialogs close on Escape or Cancel. Thanks @tysonkerridge.
+- Comment on a block of lines: drag down the line numbers, or click a line and Shift+click another. The note shows the range and copies out with the quoted block.
+- Commits with pending review notes show a speech bubble and the count in the graph, and so does the uncommitted changes row.
+- A redesigned note composer and note cards.
+- A failed or stuck Homebrew update now shows in the update pill. A stuck one offers a Fix button that reinstalls Kelp, and a restart waits while an update installs.
+
 ## v0.8.21 - 2026-10-14
 
 - The date filter goes by when a commit was committed, the same date the graph shows, so an amended or rebased commit shows up under "last day".
