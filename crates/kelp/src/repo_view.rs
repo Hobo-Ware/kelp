@@ -214,6 +214,9 @@ pub struct Repo {
     pub author: String,
     pub file_list_mode: FileListMode,
     pub show_all_files: bool,
+    pub hide_tests: bool,
+    dev_hide_tests: bool,
+    pub tests_revealed: bool,
     pub picks: FilePicks,
     pub tree_cache: HashMap<String, Vec<commit::TreeEntry>>,
     pub search: Search,
@@ -285,6 +288,9 @@ impl Repo {
             file_list_mode: FileListMode::Path,
             picks: FilePicks::default(),
             show_all_files: false,
+            hide_tests: false,
+            dev_hide_tests: std::env::var_os("KELP_HIDE_TESTS").is_some(),
+            tests_revealed: false,
             tree_cache: HashMap::new(),
             search: Search::default(),
             lit_cache: None,
@@ -578,6 +584,7 @@ impl Repo {
         self.selected = Some(selection);
         self.picks.clear();
         self.tree_cache.clear();
+        self.tests_revealed = false;
         self.details = match selection {
             Selection::Commit(row) => commit::details(&self.repo, self.history.id(row)).ok(),
             Selection::Wip => None,
@@ -1608,6 +1615,7 @@ impl Repo {
             .diff_layout_changed
             .or(self.dev_diff_layout)
             .unwrap_or(settings.diff_layout);
+        self.hide_tests = settings.hide_test_files || self.dev_hide_tests;
         focus_areas::begin_frame(&ctx);
         focus_areas::handle_keys(&ctx);
         focus_areas::apply_dev_focus(&ctx);

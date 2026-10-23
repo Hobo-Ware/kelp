@@ -5,8 +5,10 @@ use eframe::egui::{
 };
 use kelp_core::commit::{self, ChangeKind, FileChange};
 use kelp_core::review::Review;
+use kelp_core::test_files::is_test_file;
 
 use crate::commands::Command;
+use crate::icons::Icon;
 use crate::repo_view::{Center, FileListMode, PickHow, Repo, Selection};
 use crate::{menus, theme};
 
@@ -20,6 +22,7 @@ type Active<'a> = std::collections::HashSet<&'a str>;
 pub fn ui(ui: &mut Ui, repo: &mut Repo) {
     let active = repo.range_diff_path().map(str::to_string);
     if let Some(compare) = &mut repo.compare {
+        compare.hide_tests = repo.hide_tests;
         let event = compare.ui(ui, active.as_deref());
         repo.compare_event(ui.ctx(), event);
         return;
@@ -56,13 +59,14 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                 let cursor = repo.picks.cursor(multi).or_else(|| open.clone());
                 let shown = repo.picks.shown(multi, open);
                 let active: Active = shown.iter().map(String::as_str).collect();
+                let listed = repo.shown_changes();
                 match repo.file_list_mode {
-                    FileListMode::Path => {
-                        path_list(ui, &changes, &active, &repo.review, &mut picks)
-                    }
-                    FileListMode::Tree => {
-                        tree_list(ui, &changes, &active, &repo.review, &mut picks)
-                    }
+                    FileListMode::Path => path_list(ui, &listed, &active, &repo.review, &mut picks),
+                    FileListMode::Tree => tree_list(ui, &listed, &active, &repo.review, &mut picks),
+                }
+                if repo.hide_tests {
+                    let tests = changes.iter().filter(|c| is_test_file(&c.path)).count();
+                    tests_row(ui, tests, &mut repo.tests_revealed);
                 }
                 if repo.show_all_files {
                     all_files(ui, repo, &changes, &active, &mut picks);
@@ -337,6 +341,45 @@ fn file_controls(ui: &mut Ui, repo: &mut Repo, changes: &[FileChange]) {
                 });
             });
         });
+}
+
+pub fn tests_row(ui: &mut Ui, count: usize, revealed: &mut bool) {
+    if count == 0 {
+        return;
+    }
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), FILE_ROW_H), Sense::click());
+    let painter = ui.painter_at(rect);
+    if response.hovered() {
+        painter.rect_filled(rect, 0.0, theme::overlay(0x08));
+    }
+    let color = if response.hovered() {
+        theme::text_muted()
+    } else {
+        theme::text_faint()
+    };
+    let icon = if *revealed { Icon::Eye } else { Icon::EyeOff };
+    let icon_rect =
+        egui::Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), vec2(15.0, 15.0));
+    crate::icons::paint(&painter, icon_rect, icon, color);
+    painter.text(
+        pos2(rect.left() + 40.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        count.to_string(),
+        FontId::monospace(12.0),
+        color,
+    );
+    crate::widgets::focus_ring(ui, &response, 0.0);
+    let plural = if count == 1 { "" } else { "s" };
+    let label = if *revealed {
+        format!("Hide {count} test file{plural}")
+    } else {
+        format!("{count} test file{plural} hidden, show")
+    };
+    crate::widgets::describe(&response, egui::WidgetType::Button, label.clone());
+    if response.on_hover_text(label).clicked() {
+        *revealed = !*revealed;
+    }
 }
 
 fn open_diff_path(repo: &Repo) -> Option<String> {
@@ -894,6 +937,56 @@ mod tests {
         assert_eq!(open_path(&repo).as_deref(), Some("c.txt"));
         press(&ctx, &mut repo, egui::Key::Home);
         assert_eq!(open_path(&repo).as_deref(), Some("a.txt"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hidden_test_files_leave_the_list_and_the_arrow_walk_until_revealed() {
+        let dir = std::env::temp_dir().join(format!("kelp-details-tests-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join("tests")).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "t@example.com"],
+            &["config", "user.name", "T"],
+        ] {
+            run(&dir, args).unwrap();
+        }
+        for name in ["src/a.rs", "src/b.rs", "tests/c.rs", "src/d_test.rs"] {
+            std::fs::write(dir.join(name), "one\n").unwrap();
+        }
+        run(&dir, &["add", "."]).unwrap();
+        run(&dir, &["commit", "-q", "-m", "four files"]).unwrap();
+
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        let (git, history) = kelp_core::history::History::open(&dir).unwrap();
+        let mut repo = Repo::new(&ctx, git, history, Duration::ZERO);
+        repo.select(Selection::Commit(0));
+        let started = Instant::now();
+        while repo.details.is_none() && started.elapsed() < Duration::from_secs(5) {
+            repo.poll(&ctx, None);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let paths = |repo: &Repo| {
+            repo.shown_changes()
+                .into_iter()
+                .map(|c| c.path)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(paths(&repo).len(), 4);
+
+        repo.hide_tests = true;
+        assert_eq!(paths(&repo), ["src/a.rs", "src/b.rs"]);
+        repo.open_diff("src/a.rs");
+        frame(&ctx, &mut repo, vec![]);
+        press(&ctx, &mut repo, egui::Key::ArrowDown);
+        press(&ctx, &mut repo, egui::Key::ArrowDown);
+        assert_eq!(open_path(&repo).as_deref(), Some("src/b.rs"));
+
+        repo.tests_revealed = true;
+        assert_eq!(paths(&repo).len(), 4);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
