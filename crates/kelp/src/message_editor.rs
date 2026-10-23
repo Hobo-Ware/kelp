@@ -144,7 +144,7 @@ impl MessageEditor {
                     });
                 });
             });
-        if modal.should_close() && event == Event::None {
+        if crate::dialogs::dismissed(ctx, &modal) && event == Event::None {
             event = Event::Cancel;
         }
         event
@@ -229,6 +229,28 @@ mod tests {
             cancelled = frame(&ctx, &mut editor, vec![]);
         }
         assert_eq!(cancelled, Event::Cancel);
+    }
+
+    #[test]
+    fn a_click_on_the_backdrop_keeps_the_typed_message() {
+        let (ctx, mut editor) = editor();
+        frame(&ctx, &mut editor, vec![Input::Text(" v2".into())]);
+        let corner = egui::pos2(4.0, 4.0);
+        let click = |pressed| Input::PointerButton {
+            pos: corner,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        frame(
+            &ctx,
+            &mut editor,
+            vec![Input::PointerMoved(corner), click(true)],
+        );
+        let after = frame(&ctx, &mut editor, vec![click(false)]);
+        assert_eq!(after, Event::None);
+        assert_eq!(frame(&ctx, &mut editor, vec![]), Event::None);
+        assert_eq!(editor.summary, "old title v2");
     }
 
     #[test]

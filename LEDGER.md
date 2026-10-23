@@ -13,6 +13,14 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-23
+
+- **Dialogs stay open on a backdrop click** (user-visible). Create tag, new branch, rename,
+  push to, add remote, new worktree, the commit message editor, clone and the stash prompt
+  close only on Escape or Cancel. The click that brings Kelp back into focus used to land on
+  the backdrop and throw away what was typed. One shared check, `dialogs::dismissed`, with a
+  test in the message editor.
+
 ## 2026-10-17
 
 - **kelp-ui: note composer redesign** (user-visible, in both looks). The composer and the

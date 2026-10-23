@@ -472,10 +472,17 @@ pub fn show(ctx: &egui::Context, dialog: &mut Dialog) -> Outcome {
                 Dialog::AddRemote { name, url } => add_remote(ui, name, url),
             };
         });
-    if modal.should_close() {
+    if dismissed(ctx, &modal) {
         return Outcome::Close;
     }
     outcome
+}
+
+/// `ModalResponse::should_close` without the backdrop click: the click that brings the window
+/// back lands on the backdrop, and closing then would throw away whatever was typed.
+pub fn dismissed<T>(ctx: &egui::Context, modal: &egui::ModalResponse<T>) -> bool {
+    let escape = || ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape));
+    modal.response.should_close() || (modal.is_top_modal && !modal.any_popup_open && escape())
 }
 
 fn title(ui: &mut Ui, text: &str) {

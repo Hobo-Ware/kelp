@@ -408,7 +408,7 @@ impl CloneDialog {
                     });
                 });
             });
-        if modal.should_close() && !busy {
+        if crate::dialogs::dismissed(ctx, &modal) && !busy {
             outcome = Outcome::Close;
         }
         outcome
