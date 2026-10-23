@@ -165,7 +165,10 @@ fn ahead_behind_against_upstream() {
     clone.commit("d.txt", "d", "local only");
     origin.commit("e.txt", "e", "remote only");
     Op::Fetch.run(clone.path()).unwrap();
-    assert_eq!(workspace::ahead_behind(clone.path(), "main"), Some((1, 1)));
+    assert_eq!(
+        workspace::ahead_behind(clone.path()).get("main"),
+        Some(&(1, 1))
+    );
 }
 
 #[test]
@@ -281,7 +284,10 @@ fn push_sets_upstream_then_forces_with_lease_after_a_rewrite() {
     assert!(push_rejected(&format!("{rejected:#}")), "{rejected:#}");
 
     push(false, true).run(repo.path()).unwrap();
-    assert_eq!(workspace::ahead_behind(repo.path(), "main"), Some((0, 0)));
+    assert_eq!(
+        workspace::ahead_behind(repo.path()).get("main"),
+        Some(&(0, 0))
+    );
 }
 
 fn with_bare_remote(repo: &Scratch, name: &str) -> Scratch {

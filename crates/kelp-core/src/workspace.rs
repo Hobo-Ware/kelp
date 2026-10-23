@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::git_cli;
@@ -133,15 +134,38 @@ pub fn parse_worktrees(out: &str) -> Vec<Worktree> {
         .collect()
 }
 
-pub fn ahead_behind(dir: &Path, branch: &str) -> Option<(usize, usize)> {
-    let range = format!("{branch}...{branch}@{{upstream}}");
-    let out = git_cli::run(dir, &["rev-list", "--left-right", "--count", &range]).ok()?;
-    parse_ahead_behind(&out)
+/// Ahead/behind counts for every local branch that tracks an upstream, from one
+/// `for-each-ref` call. Branches whose upstream is gone are left out.
+pub fn ahead_behind(dir: &Path) -> HashMap<String, (usize, usize)> {
+    git_cli::run(
+        dir,
+        &[
+            "for-each-ref",
+            "--format=%(refname:lstrip=2)%00%(upstream)%00%(upstream:track,nobracket)",
+            "refs/heads",
+        ],
+    )
+    .map(|out| parse_ahead_behind(&out))
+    .unwrap_or_default()
 }
 
-pub fn parse_ahead_behind(out: &str) -> Option<(usize, usize)> {
-    let mut parts = out.split_whitespace().map(|n| n.parse::<usize>().ok());
-    Some((parts.next()??, parts.next()??))
+pub fn parse_ahead_behind(out: &str) -> HashMap<String, (usize, usize)> {
+    out.lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\0');
+            let (branch, upstream, track) = (fields.next()?, fields.next()?, fields.next()?);
+            if upstream.is_empty() || track == "gone" {
+                return None;
+            }
+            let count = |word: &str| {
+                track
+                    .split(", ")
+                    .find_map(|part| part.strip_prefix(word)?.trim().parse().ok())
+                    .unwrap_or(0)
+            };
+            Some((branch.to_string(), (count("ahead"), count("behind"))))
+        })
+        .collect()
 }
 
 pub fn change_count(dir: &Path) -> Option<usize> {
@@ -216,8 +240,17 @@ mod tests {
 
     #[test]
     fn parses_ahead_behind_counts() {
-        assert_eq!(parse_ahead_behind("3\t2\n"), Some((3, 2)));
-        assert_eq!(parse_ahead_behind(""), None);
+        let out = "main\0refs/remotes/origin/main\0behind 4\n\
+                   feat/a\0refs/remotes/origin/feat/a\0ahead 3, behind 2\n\
+                   feat/b\0refs/remotes/origin/feat/b\0\n\
+                   feat/gone\0refs/remotes/origin/feat/gone\0gone\n\
+                   local\0\0\n";
+        let counts = parse_ahead_behind(out);
+        assert_eq!(counts.len(), 3);
+        assert_eq!(counts["main"], (0, 4));
+        assert_eq!(counts["feat/a"], (3, 2));
+        assert_eq!(counts["feat/b"], (0, 0));
+        assert!(parse_ahead_behind("").is_empty());
     }
 
     #[test]
