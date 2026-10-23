@@ -13,6 +13,16 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-26
+
+- **Worktree list fills in about 60 ms instead of about 1.5 s.** A new tab (for example after
+  opening a worktree) showed an empty worktree list until one job had run `git status` in every
+  worktree and `git rev-list` for every local branch. Ahead/behind now comes from one
+  `git for-each-ref` with `%(upstream:track)`, and the list lands first with the change counts
+  filled in by a second job; a refresh keeps the previous counts until the new ones arrive.
+  trakt-web (13 worktrees, 185 local branches): ahead/behind 965 ms to 32 ms, first step
+  (worktrees, stashes, ahead/behind) 64 ms, change counts about 550 ms after.
+
 ## 2026-10-25
 
 - **Untracked folder is one row** (user-visible, kelp-core API change). `working_status` now runs
