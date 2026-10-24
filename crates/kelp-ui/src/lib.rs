@@ -18,6 +18,8 @@
 //!   replacing them.
 //! - [`avatars::AvatarStore`]: background avatar loading, handed to the graph.
 //! - [`jobs::Jobs`]: a small background job runner that wakes the UI when a job finishes.
+//! - [`autofetch::AutoFetch`]: the timer behind background fetching. `tick` is pure; `run` starts
+//!   `Op::Fetch` on a `Jobs` when one is due and none is running.
 //! - [`graph`]: [`graph::GraphView`] draws the commit graph from a `kelp_core::history::History`
 //!   and a [`graph::GraphInput`], and returns a [`graph::GraphAction`]. `GraphInput::notes`
 //!   maps commits to the number of review notes pending on them, drawn as a speech bubble and the
@@ -37,6 +39,7 @@
 //! The other modules (`icons`, `widgets`, `menu`, `pulls_ui`) are shared with the Kelp app and
 //! are not part of the supported API.
 
+pub mod autofetch;
 pub mod avatars;
 pub mod diff;
 pub mod fonts;
