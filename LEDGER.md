@@ -21,6 +21,8 @@ A running log of what got done, newest first. The plan lives in
   label, the same skip while a fetch runs, the same wake); Tidewatch uses the timer for its own
   background fetch. Internal move, so the site and README need no change.
 
+- **`GraphView::highlight` (kelp-ui, no change on screen in Kelp).** A host sets `Highlight { needle, fill }` and the graph paints the matching text of each commit title (case-insensitive, the type prefix too) on that fill; with it unset nothing is drawn, so Kelp's own graph is untouched. Tidewatch uses it for its commit search next to `GraphInput::lit`. Numbers: 3 new unit tests, `cargo test --workspace` green.
+
 - **v0.8.22.** Merged #24 (dialogs stay open on a backdrop click, tysonkerridge), #25 (diff
   layout remembered, seferturan, plus a fix so `KELP_OPEN_DIFF=split` never saves) and #26
   (hide test files in diffs). Also ships the note blocks, the notes badge, the composer

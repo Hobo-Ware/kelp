@@ -2,6 +2,7 @@ mod columns;
 #[doc(hidden)]
 pub mod counts;
 mod flow;
+mod highlight;
 mod hover;
 mod labels;
 mod marks;
@@ -15,6 +16,7 @@ use std::path::PathBuf;
 use kelp_core::refs::RefLabel;
 
 pub use columns::{Column, GraphColumns};
+pub use highlight::Highlight;
 pub use labels::{DropPlan, DropTarget, MenuFor};
 pub use marks::{MARK_A, MARK_B, Marks, paint_mark};
 pub use style::{GraphStyle, RefPlacement};
