@@ -16,6 +16,7 @@ use kelp_core::workspace::Worktree;
 use super::columns::{self, GraphColumns};
 use super::counts::{self as change_counts, Counts};
 use super::flow::Flow;
+use super::highlight::{self, Highlight};
 use super::hover::{HoverPath, Label, VisiblePath};
 use super::labels::{self as ref_labels, DropPlan, DropTarget, Forced, LabelEvent, MenuFor};
 use super::marks::{self, Marks};
@@ -66,6 +67,8 @@ pub struct GraphView {
     pub expanded_rect: Option<Rect>,
     /// The visible part of the graph in the last frame.
     pub viewport_rect: Rect,
+    /// Marks this text in the commit titles. `None` marks nothing.
+    pub highlight: Option<Highlight>,
     stack: Option<(usize, Rect)>,
 }
 
@@ -182,6 +185,7 @@ impl GraphView {
             focus_id: None,
             expanded_rect: None,
             viewport_rect: Rect::NOTHING,
+            highlight: None,
             stack: None,
         }
     }
@@ -309,6 +313,7 @@ impl GraphView {
         let open_drop = preview.open_drop;
         let open_label_menu = preview.open_label_menu;
         let hover = &mut self.hover;
+        let highlight = &self.highlight;
         let visible_commits = &mut self.visible_commits;
         visible_commits.clear();
         let focus_id = &mut self.focus_id;
@@ -526,6 +531,7 @@ impl GraphView {
                                 notes: notes.get(&history.id(row)).copied().unwrap_or(0),
                                 lit,
                                 badges: &badges,
+                                highlight: highlight.as_ref(),
                             },
                             now,
                         );
@@ -1074,6 +1080,7 @@ struct RowPaint<'a> {
     notes: usize,
     lit: Option<&'a [bool]>,
     badges: &'a ref_labels::RemoteBadges,
+    highlight: Option<&'a Highlight>,
 }
 
 const FADED_OPACITY: f32 = 0.35;
@@ -1109,6 +1116,7 @@ fn paint_row(
         notes,
         lit,
         badges,
+        highlight,
     } = paint;
     let RowStyle {
         selected,
@@ -1281,6 +1289,7 @@ fn paint_row(
             checks: checks.map(|c| c.state),
             notes,
             x: title_x,
+            highlight,
         },
         now,
     );
@@ -1361,12 +1370,13 @@ fn checks_tooltip(ui: &mut Ui, status: &kelp_core::checks::Status) {
     );
 }
 
-struct MessageStyle {
+struct MessageStyle<'a> {
     selected: bool,
     descriptions: bool,
     checks: Option<kelp_core::checks::State>,
     notes: usize,
     x: f32,
+    highlight: Option<&'a Highlight>,
 }
 
 const LIST_PAD_R: f32 = 12.0;
@@ -1834,6 +1844,7 @@ fn paint_message(
         checks,
         notes,
         x,
+        highlight,
     } = style;
     let list = geo.style.list_text;
     let right = if list { geo.right } else { geo.message_right() };
@@ -1916,13 +1927,19 @@ fn paint_message(
         ("", summary.title.as_str())
     };
     if !prefix.is_empty() {
-        job.append(
+        highlight::append(
+            &mut job,
             prefix,
-            0.0,
             TextFormat::simple(title_font.clone(), theme::text_faint()),
+            highlight,
         );
     }
-    job.append(title, 0.0, TextFormat::simple(title_font, title_color));
+    highlight::append(
+        &mut job,
+        title,
+        TextFormat::simple(title_font, title_color),
+        highlight,
+    );
     if descriptions && !summary.body_preview.is_empty() {
         job.append(
             &summary.body_preview,
