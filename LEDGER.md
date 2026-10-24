@@ -15,6 +15,12 @@ A running log of what got done, newest first. The plan lives in
 
 ## 2026-10-24
 
+- **Shared auto-fetch timer.** `kelp_ui::autofetch::AutoFetch { every, last }` replaces the
+  timer loop in `repo_view.rs`: `due(now)` and `tick(now, busy)` are pure and table-tested, and
+  `run` starts `Op::Fetch` on a `kelp_ui::jobs::Jobs`. Kelp's behavior is unchanged (the same
+  label, the same skip while a fetch runs, the same wake); Tidewatch uses the timer for its own
+  background fetch. Internal move, so the site and README need no change.
+
 - **v0.8.22.** Merged #24 (dialogs stay open on a backdrop click, tysonkerridge), #25 (diff
   layout remembered, seferturan, plus a fix so `KELP_OPEN_DIFF=split` never saves) and #26
   (hide test files in diffs). Also ships the note blocks, the notes badge, the composer

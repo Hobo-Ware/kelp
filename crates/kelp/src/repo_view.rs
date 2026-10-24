@@ -15,6 +15,7 @@ use kelp_core::view::ViewFilter;
 use kelp_core::watch::{self, Watcher};
 use kelp_core::workspace::{self, Stash, Worktree};
 use kelp_core::{git_cli, status};
+use kelp_ui::autofetch::{self, AutoFetch};
 use kelp_ui::graph::{GraphAction, GraphInput, GraphView, MenuFor, OtherWip, Wip};
 
 use crate::avatars::AvatarStore;
@@ -175,6 +176,7 @@ impl Toast {
 }
 
 const TOAST_CONSOLE_WINDOW: Duration = Duration::from_secs(10);
+const DEFAULT_FETCH_EVERY: Duration = Duration::from_secs(5 * 60);
 
 pub struct Repo {
     pub dir: PathBuf,
@@ -240,7 +242,7 @@ pub struct Repo {
     watch_events: mpsc::Receiver<watch::Change>,
     reload_again: bool,
     status_again: bool,
-    last_fetch: Instant,
+    fetch_timer: AutoFetch,
     auto_fetch_failed: bool,
     undo: undo::Stack,
     head_reach: HeadReach,
@@ -346,7 +348,7 @@ impl Repo {
             watch_events,
             reload_again: false,
             status_again: false,
-            last_fetch: Instant::now(),
+            fetch_timer: AutoFetch::new(DEFAULT_FETCH_EVERY, Instant::now()),
             auto_fetch_failed: false,
             undo: undo::Stack::default(),
             head_reach: HeadReach::new(),
@@ -1556,21 +1558,10 @@ impl Repo {
         if self.repo.remote_names().is_empty() {
             return;
         }
-        let due = self.last_fetch + every;
-        let now = Instant::now();
-        if now < due {
-            ctx.request_repaint_after(due - now);
-            return;
-        }
-        self.last_fetch = now;
-        ctx.request_repaint_after(every);
-        if self.jobs.is_running("Fetching") || self.jobs.is_running("Auto-fetching") {
-            return;
-        }
-        let dir = self.dir.clone();
-        self.jobs.spawn("Auto-fetching", move || {
-            JobOutput::AutoFetch(Op::Fetch.run(&dir))
-        });
+        self.fetch_timer.set_every(every);
+        let busy = self.jobs.is_running("Fetching") || self.jobs.is_running(autofetch::LABEL);
+        self.fetch_timer
+            .run(ctx, &mut self.jobs, &self.dir, busy, JobOutput::AutoFetch);
     }
 
     fn replace_history(&mut self, history: History) {
