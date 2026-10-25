@@ -589,6 +589,15 @@ pub fn file_items(ui: &mut Ui, path: &str, out: &mut Vec<Command>) {
     });
 }
 
+pub fn folder_items(ui: &mut Ui, path: &str, out: &mut Vec<Command>) {
+    item(ui, Icon::Folder, "Reveal in Finder", out, || {
+        Command::RevealFile(path.to_string())
+    });
+    item(ui, Icon::Copy, "Copy path", out, || {
+        Command::Copy(path.to_string())
+    });
+}
+
 pub fn wip(ui: &mut Ui, out: &mut Vec<Command>) {
     menu_width(ui, 200.0);
     item(ui, Icon::Stash, "Stash all changes", out, || {

@@ -6,6 +6,7 @@ use anyhow::bail;
 
 use crate::git_cli;
 use crate::ops::Op;
+use crate::status;
 
 const MAX_ENTRIES: usize = 50;
 const MAX_UNTRACKED_BYTES: usize = 16 * 1024 * 1024;
@@ -529,7 +530,15 @@ fn current_index(dir: &Path) -> Option<String> {
 fn read_untracked(dir: &Path, paths: &[String]) -> Option<Vec<(PathBuf, Vec<u8>)>> {
     let mut files = Vec::new();
     let mut total = 0;
+    let mut expanded = Vec::new();
     for path in paths {
+        if status::is_folder(path) {
+            expanded.extend(status::folder_files(dir, path).ok()?);
+        } else {
+            expanded.push(path.clone());
+        }
+    }
+    for path in &expanded {
         let full = dir.join(path);
         if full.is_file() {
             let bytes = std::fs::read(&full).ok()?;

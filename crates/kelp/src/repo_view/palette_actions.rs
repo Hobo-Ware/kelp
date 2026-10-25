@@ -52,7 +52,12 @@ impl Repo {
 
     pub fn palette_files(&self) -> Vec<String> {
         match self.selected {
-            Some(Selection::Wip) => self.wip.iter().map(|c| c.path.clone()).collect(),
+            Some(Selection::Wip) => self
+                .wip
+                .iter()
+                .filter(|c| !kelp_core::status::is_folder(&c.path))
+                .map(|c| c.path.clone())
+                .collect(),
             _ => self
                 .details
                 .as_ref()
