@@ -671,6 +671,9 @@ impl Repo {
     }
 
     pub fn open_working_diff(&mut self, path: &str, staged: bool) {
+        if status::is_folder(path) {
+            return;
+        }
         let source = if staged {
             DiffSource::Staged
         } else {

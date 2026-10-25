@@ -13,6 +13,21 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-25
+
+- **Untracked folder is one row** (user-visible, kelp-core API change). `working_status` now runs
+  `--untracked-files=normal`, so an untracked folder is one unstaged entry with a trailing `/`
+  (like `git status`) instead of one row per file; single files and new files inside tracked
+  folders stay as rows. `WorkingStatus::folders` holds `UntrackedFolder { path, files }`, filled by one
+  `git ls-files --others --exclude-standard` restricted to the folder pathspecs (one process,
+  never walks the rest of the repo; same ignore rules as status). `WorkingStatus::file_count(path)`
+  is the files behind a row (1 for a file). `working_status_with(dir, UntrackedMode::Files)` keeps
+  the old every-file listing and `folder_files(dir, folder)` lists one folder's files. In Kelp the
+  row shows "N files", has no diff (click does nothing, palette skips it), the menu offers Reveal and
+  Copy path only, and Delete names the file count; undo of a folder delete reads the files back.
+  Stage, stash and delete work on the folder pathspec. 8 new roundtrip tests plus table tests;
+  `cargo test --workspace` green. Checked with an offline screenshot of a 300-file folder.
+
 ## 2026-10-24
 
 - **Shared auto-fetch timer.** `kelp_ui::autofetch::AutoFetch { every, last }` replaces the

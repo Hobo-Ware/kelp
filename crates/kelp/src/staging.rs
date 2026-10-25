@@ -5,6 +5,7 @@ use eframe::egui::{
 };
 use kelp_core::commit::{ChangeKind, FileChange};
 use kelp_core::ops::Op;
+use kelp_core::status;
 
 use crate::commands::Command;
 use crate::commit_helpers;
@@ -219,6 +220,8 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                 let chosen = picked.in_section(Section::Unstaged);
                 for (index, change) in repo.status.unstaged.iter().enumerate() {
                     let untracked = repo.status.untracked.contains(&change.path);
+                    let folder = status::is_folder(&change.path);
+                    let folder_note = folder.then(|| plural(repo.status.file_count(&change.path)));
                     let is_active = active
                         .as_ref()
                         .is_some_and(|(p, staged)| p == &change.path && !staged);
@@ -231,7 +234,7 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                         is_active,
                         is_picked,
                         Some("Stage"),
-                        None,
+                        folder_note.as_deref(),
                     );
                     nav_rows.push((row.id, row.rect));
                     nav_items.push((Section::Unstaged, index, change.path.clone()));
@@ -256,16 +259,26 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                             }));
                         }
                         let mut commands = Vec::new();
-                        menus::file_items(ui, &change.path, &mut commands);
+                        if folder {
+                            menus::folder_items(ui, &change.path, &mut commands);
+                        } else {
+                            menus::file_items(ui, &change.path, &mut commands);
+                        }
                         actions.extend(commands.into_iter().map(Action::Command));
                         menus::separator(ui);
-                        let label = if untracked {
+                        let label = if folder {
+                            "Delete folder…"
+                        } else if untracked {
                             "Delete file…"
                         } else {
                             "Discard changes…"
                         };
                         if menus::row(ui, Some(Icon::Trash), label, None, true) {
-                            actions.push(Action::Confirm(discard_dialog(&change.path, untracked)));
+                            actions.push(Action::Confirm(discard_dialog(
+                                &change.path,
+                                untracked,
+                                repo.status.file_count(&change.path),
+                            )));
                         }
                     });
                 }
@@ -274,12 +287,13 @@ pub fn ui(ui: &mut Ui, repo: &mut Repo) {
                         .iter()
                         .cloned()
                         .partition(|p| repo.status.untracked.contains(p));
+                    let new_files = untracked.iter().map(|p| repo.status.file_count(p)).sum();
                     selection_bar(
                         ui,
                         &chosen,
                         Op::Stage(chosen.clone()),
                         "Stage",
-                        Some(discard_files_dialog(tracked, untracked)),
+                        Some(discard_files_dialog(tracked, untracked, new_files)),
                         &mut picked,
                         &mut actions,
                     );
@@ -548,9 +562,9 @@ fn selection_bar(
         });
 }
 
-fn discard_files_dialog(tracked: Vec<String>, untracked: Vec<String>) -> Dialog {
-    let total = tracked.len() + untracked.len();
-    let body = match untracked.len() {
+fn discard_files_dialog(tracked: Vec<String>, untracked: Vec<String>, new_files: usize) -> Dialog {
+    let total = tracked.len() + new_files;
+    let body = match new_files {
         0 => "Their changes go away on disk. Cmd+Z brings them back.".to_string(),
         n => format!(
             "Their changes go away on disk, and {} deleted. Cmd+Z brings them back.",
@@ -569,7 +583,7 @@ fn discard_files_dialog(tracked: Vec<String>, untracked: Vec<String>) -> Dialog 
     }
 }
 
-fn discard_dialog(path: &str, untracked: bool) -> Dialog {
+fn discard_dialog(path: &str, untracked: bool, files: usize) -> Dialog {
     let (title, op) = if untracked {
         (
             format!("Delete {path}?"),
@@ -581,9 +595,17 @@ fn discard_dialog(path: &str, untracked: bool) -> Dialog {
             Op::DiscardChanges(vec![path.to_string()]),
         )
     };
+    let body = if status::is_folder(path) {
+        format!(
+            "{} are deleted from disk. Cmd+Z brings them back, up to 16 MB.",
+            plural(files)
+        )
+    } else {
+        "Cmd+Z brings it back.".into()
+    };
     Dialog::Confirm {
         title,
-        body: "Cmd+Z brings it back.".into(),
+        body,
         op,
         danger: true,
     }
@@ -761,14 +783,19 @@ fn file_row(
         );
         right -= g.size().x + 8.0;
     }
-    let (dir, name) = change
-        .path
+    let trimmed = change.path.trim_end_matches('/');
+    let (dir, name) = trimmed
         .rsplit_once('/')
-        .map_or(("", change.path.as_str()), |(d, n)| (d, n));
+        .map_or(("", trimmed), |(d, n)| (d, n));
+    let name = if status::is_folder(&change.path) {
+        format!("{name}/")
+    } else {
+        name.to_string()
+    };
     let left = rect.left() + 36.0;
     let name_galley = kelp_ui::paint::truncated(
         &painter,
-        name.to_string(),
+        name,
         font.clone(),
         theme::text(),
         (right - left).max(0.0),
@@ -954,11 +981,45 @@ mod tests {
     use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, RawInput, Rect, vec2};
     use kelp_core::git_cli::run;
 
-    use super::{Picked, Section, row_id, summary_id};
+    use super::{Picked, Section, discard_dialog, discard_files_dialog, row_id, summary_id};
     use crate::commit_helpers;
+    use crate::dialogs::Dialog;
     use crate::repo_view::{Repo, Selection};
 
     const LIST: [&str; 4] = ["a.txt", "b.txt", "c.txt", "d.txt"];
+
+    fn confirm(dialog: Dialog) -> (String, String) {
+        match dialog {
+            Dialog::Confirm { title, body, .. } => (title, body),
+            _ => panic!("expected a confirm dialog"),
+        }
+    }
+
+    #[test]
+    fn deleting_a_folder_row_names_how_many_files_go() {
+        let cases = [
+            ("notes.md", 1, "Delete notes.md?", "Cmd+Z brings it back."),
+            (
+                "dist/",
+                2510,
+                "Delete dist/?",
+                "2510 files are deleted from disk. Cmd+Z brings them back, up to 16 MB.",
+            ),
+        ];
+        for (path, files, title, body) in cases {
+            let got = confirm(discard_dialog(path, true, files));
+            assert_eq!(got, (title.to_string(), body.to_string()), "{path}");
+        }
+    }
+
+    #[test]
+    fn discarding_several_rows_counts_the_files_inside_folders() {
+        let tracked = vec!["a.rs".to_string()];
+        let untracked = vec!["dist/".to_string(), "notes.md".to_string()];
+        let (title, body) = confirm(discard_files_dialog(tracked, untracked, 2511));
+        assert_eq!(title, "Discard 2512 files?");
+        assert!(body.contains("2511 new files are deleted"), "{body}");
+    }
 
     #[test]
     fn plain_click_picks_one_and_opens_it() {
