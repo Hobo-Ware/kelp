@@ -21,6 +21,7 @@ pub const LINE_H: f32 = 22.0;
 pub const HUNK_H: f32 = 28.0;
 const NUM_W: f32 = 46.0;
 const GUTTER_W: f32 = 24.0;
+const TEXT_PAD: f32 = 20.0;
 const THREAD_INDENT: f32 = NUM_W * 2.0 + GUTTER_W + 10.0;
 const THREAD_W: f32 = 640.0;
 const THREAD_MIN_W: f32 = 240.0;
@@ -161,6 +162,8 @@ struct Prepared {
     old_lines: Vec<String>,
     new_lines: Vec<String>,
     file_change_starts: Vec<u32>,
+    widest_line: usize,
+    widest_file_line: usize,
 }
 
 impl Prepared {
@@ -181,9 +184,13 @@ impl Prepared {
                 .unwrap_or_default()
         };
         let file_change_starts = change_starts(&lines);
+        let new_lines: Vec<String> = split(&diff.new_text);
+        let chars = |t: &str| t.chars().count();
         Self {
+            widest_line: lines.iter().map(|(_, l)| chars(&l.text)).max().unwrap_or(0),
+            widest_file_line: new_lines.iter().map(|l| chars(l)).max().unwrap_or(0),
             old_lines: split(&diff.old_text),
-            new_lines: split(&diff.new_text),
+            new_lines,
             hunks,
             hunk_labels,
             lines,
@@ -210,6 +217,7 @@ pub struct DiffBody {
     selected_lines: BTreeSet<usize>,
     select_anchor: Option<usize>,
     scroll_y: f32,
+    text_shift: f32,
     jump: Option<Jump>,
 }
 
@@ -233,6 +241,7 @@ impl DiffBody {
             selected_lines: BTreeSet::new(),
             select_anchor: None,
             scroll_y: 0.0,
+            text_shift: 0.0,
             jump: None,
         }
     }
@@ -526,9 +535,12 @@ impl DiffBody {
         }
         scroll.show_viewport(ui, |ui, viewport| {
             self.scroll_y = viewport.min.y;
-            let width = ui.available_width().max(self.min_width(input));
-            let (full, _) = ui.allocate_exact_size(vec2(width, rows.total), Sense::hover());
-            self.draw_rows(ui, &rows, full.min, width, viewport, input, actions);
+            let (width, overflow) = self.widths(ui, input);
+            let (full, _) =
+                ui.allocate_exact_size(vec2(width + overflow, rows.total), Sense::hover());
+            self.text_shift = viewport.min.x.clamp(0.0, overflow);
+            let origin = full.min + vec2(self.text_shift, 0.0);
+            self.draw_rows(ui, &rows, origin, width, viewport, input, actions);
         });
     }
 
@@ -538,15 +550,36 @@ impl DiffBody {
         egui::ScrollArea::horizontal()
             .auto_shrink([false, true])
             .show_viewport(ui, |ui, viewport| {
-                let width = ui.available_width().max(self.min_width(input));
-                let (full, _) = ui.allocate_exact_size(vec2(width, rows.total), Sense::hover());
+                let (width, overflow) = self.widths(ui, input);
+                let (full, _) =
+                    ui.allocate_exact_size(vec2(width + overflow, rows.total), Sense::hover());
+                self.text_shift = viewport.min.x.clamp(0.0, overflow);
                 let clip = ui.clip_rect();
                 let visible = Rect::from_min_max(
                     pos2(viewport.min.x, clip.top() - full.top()),
                     pos2(viewport.max.x, clip.bottom() - full.top()),
                 );
-                self.draw_rows(ui, &rows, full.min, width, visible, input, actions);
+                let origin = full.min + vec2(self.text_shift, 0.0);
+                self.draw_rows(ui, &rows, origin, width, visible, input, actions);
             });
+    }
+
+    /// The width rows are laid out at, and how far the code text overflows it. The scroll area
+    /// first shifts only the code (numbers and panes stay put), then the rows themselves.
+    fn widths(&self, ui: &Ui, input: &DiffInput<'_>) -> (f32, f32) {
+        let width = ui.available_width().max(self.min_width(input));
+        let (pane, numbers, widest) = match (input.mode, self.layout) {
+            (DiffMode::File, _) => (width, NUM_W, self.data.widest_file_line),
+            (DiffMode::Diff, DiffLayout::Split) => (width / 2.0, NUM_W, self.data.widest_line),
+            (DiffMode::Diff, DiffLayout::Unified) => (width, NUM_W * 2.0, self.data.widest_line),
+        };
+        let char_w = ui
+            .painter()
+            .layout_no_wrap("0".into(), FontId::monospace(12.5), theme::text())
+            .size()
+            .x;
+        let room = pane - numbers - GUTTER_W - TEXT_PAD - 16.0;
+        (width, (widest as f32 * char_w - room).max(0.0))
     }
 
     fn min_width(&self, input: &DiffInput<'_>) -> f32 {
@@ -1073,8 +1106,11 @@ impl DiffBody {
             font.clone(),
             look.mark_color,
         );
+        let text_left = gutter.right() + TEXT_PAD;
+        let painter =
+            painter.with_clip_rect(Rect::from_min_max(pos2(text_left, rect.top()), rect.max));
         let galley = painter.layout_no_wrap(row.text.to_string(), font.clone(), look.text);
-        let origin = pos2(gutter.right() + 20.0, mid - galley.size().y / 2.0);
+        let origin = pos2(text_left - self.text_shift, mid - galley.size().y / 2.0);
         for &(start, end) in row.emphasis {
             let x = |byte: usize| {
                 let chars = row.text.get(..byte).map_or(0, |t| t.chars().count());
@@ -2041,6 +2077,55 @@ mod tests {
             kinds(&h.body, &input(&h)),
             ["hunk", "line", "line", "line", "line", "line"]
         );
+    }
+
+    #[test]
+    fn long_lines_scroll_sideways() {
+        let long = format!("let x = {};\n", "word ".repeat(120));
+        for layout in [DiffLayout::Unified, DiffLayout::Split] {
+            let mut h = Harness::new();
+            h.diff = diff::build("f.txt", Some(b"a\n"), Some(format!("a\n{long}").as_bytes()));
+            h.body = DiffBody::new(&h.diff);
+            h.body.set_layout(layout);
+            h.frame(
+                vec![Event::PointerMoved(pos2(600.0, 60.0))],
+                Modifiers::NONE,
+            );
+            let wheel = Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(-300.0, 0.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            };
+            for _ in 0..5 {
+                h.frame(vec![wheel.clone()], Modifiers::NONE);
+            }
+            h.frame(vec![], Modifiers::NONE);
+            assert!(
+                h.body.text_shift > 100.0,
+                "{layout:?}: the code did not scroll ({})",
+                h.body.text_shift
+            );
+        }
+    }
+
+    #[test]
+    fn short_lines_do_not_scroll_sideways() {
+        let mut h = Harness::new();
+        h.body.set_layout(DiffLayout::Split);
+        h.frame(
+            vec![Event::PointerMoved(pos2(600.0, 60.0))],
+            Modifiers::NONE,
+        );
+        let wheel = Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(-300.0, 0.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        };
+        h.frame(vec![wheel], Modifiers::NONE);
+        h.frame(vec![], Modifiers::NONE);
+        assert_eq!(h.body.text_shift, 0.0);
     }
 
     #[test]
