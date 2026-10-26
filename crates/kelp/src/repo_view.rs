@@ -58,6 +58,7 @@ pub enum JobOutput {
     Status(anyhow::Result<status::WorkingStatus>),
     CommitGraph(anyhow::Result<()>),
     Workspace(Box<WorkspaceInfo>),
+    WorktreeChanges(Vec<(PathBuf, Option<usize>)>),
     AutoFetch(anyhow::Result<String>),
     Opened(Result<(), String>),
     Pulls(Vec<kelp_core::pulls::Pull>),
@@ -241,6 +242,7 @@ pub struct Repo {
     _watcher: Option<Watcher>,
     watch_events: mpsc::Receiver<watch::Change>,
     reload_again: bool,
+    recount_worktrees: bool,
     status_again: bool,
     fetch_timer: AutoFetch,
     auto_fetch_failed: bool,
@@ -347,6 +349,7 @@ impl Repo {
             _watcher: watcher,
             watch_events,
             reload_again: false,
+            recount_worktrees: false,
             status_again: false,
             fetch_timer: AutoFetch::new(DEFAULT_FETCH_EVERY, Instant::now()),
             auto_fetch_failed: false,
@@ -1305,42 +1308,78 @@ impl Repo {
             return;
         }
         let dir = self.dir.clone();
-        let branches: Vec<String> = self
-            .history
-            .refs
-            .of_kind(RefKind::Local)
-            .map(|l| l.name.clone())
-            .collect();
         self.jobs.spawn("Reading worktrees", move || {
             let here = std::fs::canonicalize(&dir).ok();
             let worktrees = workspace::worktrees(&dir)
                 .unwrap_or_default()
                 .into_iter()
-                .map(|tree| {
-                    let changes = if tree.prunable {
-                        None
-                    } else {
-                        workspace::change_count(&tree.path)
-                    };
-                    let current = std::fs::canonicalize(&tree.path).ok() == here;
-                    WorktreeRow {
-                        tree,
-                        changes,
-                        current,
-                    }
+                .map(|tree| WorktreeRow {
+                    current: std::fs::canonicalize(&tree.path).ok() == here,
+                    tree,
+                    changes: None,
                 })
-                .collect();
-            let ahead_behind = branches
-                .into_iter()
-                .filter_map(|b| workspace::ahead_behind(&dir, &b).map(|ab| (b, ab)))
                 .collect();
             JobOutput::Workspace(Box::new(WorkspaceInfo {
                 stashes: workspace::stashes(&dir).unwrap_or_default(),
                 submodules: kelp_core::submodules::list(&dir).unwrap_or_default(),
                 worktrees,
-                ahead_behind,
+                ahead_behind: workspace::ahead_behind(&dir),
             }))
         });
+    }
+
+    fn count_worktree_changes(&mut self) {
+        if self.jobs.is_running("Counting worktree changes") {
+            self.recount_worktrees = true;
+            return;
+        }
+        let trees: Vec<PathBuf> = self
+            .workspace
+            .worktrees
+            .iter()
+            .filter(|row| !row.tree.prunable)
+            .map(|row| row.tree.path.clone())
+            .collect();
+        self.jobs.spawn("Counting worktree changes", move || {
+            JobOutput::WorktreeChanges(
+                trees
+                    .into_iter()
+                    .map(|path| {
+                        let changes = workspace::change_count(&path);
+                        (path, changes)
+                    })
+                    .collect(),
+            )
+        });
+    }
+
+    fn set_workspace(&mut self, mut info: WorkspaceInfo) {
+        for row in &mut info.worktrees {
+            row.changes = self
+                .workspace
+                .worktrees
+                .iter()
+                .find(|old| old.tree.path == row.tree.path)
+                .and_then(|old| old.changes);
+        }
+        self.workspace = info;
+        self.count_worktree_changes();
+    }
+
+    fn set_worktree_changes(&mut self, counts: Vec<(PathBuf, Option<usize>)>) {
+        for (path, changes) in counts {
+            if let Some(row) = self
+                .workspace
+                .worktrees
+                .iter_mut()
+                .find(|row| row.tree.path == path)
+            {
+                row.changes = changes;
+            }
+        }
+        if std::mem::take(&mut self.recount_worktrees) {
+            self.count_worktree_changes();
+        }
     }
 
     pub fn reload(&mut self) {
@@ -1456,7 +1495,8 @@ impl Repo {
                 JobOutput::CommitGraph(Err(e)) => {
                     self.notify(format!("Could not write commit-graph: {e:#}"), true)
                 }
-                JobOutput::Workspace(info) => self.workspace = *info,
+                JobOutput::Workspace(info) => self.set_workspace(*info),
+                JobOutput::WorktreeChanges(counts) => self.set_worktree_changes(counts),
                 JobOutput::Rewrite {
                     label,
                     result,
