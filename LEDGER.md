@@ -13,6 +13,16 @@ A running log of what got done, newest first. The plan lives in
   publishing like stdusk with auto-install on release and an in-app
   update check.
 
+## 2026-10-26
+
+- **Diff scrolls sideways on long lines** (user-visible, unified and split). The row width was a
+  fixed 900 px (split) or 1100 px (unified), so on a normal window a long line was cut off with
+  nothing to scroll to. The scroll width now covers the longest line (counted once per diff in
+  `Prepared`), and scrolling shifts only the code: line numbers, +/- marks, the split divider,
+  hunk headers and note cards stay put, and both split panes move together. On a window narrower
+  than the minimum width the rows scroll as before once the code is fully shifted. 2 new tests;
+  checked with offline screenshots at scroll 0 and 400 px.
+
 ## 2026-10-25
 
 - **Untracked folder is one row** (user-visible, kelp-core API change). `working_status` now runs
