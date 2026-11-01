@@ -5,13 +5,18 @@ A running log of what got done, newest first. The plan lives in
 
 ## Status
 
-- **Current milestone:** v0.8.22 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
+- **Current milestone:** v0.8.23 released. Left for v1.0: the two-week bug bash. Signing is parked until there is an Apple Developer account (unsigned builds plus the cask quarantine strip, like stdusk).
 - **Done:** M0 to M7, MIT license, polish pass, mascot, update check, release pipeline,
   website, agent rules.
 - **Was queued:** GitHub Pages
   site like stdusk (SEO, OG images, upkeep instructions); Homebrew
   publishing like stdusk with auto-install on release and an in-app
   update check.
+
+## 2026-11-01
+
+- **v0.8.23 released.** Untracked folder as one row, worktree list before change counts (#31),
+  diff lines scroll sideways (#32).
 
 ## 2026-10-26
 

@@ -74,8 +74,8 @@ sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
   out of Compare; an eye row with their count shows them again for that
   view. Staging always lists every file.
 - **Diffs:** unified or split, or the full file, with the changed words
-  highlighted inside each line. Jump between changes with the arrows or
-  Alt+Up / Alt+Down.
+  highlighted inside each line. Long lines scroll sideways while the line
+  numbers stay put. Jump between changes with the arrows or Alt+Up / Alt+Down.
 - **File history and blame:** every commit that touched a file, following
   renames, with its diff beside the list; blame shows who last changed each
   line (hover for the commit, click to find it in the graph, right-click to
@@ -116,6 +116,7 @@ sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
   single lines (click line numbers, Shift-click for a range), discard files,
   hunks or lines (Cmd+Z brings them back), commit and amend (hooks run as usual).
   Cmd-click or Shift-click files to stage, stash or discard several at once.
+  A new untracked folder is one row with its file count, like `git status`.
 - **Commit box helpers:** a Conventional Commit type picker (type, scope and a
   breaking-change toggle) that shows up when the recent history uses that style
   and can be turned on or off per repository; a co-author picker that adds

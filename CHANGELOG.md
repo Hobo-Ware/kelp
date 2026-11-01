@@ -2,6 +2,12 @@
 
 Everything that changed in Kelp, newest first.
 
+## v0.8.23 - 2026-11-01
+
+- A new untracked folder shows as one row with its file count, the way `git status` lists it, instead of one row per file. Reveal and Copy path work on it, and deleting it can be undone.
+- The worktree list shows up right away in a new tab instead of staying empty for about a second and a half. Changed-file counts fill in shortly after, and ahead/behind for every branch comes from one git call (965 ms to 32 ms on a repo with 185 branches). Thanks @seferturan.
+- Long lines in a diff scroll sideways, in split and unified. Only the code moves: line numbers and +/- marks stay put, and both split panes scroll together. Thanks @seferturan.
+
 ## v0.8.22 - 2026-10-24
 
 - New setting: Hide test files in diffs. It leaves test files out of a commit's file list and out of Compare, and an eye icon with their count shows them again for that commit. Staging always lists every file. Off by default.
